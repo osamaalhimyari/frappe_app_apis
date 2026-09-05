@@ -1181,7 +1181,7 @@ def get_summary() -> dict:
 def get_rows(verdict: str = "", erp_status: str = "", on_pilot: str = "", on_im: str = "",
              on_pilot_1: str = "", on_pilot_2: str = "",
              imei: str = "", vehicle: str = "", customer: str = "", sim_status: str = "",
-             sim_msisdn: str = "",
+             sim_msisdn: str = "", sim_match: str = "",
              pilot_last_seen_from: str = "", pilot_last_seen_to: str = "",
              im_last_seen_from: str = "", im_last_seen_to: str = "",
              sim_last_seen_from: str = "", sim_last_seen_to: str = "",
@@ -1238,6 +1238,17 @@ def get_rows(verdict: str = "", erp_status: str = "", on_pilot: str = "", on_im:
 	if sim_msisdn:
 		where.append("ifnull(sim_msisdn, '') like %s")
 		vals.append(like(sim_msisdn))
+
+	# Not a stored column -- the same comparison the table cell itself makes:
+	# Pilot's own MSISDN field is blank or a literal "0" on most of this
+	# estate, so "not enough data" is a real, common bucket, not an edge case.
+	both_present = "ifnull(sim_msisdn,'') <> '' and ifnull(pilot_msisdn,'') not in ('', '0')"
+	if sim_match == "match":
+		where.append("(%s and sim_msisdn = pilot_msisdn)" % both_present)
+	elif sim_match == "mismatch":
+		where.append("(%s and sim_msisdn <> pilot_msisdn)" % both_present)
+	elif sim_match == "na":
+		where.append("not (%s)" % both_present)
 
 	def date_range(col, from_, to_):
 		# "to" means the END of that calendar day, not midnight at its start --
