@@ -1,0 +1,625 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-11 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sec_pilot",
+  "pilot_base_url",
+  "pilot_node",
+  "pilot_fallback_username",
+  "col_pilot_a",
+  "pilot_password",
+  "pilot_request_timeout",
+  "pilot_stale_after_minutes",
+  "sec_im",
+  "im_base_url",
+  "im_project_id",
+  "im_username",
+  "im_password",
+  "col_im_a",
+  "im_request_timeout",
+  "im_stale_after_minutes",
+  "im_data_timezone",
+  "col_im_b",
+  "im_min_call_interval_seconds",
+  "im_token_ttl_minutes",
+  "im_ignition_poll_seconds",
+  "im_ignition_window_minutes",
+  "sec_chatwoot",
+  "chatwoot_enabled",
+  "chatwoot_base_url",
+  "chatwoot_account_id",
+  "col_chatwoot_a",
+  "chatwoot_api_token",
+  "chatwoot_request_timeout",
+  "chatwoot_inboxes",
+  "sec_chatwoot2",
+  "chatwoot_active_connector",
+  "chatwoot2_enabled",
+  "chatwoot2_method",
+  "chatwoot2_base_url",
+  "chatwoot2_account_id",
+  "chatwoot2_inbox_id",
+  "col_chatwoot2_a",
+  "chatwoot2_api_token",
+  "chatwoot2_webhook_url",
+  "chatwoot2_webhook_auth_header",
+  "chatwoot2_webhook_secret",
+  "chatwoot2_request_timeout",
+  "sec_chatwoot_messages",
+  "chatwoot_accepted_message",
+  "chatwoot_working_message",
+  "chatwoot_valuation_message",
+  "sec_tech_messages",
+  "tech_accepted_message",
+  "tech_working_message",
+  "tech_done_message",
+  "sec_contacts",
+  "contact_numbers",
+  "sec_auto_messages",
+  "auto_message_enabled",
+  "auto_message_customer_types",
+  "show_vehicle_customer_types",
+  "col_auto_a",
+  "technician_message_enabled",
+  "sec_auto_rules",
+  "auto_message_rules",
+  "sec_subscription_reminders",
+  "subscription_reminder_enabled",
+  "subscription_reminder_dry_run",
+  "subscription_reminder_hour",
+  "subscription_reminder_weekday",
+  "subscription_reminder_batch_size",
+  "col_subscription_a",
+  "subscription_reminder_repeat_days",
+  "subscription_reminder_days_before",
+  "subscription_reminder_days_after",
+  "subscription_reminder_customer_types",
+  "subscription_reminder_phone_source",
+  "sec_subscription_message",
+  "subscription_expiring_message",
+  "subscription_reminder_message"
+ ],
+ "fields": [
+  {
+   "description": "Account comes off the ticket, not from here — only the shared password below.",
+   "fieldname": "sec_pilot",
+   "fieldtype": "Section Break",
+   "label": "Pilot Connection"
+  },
+  {
+   "default": "https://ksa.pilot-gps.com/api/api.php",
+   "description": "Pilot API endpoint.",
+   "fieldname": "pilot_base_url",
+   "fieldtype": "Data",
+   "label": "Pilot Base URL"
+  },
+  {
+   "default": "5",
+   "description": "Wrong node answers “Invalid imei”.",
+   "fieldname": "pilot_node",
+   "fieldtype": "Data",
+   "label": "Pilot Node"
+  },
+  {
+   "description": "Used only when the ticket carries no pilot email.",
+   "fieldname": "pilot_fallback_username",
+   "fieldtype": "Data",
+   "label": "Pilot Fallback Username"
+  },
+  {
+   "fieldname": "col_pilot_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Shared password. site_config pilot_passwords wins.",
+   "fieldname": "pilot_password",
+   "fieldtype": "Password",
+   "label": "Pilot Password"
+  },
+  {
+   "default": "20",
+   "fieldname": "pilot_request_timeout",
+   "fieldtype": "Int",
+   "label": "Pilot Request Timeout (seconds)"
+  },
+  {
+   "default": "15",
+   "fieldname": "pilot_stale_after_minutes",
+   "fieldtype": "Int",
+   "label": "Pilot Stale After (minutes)"
+  },
+  {
+   "description": "One account for the whole site. Live reads, IMEI lookups only.",
+   "fieldname": "sec_im",
+   "fieldtype": "Section Break",
+   "label": "IM Connection"
+  },
+  {
+   "default": "https://gps.im2m.ws/webservice",
+   "description": "IM webservice endpoint.",
+   "fieldname": "im_base_url",
+   "fieldtype": "Data",
+   "label": "IM Base URL"
+  },
+  {
+   "default": "37",
+   "description": "Sent as ProjectId.",
+   "fieldname": "im_project_id",
+   "fieldtype": "Data",
+   "label": "IM Project ID"
+  },
+  {
+   "fieldname": "im_username",
+   "fieldtype": "Data",
+   "label": "IM Username"
+  },
+  {
+   "description": "Case-sensitive.",
+   "fieldname": "im_password",
+   "fieldtype": "Password",
+   "label": "IM Password"
+  },
+  {
+   "fieldname": "col_im_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "20",
+   "fieldname": "im_request_timeout",
+   "fieldtype": "Int",
+   "label": "IM Request Timeout (seconds)"
+  },
+  {
+   "default": "15",
+   "fieldname": "im_stale_after_minutes",
+   "fieldtype": "Int",
+   "label": "IM Stale After (minutes)"
+  },
+  {
+   "description": "Blank = System Timezone. Wrong value shifts “last seen” by hours.",
+   "fieldname": "im_data_timezone",
+   "fieldtype": "Data",
+   "label": "IM Data Timezone (blank = system)"
+  },
+  {
+   "fieldname": "col_im_b",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "60",
+   "description": "IM allows about one call a minute. Newer snapshots come from cache.",
+   "fieldname": "im_min_call_interval_seconds",
+   "fieldtype": "Int",
+   "label": "IM Minimum Call Interval (seconds)"
+  },
+  {
+   "default": "45",
+   "description": "How long an access token is reused.",
+   "fieldname": "im_token_ttl_minutes",
+   "fieldtype": "Int",
+   "label": "IM Token Cache TTL (minutes)"
+  },
+  {
+   "default": "90",
+   "description": "Must stay above the rate limit.",
+   "fieldname": "im_ignition_poll_seconds",
+   "fieldtype": "Int",
+   "label": "IM Ignition Test Poll (seconds)"
+  },
+  {
+   "default": "10",
+   "fieldname": "im_ignition_window_minutes",
+   "fieldtype": "Int",
+   "label": "IM Ignition Test Window (minutes)"
+  },
+  {
+   "description": "Run test_connection before enabling.",
+   "fieldname": "sec_chatwoot",
+   "fieldtype": "Section Break",
+   "label": "Chatwoot Connection"
+  },
+  {
+   "default": "0",
+   "description": "Off = configure without sending.",
+   "fieldname": "chatwoot_enabled",
+   "fieldtype": "Check",
+   "label": "Chatwoot Enabled"
+  },
+  {
+   "default": "https://app.chatwoot.com",
+   "description": "Scheme and host only.",
+   "fieldname": "chatwoot_base_url",
+   "fieldtype": "Data",
+   "label": "Chatwoot Domain"
+  },
+  {
+   "description": "The number after /accounts/ in the URL.",
+   "fieldname": "chatwoot_account_id",
+   "fieldtype": "Data",
+   "label": "Chatwoot Account ID"
+  },
+  {
+   "fieldname": "col_chatwoot_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Profile Settings → Access Token.",
+   "fieldname": "chatwoot_api_token",
+   "fieldtype": "Password",
+   "label": "Chatwoot API Token"
+  },
+  {
+   "default": "20",
+   "fieldname": "chatwoot_request_timeout",
+   "fieldtype": "Int",
+   "label": "Chatwoot Request Timeout (seconds)"
+  },
+  {
+   "description": "Inboxes to send from. A reply goes to whichever listed inbox the customer's open conversation is on. Fill with sync_inboxes.",
+   "fieldname": "chatwoot_inboxes",
+   "fieldtype": "Table",
+   "label": "Chatwoot Inboxes",
+   "options": "App Apis Inbox"
+  },
+  {
+   "collapsible": 1,
+   "description": "An alternative send route. Nothing here sends until Connector 2 Enabled is on and Active Connector is 2.",
+   "fieldname": "sec_chatwoot2",
+   "fieldtype": "Section Break",
+   "label": "Chatwoot Connection 2 (Alternative)"
+  },
+  {
+   "default": "1",
+   "description": "Which connection sends: 1 = primary, 2 = this one.",
+   "fieldname": "chatwoot_active_connector",
+   "fieldtype": "Select",
+   "label": "Active Connector",
+   "options": "1\n2"
+  },
+  {
+   "default": "0",
+   "description": "Off = configure without sending.",
+   "fieldname": "chatwoot2_enabled",
+   "fieldtype": "Check",
+   "label": "Connector 2 Enabled"
+  },
+  {
+   "default": "agent_bot",
+   "description": "agent_bot = Chatwoot API with the token below. webhook = POST the message to your own URL.",
+   "fieldname": "chatwoot2_method",
+   "fieldtype": "Select",
+   "label": "Method",
+   "options": "agent_bot\nwebhook"
+  },
+  {
+   "default": "https://app.chatwoot.com",
+   "depends_on": "eval:doc.chatwoot2_method=='agent_bot'",
+   "description": "Scheme and host only.",
+   "fieldname": "chatwoot2_base_url",
+   "fieldtype": "Data",
+   "label": "Chatwoot Domain (2)"
+  },
+  {
+   "depends_on": "eval:doc.chatwoot2_method=='agent_bot'",
+   "description": "The number after /accounts/ in the URL.",
+   "fieldname": "chatwoot2_account_id",
+   "fieldtype": "Data",
+   "label": "Account ID (2)"
+  },
+  {
+   "depends_on": "eval:doc.chatwoot2_method=='agent_bot'",
+   "description": "Which inbox the message leaves on. See list_inboxes.",
+   "fieldname": "chatwoot2_inbox_id",
+   "fieldtype": "Data",
+   "label": "Inbox ID (2)"
+  },
+  {
+   "fieldname": "col_chatwoot2_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.chatwoot2_method=='agent_bot'",
+   "description": "Agent Bot or Administrator token. site_config chatwoot2_api_token wins if set.",
+   "fieldname": "chatwoot2_api_token",
+   "fieldtype": "Password",
+   "label": "Access Token (2)"
+  },
+  {
+   "depends_on": "eval:doc.chatwoot2_method=='webhook'",
+   "description": "Message is POSTed here as JSON. Any 2xx = accepted.",
+   "fieldname": "chatwoot2_webhook_url",
+   "fieldtype": "Data",
+   "label": "Webhook URL"
+  },
+  {
+   "default": "Authorization",
+   "depends_on": "eval:doc.chatwoot2_method=='webhook'",
+   "description": "Authorization sends Bearer <secret>; else the raw value.",
+   "fieldname": "chatwoot2_webhook_auth_header",
+   "fieldtype": "Data",
+   "label": "Webhook Auth Header"
+  },
+  {
+   "depends_on": "eval:doc.chatwoot2_method=='webhook'",
+   "description": "Optional. site_config chatwoot2_webhook_secret wins if set.",
+   "fieldname": "chatwoot2_webhook_secret",
+   "fieldtype": "Password",
+   "label": "Webhook Secret"
+  },
+  {
+   "default": "20",
+   "fieldname": "chatwoot2_request_timeout",
+   "fieldtype": "Int",
+   "label": "Request Timeout (2) (seconds)"
+  },
+  {
+   "description": "Customer messages, accepted → working → feedback. One message per stage, Arabic and English together. Placeholders: {ticket} {state} {customer} {engineer} {vehicle} {plate} {company} {link} {contacts}.",
+   "fieldname": "sec_chatwoot_messages",
+   "fieldtype": "Section Break",
+   "label": "Chatwoot Messages"
+  },
+  {
+   "default": "👋 أهلاً {customer}\n\n🎫 {ticket}\n{vehicle}\n🔧 {engineer}\n\n✅ استلمنا طلبك وصار بين إيدينا! بنخبرك أول ما يبدأ العمل 🚀\n✅ Got it — your request is in good hands! We'll tell you the moment work starts 🚀\n\nشكراً لثقتك فينا / Thanks for trusting us 🤝",
+   "description": "Template “accepted”. Sent when the job is taken on.",
+   "fieldname": "chatwoot_accepted_message",
+   "fieldtype": "Small Text",
+   "label": "Accepted Message"
+  },
+  {
+   "default": "👋 أهلاً {customer}\n\n🎫 {ticket}\n{vehicle}\n🔧 {engineer}\n\n🛠️ فريقنا شغّال على طلبك الحين! ما راح ناخذ وقت طويل 💪\n🛠️ Our team is on it right now — we won't keep you long 💪\n\nبنبلغك أول ما نخلص / We'll let you know the second we're done ✅",
+   "description": "Template “working”. Sent when the engineer starts.",
+   "fieldname": "chatwoot_working_message",
+   "fieldtype": "Small Text",
+   "label": "Work Started Message"
+  },
+  {
+   "default": "🎉 خلصنا يا {customer}! / All done, {customer}!\n\n🎫 {ticket}\n{vehicle}\n🔧 {engineer}\n\n⭐ كيف كانت تجربتك معنا؟ رأيك يهمنا وما ياخذ دقيقة 🙏\n⭐ How did we do? Your feedback means a lot — under a minute 🙏\n\n🔗 {link}\n⏰ صالح ٢٤ ساعة / Valid for 24 hours",
+   "description": "Template “valuation”. Must include {link}; keep it last.",
+   "fieldname": "chatwoot_valuation_message",
+   "fieldtype": "Small Text",
+   "label": "Feedback Request"
+  },
+  {
+   "collapsible": 1,
+   "description": "Sent to the assigned engineer, not the customer. Arabic and English together. Placeholders: {ticket} {state} {customer} {engineer} {vehicle} {plate} {location} {phone} {company} {contacts}.",
+   "fieldname": "sec_tech_messages",
+   "fieldtype": "Section Break",
+   "label": "Technician Messages"
+  },
+  {
+   "default": "👋 يعطيك العافية {engineer}\n\n📋 عندك طلب جديد / New job for you:\n🎫 {ticket}\n👤 {customer}\n{vehicle}\n{location}\n{phone}\n\n📞 كلّم العميل ونسّق معه الموعد، وإذا احتجت شي إحنا معك 💪\n📞 Give the customer a call and set a time — shout if you need anything 💪",
+   "description": "Template “tech_accepted”. Sent when the job is assigned.",
+   "fieldname": "tech_accepted_message",
+   "fieldtype": "Small Text",
+   "label": "Job Assigned"
+  },
+  {
+   "default": "👋 يعطيك العافية {engineer}\n\n🛠️ الطلب صار قيد التنفيذ / Job is now in progress:\n🎫 {ticket}\n👤 {customer}\n{vehicle}\n{location}\n\n✅ حدّث الطلب أول ما تخلص التركيب، وبالتوفيق 🚀\n✅ Update the ticket once the install is done — good luck out there 🚀",
+   "description": "Template “tech_working”.",
+   "fieldname": "tech_working_message",
+   "fieldtype": "Small Text",
+   "label": "Work Started"
+  },
+  {
+   "default": "🎉 تمام يا {engineer}!\n\n✅ تم إغلاق الطلب / Job closed:\n🎫 {ticket}\n👤 {customer}\n{vehicle}\n\n🙏 شكراً لجهودك، شغل ممتاز! أرسلنا للعميل طلب تقييم ⭐\n🙏 Thanks for your effort — great work! We've asked the customer to rate it ⭐",
+   "description": "Template “tech_done”.",
+   "fieldname": "tech_done_message",
+   "fieldtype": "Small Text",
+   "label": "Job Closed"
+  },
+  {
+   "description": "Shown on the feedback page and available as {contacts}.",
+   "fieldname": "sec_contacts",
+   "fieldtype": "Section Break",
+   "label": "Contact Numbers"
+  },
+  {
+   "fieldname": "contact_numbers",
+   "fieldtype": "Table",
+   "label": "Contact Numbers",
+   "options": "App Apis Contact"
+  },
+  {
+   "description": "Messages the customer as a ticket changes status. Runs in the background.",
+   "fieldname": "sec_auto_messages",
+   "fieldtype": "Section Break",
+   "label": "Automatic Messages"
+  },
+  {
+   "default": "0",
+   "description": "Off = no customer is messaged by a status change.",
+   "fieldname": "auto_message_enabled",
+   "fieldtype": "Check",
+   "label": "Send to Customers"
+  },
+  {
+   "default": "Individual",
+   "description": "Customer types messaged, comma separated. All = no filter; blank = Individual.",
+   "fieldname": "auto_message_customer_types",
+   "fieldtype": "Data",
+   "label": "Customer Types"
+  },
+  {
+   "default": "Individual",
+   "description": "Customer types shown the vehicle number, comma separated. All = everyone; blank = Individual.",
+   "fieldname": "show_vehicle_customer_types",
+   "fieldtype": "Data",
+   "label": "Show Vehicle Number To"
+  },
+  {
+   "fieldname": "col_auto_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Off = the engineer is never messaged. Needs a phone on their User/Employee record (see app_apis.technicians.missing_numbers).",
+   "fieldname": "technician_message_enabled",
+   "fieldtype": "Check",
+   "label": "Send to Technicians"
+  },
+  {
+   "fieldname": "sec_auto_rules",
+   "fieldtype": "Section Break",
+   "label": "Status Rules"
+  },
+  {
+   "description": "When status becomes X, send message Y. tech_ templates go to the engineer, the rest to the customer.",
+   "fieldname": "auto_message_rules",
+   "fieldtype": "Table",
+   "label": "Status Rules",
+   "options": "App Apis Auto Message"
+  },
+  {
+   "collapsible": 1,
+   "description": "Scans Customer Vehicle and warns the customer before their subscription expires, one message per customer listing their plates. Reads only — no field is added to Customer Vehicle. Leave Dry Run on until the log looks right.",
+   "fieldname": "sec_subscription_reminders",
+   "fieldtype": "Section Break",
+   "label": "Subscription Reminders"
+  },
+  {
+   "default": "0",
+   "description": "Off = the scheduler does nothing at all.",
+   "fieldname": "subscription_reminder_enabled",
+   "fieldtype": "Check",
+   "label": "Send Subscription Reminders"
+  },
+  {
+   "default": "1",
+   "description": "On = scan and log the full message, send nothing. Untick only once the log looks right.",
+   "fieldname": "subscription_reminder_dry_run",
+   "fieldtype": "Check",
+   "label": "Dry Run"
+  },
+  {
+   "default": "9",
+   "description": "Server hour, 0–23. The scan runs once on this hour.",
+   "fieldname": "subscription_reminder_hour",
+   "fieldtype": "Int",
+   "label": "Run At Hour"
+  },
+  {
+   "default": "Every day",
+   "description": "Which day to run on.",
+   "fieldname": "subscription_reminder_weekday",
+   "fieldtype": "Select",
+   "label": "Run On",
+   "options": "Every day\nMonday\nTuesday\nWednesday\nThursday\nFriday\nSaturday\nSunday"
+  },
+  {
+   "default": "50",
+   "description": "Most customers messaged per run. 0 = no cap.",
+   "fieldname": "subscription_reminder_batch_size",
+   "fieldtype": "Int",
+   "label": "Max Per Run"
+  },
+  {
+   "fieldname": "col_subscription_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "7",
+   "description": "Days before the same customer may be reminded again.",
+   "fieldname": "subscription_reminder_repeat_days",
+   "fieldtype": "Int",
+   "label": "Don't Repeat Within (days)"
+  },
+  {
+   "description": "Comma-separated customer types. Blank = every type. All or * also means every type.",
+   "fieldname": "subscription_reminder_customer_types",
+   "fieldtype": "Data",
+   "label": "Customer Types"
+  },
+  {
+   "default": "Customer, then vehicle",
+   "description": "Where the number comes from. The vehicle's is the driver's, not the account's.",
+   "fieldname": "subscription_reminder_phone_source",
+   "fieldtype": "Select",
+   "label": "Phone Source",
+   "options": "Customer, then vehicle\nCustomer only\nVehicle only"
+  },
+  {
+   "description": "Two messages, because a warning sent 50 days early must not say the subscription has ended. Placeholders: {customer} {vehicles} {count} {plate} {expiry} {days} {company} {contacts}.",
+   "fieldname": "sec_subscription_message",
+   "fieldtype": "Section Break",
+   "label": "Reminder Message"
+  },
+  {
+   "default": "👋 أهلاً {customer}\n\n⏰ انتهى اشتراك التتبع للمركبات التالية ({count}):\n⏰ Tracking has expired for these ({count}):\n{vehicles}\n\n🔄 نجدده لك بخطوتين بس، وترجع تتابع مركباتك على طول 🚗💨\n🔄 A quick renewal and you're back to tracking — two steps 🚗💨\n\nتواصل معنا وإحنا في خدمتك / Reach out any time, we're here to help 🤝\n{contacts}",
+   "description": "Sent once the date has passed. A customer whose most urgent vehicle has lapsed gets this one instead of the warning.",
+   "fieldname": "subscription_reminder_message",
+   "fieldtype": "Small Text",
+   "label": "Already Expired Message"
+  },
+  {
+   "default": "50",
+   "description": "Start reminding this many days BEFORE the subscription expires.",
+   "fieldname": "subscription_reminder_days_before",
+   "fieldtype": "Int",
+   "label": "Warn Before Expiry (days)"
+  },
+  {
+   "default": "90",
+   "description": "Keep chasing this long after it expires. 0 = forever, which wakes up subscriptions dead for years.",
+   "fieldname": "subscription_reminder_days_after",
+   "fieldtype": "Int",
+   "label": "Keep Chasing After (days)"
+  },
+  {
+   "default": "👋 أهلاً {customer}\n\n⏰ اشتراك التتبع للمركبات التالية ({count}) قارب على الانتهاء:\n⏰ Tracking for these ({count}) is about to run out:\n{vehicles}\n\n🔄 جدّده من الحين وما ينقطع عنك التتبع ولا يوم 🚗💨\n🔄 Renew now and you won't lose a single day of tracking 🚗💨\n\nتواصل معنا وإحنا في خدمتك / Reach out any time, we're here to help 🤝\n{contacts}",
+   "description": "Sent while the subscription is still running. Must not claim it has expired.",
+   "fieldname": "subscription_expiring_message",
+   "fieldtype": "Small Text",
+   "label": "Expiring Soon Message"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-08-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "app_apis",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Support Team",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Technical",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

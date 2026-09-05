@@ -1,0 +1,232 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-08-25 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "customer",
+  "customer_name",
+  "phone",
+  "phone_source",
+  "col_a",
+  "status",
+  "reminder_type",
+  "dry_run",
+  "sent_on",
+  "code",
+  "sec_what",
+  "vehicle_count",
+  "days_to_expiry",
+  "col_b",
+  "expiry",
+  "plates",
+  "sec_why",
+  "reason",
+  "sec_body",
+  "message",
+  "sec_chatwoot",
+  "conversation_id",
+  "col_c",
+  "message_id"
+ ],
+ "fields": [
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Customer",
+   "options": "Customer",
+   "read_only": 1
+  },
+  {
+   "description": "Copied at send time, so the row still reads correctly if the customer is renamed later.",
+   "fieldname": "customer_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Customer Name",
+   "read_only": 1
+  },
+  {
+   "description": "Where it was actually sent.",
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Phone",
+   "read_only": 1
+  },
+  {
+   "description": "Which record that number came off — the Customer, or one vehicle's driver.",
+   "fieldname": "phone_source",
+   "fieldtype": "Data",
+   "label": "Phone Source",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Dry run means nothing left the building. Skipped means the send was declined on purpose; Failed means it was attempted and did not land.",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Sent\nDry run\nFailed\nSkipped",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "The dry-run switch was on when this row was written.",
+   "fieldname": "dry_run",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "Dry Run",
+   "read_only": 1
+  },
+  {
+   "description": "Only stamped on a real send. This is the column the repeat window reads.",
+   "fieldname": "sent_on",
+   "fieldtype": "Datetime",
+   "label": "Sent On",
+   "read_only": 1
+  },
+  {
+   "description": "Chatwoot connector code. Negative values are local refusals, not HTTP.",
+   "fieldname": "code",
+   "fieldtype": "Int",
+   "label": "Code",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_what",
+   "fieldtype": "Section Break",
+   "label": "Expired Vehicles"
+  },
+  {
+   "description": "How many of this customer's vehicles were in the window.",
+   "fieldname": "vehicle_count",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Vehicles",
+   "read_only": 1
+  },
+  {
+   "description": "Positive = still to run. Negative = days since it lapsed.",
+   "fieldname": "days_to_expiry",
+   "fieldtype": "Int",
+   "label": "Days To Expiry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_b",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The soonest expiry date in the group — the one that decided the wording.",
+   "fieldname": "expiry",
+   "fieldtype": "Date",
+   "label": "Expiry",
+   "read_only": 1
+  },
+  {
+   "description": "Every plate in the group, not just the ones the message had room to list.",
+   "fieldname": "plates",
+   "fieldtype": "Small Text",
+   "label": "Plates",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_why",
+   "fieldtype": "Section Break",
+   "label": "Outcome"
+  },
+  {
+   "description": "Why it was skipped, or how it failed.",
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Reason",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_body",
+   "fieldtype": "Section Break",
+   "label": "Message"
+  },
+  {
+   "description": "Exactly the text that went out — or, on a dry run, exactly what would have.",
+   "fieldname": "message",
+   "fieldtype": "Text",
+   "label": "Body",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "sec_chatwoot",
+   "fieldtype": "Section Break",
+   "label": "Chatwoot"
+  },
+  {
+   "fieldname": "conversation_id",
+   "fieldtype": "Data",
+   "label": "Conversation ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_c",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "message_id",
+   "fieldtype": "Data",
+   "label": "Message ID",
+   "read_only": 1
+  },
+  {
+   "description": "Which of the two messages this row is about.",
+   "fieldname": "reminder_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Reminder",
+   "options": "\nExpiring soon\nExpired",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-25 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "App Apis Reminder Log",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Support Team"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "customer_name",
+ "track_changes": 0
+}

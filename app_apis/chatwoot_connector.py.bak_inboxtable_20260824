@@ -1,0 +1,1528 @@
+"""
+app_apis.chatwoot_connector -- outbound messaging through Chatwoot.
+
+DELIBERATELY STANDALONE. Nothing in this app imports this module: there is no
+hooks.py entry, no doc_events, no scheduler job, no call from the valuation or
+IM code. It is reached only when something explicitly asks for it --
+
+    Client Script:  frappe.call("app_apis.chatwoot_connector.send_ticket_message",
+                                {ticket: frm.doc.name, template: "valuation"})
+    Server Script:  from app_apis.chatwoot_connector import send_ticket_message
+    bench:          bench --site <site> execute app_apis.chatwoot_connector.test_connection
+
+-- so adding, breaking or removing this file cannot change the behaviour of
+anything already running. That separation is the point; keep it. If a future
+hook needs to send a message, the hook calls in here, not the other way round.
+
+It is also OFF until switched on. `chatwoot_enabled` on the `app_apis` settings
+doctype defaults to unchecked, so filling in a domain and a token configures the
+connection without any message leaving the site.
+
+Architecture
+------------
+    Client Script / Server Script / bench
+          |  frappe.call("app_apis.chatwoot_connector.send_ticket_message", ...)
+          v
+    THIS MODULE  -- reads settings, renders the ar/en template, resolves the
+                    customer's phone, finds-or-creates the Chatwoot contact and
+                    conversation, posts the message
+          |  HTTPS + `api_access_token` header
+          v
+    https://<your-chatwoot-domain>/api/v1/accounts/<id>/...
+
+What Chatwoot's shape forces on this module
+-------------------------------------------
+1. THREE CALLS, NOT ONE. Chatwoot has no "send to this phone number" endpoint.
+   A message belongs to a conversation, a conversation belongs to a contact in a
+   specific inbox, and a contact has to exist first. `_resolve_conversation`
+   walks that chain and reuses whatever already exists, so replying about the
+   same ticket twice does not open two threads at the customer.
+
+2. THE INBOX IS NOT OPTIONAL. Which channel the message physically goes out on
+   (WhatsApp, SMS, web) is decided entirely by `chatwoot_inbox_id`. Chatwoot
+   will happily create a conversation in the wrong inbox and the message will
+   silently go nowhere useful, so a missing inbox id is a hard error here.
+
+3. A CONTACT'S source_id IS PER-INBOX. An existing contact that has never been
+   messaged on this inbox has no source_id for it, and creating the conversation
+   without one fails. `_source_id` mints it on demand.
+
+4. RESOLVED CONVERSATIONS ARE REUSED, NOT REOPENED. Posting into a resolved
+   thread quietly reopens it in the agent's queue, which is usually what you
+   want for a ticket follow-up and never surprising.
+
+Errors never raise. Every public function returns a dict shaped
+`{"ok": bool, ...}` -- the same convention as im_connector -- so a Client Script
+can render the failure instead of catching an exception it cannot see.
+
+This module defines no doctypes. It owns only the Chatwoot section of `app_apis`.
+
+Two connectors, one live
+------------------------
+There are two independent Chatwoot configurations. Connector 1 is the original
+above: an agent/admin token talking to Chatwoot's REST API. Connector 2 is an
+alternative kept alongside it -- same rendered messages, a different route out --
+so a site can try another way of delivering without disturbing the one that
+works. `chatwoot_active_connector` (1 or 2) picks which one every send actually
+uses; nothing else about the call sites changes. Connector 2 offers two methods:
+
+    agent_bot  -- the same REST chain, but with connector 2's own token. Point
+                  it at an Agent Bot or an Administrator token and it can open
+                  conversations on any inbox -- the thing a plain agent token,
+                  a member of no inbox, cannot do (that 401 is exactly why this
+                  second connector exists).
+
+    webhook    -- Chatwoot is not called at all. The message is POSTed to your
+                  own URL as JSON, and that endpoint delivers it however it
+                  likes. See `_send_via_webhook`.
+
+`active_settings()` is the single place the choice is read; `_settings()` and
+`_settings2()` are the two raw sources. Everything downstream is connector-blind.
+"""
+
+import json
+import re
+import time
+
+import frappe
+from frappe import _
+from frappe.utils import cint, strip_html_tags
+
+from app_apis import technicians
+from app_apis.contacts import format_contacts
+from app_apis.phone import DEFAULT_COUNTRY_CODE, MIN_PHONE_DIGITS, digits, normalise
+from app_apis.vehicle import for_customer as vehicle_for_customer
+from app_apis.vehicle import line as vehicle_line
+from app_apis.vehicle import plate as vehicle_plate
+from app_apis.vehicle import staff_line as vehicle_staff_line
+
+# Chatwoot's API root. Every path below is relative to /api/v1/accounts/<id>.
+API_ROOT = "/api/v1"
+
+# Who a template is written to. Declared on the template itself rather than
+# passed in by the caller, so a template and its audience cannot be paired up
+# wrongly -- asking for "valuation" addressed to "technician" would send the
+# customer's feedback link to the engineer. Everything else in the app derives
+# the recipient from the template name it was given.
+TO_CUSTOMER = "customer"
+TO_TECHNICIAN = "technician"
+
+# Message kinds this module knows how to render. The key is what a caller
+# passes as `template=`; the values are who it is for, the settings fieldnames
+# holding the English and Arabic text, and the built-in fallback used when both
+# are blank.
+#
+# The fallbacks below mirror the `default` on each settings field, which is the
+# wording actually in use on the live site. Keep the two in step: the field is
+# what an operator edits, and this is what a site that never touched the field
+# gets. They drifting apart is how a fresh install ends up sending a different
+# message from the one everyone reviewed.
+TEMPLATES = {
+	# Three, and deliberately only three: the stages of a job as the customer
+	# experiences it -- we took it on, somebody is on it, it is finished.
+	# `accepted` and `working` are pure reassurance and carry no link; only
+	# `valuation` asks for anything back.
+	#
+	# A generic `status` template and a post-feedback `thanks` template used to
+	# live here too. Both were dropped: nothing ever called them, and ten
+	# message boxes on the settings form made the three that matter hard to
+	# find. Any of the three below can still carry {contacts} if you want the
+	# phone numbers appended.
+	#
+	# {vehicle} is a whole line, label included, and renders as nothing at all
+	# for a customer who is not shown their plate -- see app_apis/vehicle.py.
+	# It sits on its own line here precisely so it can vanish without leaving a
+	# gap; `_render` closes the blank line it leaves behind.
+	"accepted": {
+		"to": TO_CUSTOMER,
+		"en_field": "chatwoot_accepted_message_en",
+		"ar_field": "chatwoot_accepted_message_ar",
+		"en": (
+			"Hello {customer} 👋\n\n"
+			"✅ Your request {ticket} has been accepted.\n\n"
+			"{vehicle}\n\n"
+			"🔧 Installation Engineer: {engineer}\n\n"
+			"We will be in touch as soon as the work begins 🙏"
+		),
+		"ar": (
+			"مرحباً {customer} 👋\n\n"
+			"✅ تم قبول طلبك رقم {ticket}.\n\n"
+			"{vehicle}\n\n"
+			"🔧 مهندس التركيب: {engineer}\n\n"
+			"سنوافيكم فور بدء العمل 🙏"
+		),
+	},
+	"working": {
+		"to": TO_CUSTOMER,
+		"en_field": "chatwoot_working_message_en",
+		"ar_field": "chatwoot_working_message_ar",
+		"en": (
+			"Hello {customer} 👋\n\n"
+			"🛠️ Work on your request {ticket} is now under way.\n\n"
+			"{vehicle}\n\n"
+			"🔧 Installation Engineer: {engineer}\n\n"
+			"We will let you know as soon as it is complete 🙏"
+		),
+		"ar": (
+			"مرحباً {customer} 👋\n\n"
+			"🛠️ العمل جارٍ الآن على طلبك رقم {ticket}.\n\n"
+			"{vehicle}\n\n"
+			"🔧 مهندس التركيب: {engineer}\n\n"
+			"سنبلغكم فور الانتهاء 🙏"
+		),
+	},
+	"valuation": {
+		"to": TO_CUSTOMER,
+		"en_field": "chatwoot_valuation_message_en",
+		"ar_field": "chatwoot_valuation_message_ar",
+		"en": (
+			"Hello {customer} 👋\n\n"
+			"✅ Your request {ticket} has been completed by {engineer}.\n\n"
+			"{vehicle}\n\n"
+			"⭐ We'd appreciate your feedback on our service — it takes less than a minute:\n\n"
+			"🔗 {link}\n\n"
+			"⏰ This link is valid for 24 hours.\n\n"
+			"Thank you for your trust 🙏"
+		),
+		"ar": (
+			"مرحباً {customer} 👋\n\n"
+			"✅ تم إنجاز طلبك رقم {ticket} بواسطة {engineer}.\n\n"
+			"{vehicle}\n\n"
+			"⭐ نسعد بتقييمك للخدمة، ولن يستغرق الأمر أكثر من دقيقة:\n\n"
+			"🔗 {link}\n\n"
+			"⏰ هذا الرابط صالح لمدة ٢٤ ساعة.\n\n"
+			"شكراً لثقتكم بنا 🙏"
+		),
+	},
+	# The engineer's side of the same three stages. Written as a work order, not
+	# as reassurance: these say what to do and where, and they carry the plate
+	# and the customer's number whatever type of customer it is -- the whole
+	# point of gating the plate is to spare a company contact a detail they
+	# cannot use, and an engineer being sent to a fleet job is precisely who
+	# needs it most.
+	#
+	# Never {link}: the feedback link is the customer's, minted against their
+	# ticket, and it must not be forwarded around the workshop.
+	"tech_accepted": {
+		"to": TO_TECHNICIAN,
+		"en_field": "tech_accepted_message_en",
+		"ar_field": "tech_accepted_message_ar",
+		"en": (
+			"Hello {engineer} 👋\n\n"
+			"📋 A new job has been assigned to you: {ticket}\n\n"
+			"👤 Customer: {customer}\n"
+			"{vehicle}\n"
+			"{location}\n"
+			"{phone}\n\n"
+			"Please get in touch with the customer to arrange the visit 🙏"
+		),
+		"ar": (
+			"مرحباً {engineer} 👋\n\n"
+			"📋 تم إسناد طلب جديد إليك: {ticket}\n\n"
+			"👤 العميل: {customer}\n"
+			"{vehicle}\n"
+			"{location}\n"
+			"{phone}\n\n"
+			"الرجاء التواصل مع العميل لتحديد موعد الزيارة 🙏"
+		),
+	},
+	"tech_working": {
+		"to": TO_TECHNICIAN,
+		"en_field": "tech_working_message_en",
+		"ar_field": "tech_working_message_ar",
+		"en": (
+			"Hello {engineer} 👋\n\n"
+			"🛠️ Job {ticket} is now marked as in progress.\n\n"
+			"👤 Customer: {customer}\n"
+			"{vehicle}\n"
+			"{location}\n\n"
+			"Please update the ticket once the installation is complete 🙏"
+		),
+		"ar": (
+			"مرحباً {engineer} 👋\n\n"
+			"🛠️ تم تحديث الطلب {ticket} إلى حالة العمل الجاري.\n\n"
+			"👤 العميل: {customer}\n"
+			"{vehicle}\n"
+			"{location}\n\n"
+			"الرجاء تحديث الطلب فور الانتهاء من التركيب 🙏"
+		),
+	},
+	"tech_done": {
+		"to": TO_TECHNICIAN,
+		"en_field": "tech_done_message_en",
+		"ar_field": "tech_done_message_ar",
+		"en": (
+			"Hello {engineer} 👋\n\n"
+			"✅ Job {ticket} has been marked as done. Thank you.\n\n"
+			"👤 Customer: {customer}\n"
+			"{vehicle}\n\n"
+			"The customer has been asked to rate the installation ⭐"
+		),
+		"ar": (
+			"مرحباً {engineer} 👋\n\n"
+			"✅ تم إغلاق الطلب {ticket}. شكراً لجهودك.\n\n"
+			"👤 العميل: {customer}\n"
+			"{vehicle}\n\n"
+			"تم إرسال طلب تقييم التركيب إلى العميل ⭐"
+		),
+	},
+}
+
+
+def recipient_of(template: str) -> str:
+	"""Who a template is written to. Unknown templates are treated as the
+	customer's -- the stricter of the two, since that side is filtered by
+	customer type and this one is not."""
+	return (TEMPLATES.get(template) or {}).get("to", TO_CUSTOMER)
+
+
+def templates_for(to: str) -> list[str]:
+	"""Template keys addressed to one audience, in declaration order."""
+	return [key for key, spec in TEMPLATES.items() if spec.get("to", TO_CUSTOMER) == to]
+
+# The two languages the templates are written in. Anything else falls back to
+# `chatwoot_default_language`.
+LANGUAGES = ("ar", "en")
+
+# Where a customer's phone may hide on an xticket, best first. `driver_mobile`
+# is set on ~50% of tickets with a real number (the rest hold a bare "+966"),
+# `issue_mobile` on ~23%, and the Customer's own mobile_no backs both up.
+TICKET_PHONE_FIELDS = ("driver_mobile", "issue_mobile", "driver_mobile2")
+
+LOGGER = "app_apis"
+
+
+# --------------------------------------------------------------------------
+# Configuration
+# --------------------------------------------------------------------------
+
+
+def _settings() -> dict:
+	"""Chatwoot's section of the merged `app_apis` settings doctype.
+
+	Every field is read under its `chatwoot_` prefix, for the same reason the
+	Pilot and IM sections are prefixed: three connections share one Single, and
+	unprefixed names like `base_url` would silently collide.
+	"""
+	s = frappe.get_cached_doc("app_apis")
+	return {
+		"enabled": bool(cint(s.chatwoot_enabled)),
+		"base_url": _base_url(s.chatwoot_base_url),
+		"account_id": str(s.chatwoot_account_id or "").strip(),
+		"inbox_id": str(s.chatwoot_inbox_id or "").strip(),
+		"timeout": cint(s.chatwoot_request_timeout) or 20,
+		"default_language": (str(s.chatwoot_default_language or "").strip().lower() or "ar"),
+		"doc": s,
+	}
+
+
+def _settings2() -> dict:
+	"""The SECOND, alternative Chatwoot connection -- the `chatwoot2_` fields.
+
+	Added alongside the primary so a site can keep the working connector wired
+	up and try a different route without disturbing it. Connector 2 carries its
+	own domain / account / inbox / token, and a `method`:
+
+	    agent_bot -- talk to Chatwoot's REST API exactly as connector 1 does,
+	                 but with the token below. Point it at an Agent Bot or an
+	                 Administrator token and it can open conversations on any
+	                 inbox, which is the thing an ordinary agent token cannot do.
+
+	    webhook   -- do not touch Chatwoot at all. POST the rendered message to
+	                 your own URL (n8n / Make / a small relay) and let that hand
+	                 it to WhatsApp. Sidesteps Chatwoot's permissions entirely.
+
+	Unlike connector 1 the token is resolved here (site_config `chatwoot2_*`
+	wins over the field), so `_token` can hand it straight back without ever
+	falling through to connector 1's secret.
+	"""
+	s = frappe.get_cached_doc("app_apis")
+
+	method = (str(getattr(s, "chatwoot2_method", "") or "agent_bot").strip().lower())
+	if method not in ("agent_bot", "webhook"):
+		method = "agent_bot"
+
+	conf_token = frappe.conf.get("chatwoot2_api_token")
+	if conf_token:
+		token = str(conf_token).strip() or None
+	elif getattr(s, "chatwoot2_api_token", None):
+		token = str(s.get_password("chatwoot2_api_token", raise_exception=False) or "").strip() or None
+	else:
+		token = None
+
+	conf_secret = frappe.conf.get("chatwoot2_webhook_secret")
+	if conf_secret:
+		webhook_secret = str(conf_secret).strip() or None
+	elif getattr(s, "chatwoot2_webhook_secret", None):
+		webhook_secret = str(s.get_password("chatwoot2_webhook_secret", raise_exception=False) or "").strip() or None
+	else:
+		webhook_secret = None
+
+	return {
+		"connector": "2",
+		"method": method,
+		"enabled": bool(cint(getattr(s, "chatwoot2_enabled", 0))),
+		"base_url": _base_url(getattr(s, "chatwoot2_base_url", "")),
+		"account_id": str(getattr(s, "chatwoot2_account_id", "") or "").strip(),
+		"inbox_id": str(getattr(s, "chatwoot2_inbox_id", "") or "").strip(),
+		"token": token,
+		"timeout": cint(getattr(s, "chatwoot2_request_timeout", 0)) or 20,
+		"default_language": (str(s.chatwoot_default_language or "").strip().lower() or "ar"),
+		"webhook_url": str(getattr(s, "chatwoot2_webhook_url", "") or "").strip(),
+		"webhook_auth_header": (str(getattr(s, "chatwoot2_webhook_auth_header", "") or "").strip() or "Authorization"),
+		"webhook_secret": webhook_secret,
+		"doc": s,
+	}
+
+
+def _active_connector_id() -> str:
+	"""Which connector is live: "1" (primary) or "2" (alternative)."""
+	s = frappe.get_cached_doc("app_apis")
+	return "2" if str(getattr(s, "chatwoot_active_connector", "") or "1").strip() == "2" else "1"
+
+
+def active_settings() -> dict:
+	"""The settings dict for whichever connector is switched on.
+
+	Every send-path caller reads through this rather than `_settings()` so the
+	choice of connector lives in exactly one place. Connector 1's shape is
+	unchanged apart from the two label keys, so the REST chain below neither
+	knows nor cares which connector it is serving.
+	"""
+	if _active_connector_id() == "2":
+		return _settings2()
+	base = _settings()
+	base["connector"] = "1"
+	base["method"] = "agent_api"
+	return base
+
+
+def _settings_for(connector: str | None) -> dict:
+	"""Settings for a named connector ("1"/"2"), or the active one when blank.
+
+	Lets `test_connection`/`list_inboxes` probe connector 2 while connector 1 is
+	still the live one -- the whole point of running two side by side is to try
+	the new route before committing to it.
+	"""
+	connector = str(connector or "").strip()
+	if connector == "2":
+		return _settings2()
+	if connector == "1":
+		base = _settings()
+		base["connector"] = "1"
+		base["method"] = "agent_api"
+		return base
+	return active_settings()
+
+
+def _base_url(raw) -> str:
+	"""Normalise whatever was typed into the domain field.
+
+	Operators paste `chat.example.com`, `https://chat.example.com/` and
+	`https://chat.example.com/app/accounts/1` interchangeably. Only the scheme
+	and host matter here, and a trailing slash would produce `//api/v1`.
+	"""
+	url = str(raw or "").strip()
+	if not url:
+		return ""
+	if not url.startswith(("http://", "https://")):
+		url = "https://" + url
+	return url.rstrip("/")
+
+
+def _token(settings: dict) -> str | None:
+	"""The Chatwoot API access token.
+
+	`chatwoot_api_token` in site_config wins, so a deployment can keep the
+	secret out of the database entirely; otherwise the encrypted field on
+	app_apis. Same precedence as the IM password.
+
+	Connector 2 resolves its own token up front into `settings["token"]` (see
+	`_settings2`), so when that key is present it is returned verbatim and the
+	connector-1 lookup below is skipped entirely -- the alternative connector
+	must never silently borrow the primary's credentials.
+	"""
+	if settings.get("connector") == "2":
+		return settings.get("token") or None
+
+	conf_token = frappe.conf.get("chatwoot_api_token")
+	if conf_token:
+		return str(conf_token).strip()
+
+	doc = settings["doc"]
+	if not doc.chatwoot_api_token:
+		return None
+
+	# Stripped: a token pasted with a trailing newline produces an invalid
+	# header value and a 401 that looks exactly like a wrong token.
+	return str(doc.get_password("chatwoot_api_token") or "").strip() or None
+
+
+def _ready(settings: dict) -> tuple[bool, str]:
+	"""Is this connection usable? Returns (ok, reason).
+
+	Serves both connectors and both of connector 2's methods. The webhook
+	method needs only a URL; the REST methods (connector 1's agent_api and
+	connector 2's agent_bot) need the domain / account / token as before.
+	"""
+	label = _("Chatwoot Connector 2") if settings.get("connector") == "2" else _("Chatwoot")
+
+	if not settings["enabled"]:
+		return False, _("{0} is not enabled in App APIs settings.").format(label)
+
+	if settings.get("method") == "webhook":
+		if not settings.get("webhook_url"):
+			return False, _("Connector 2 Webhook URL is not set in App APIs settings.")
+		return True, ""
+
+	if not settings["base_url"]:
+		return False, _("{0} Domain is not set in App APIs settings.").format(label)
+	if not settings["account_id"]:
+		return False, _("{0} Account ID is not set in App APIs settings.").format(label)
+	if not _token(settings):
+		return False, _("{0} API Token is not set in App APIs settings.").format(label)
+	return True, ""
+
+
+# --------------------------------------------------------------------------
+# Layer 1: HTTP. Internal -- the browser cannot reach any of this.
+# --------------------------------------------------------------------------
+
+
+def _fail(code: int, msg: str, meta: dict | None = None) -> dict:
+	"""A failure shaped like a success, so callers never branch on exceptions.
+
+	NEGATIVE codes only, so they can never collide with an HTTP status:
+
+	    -400 not configured / bad argument   -404 contact or inbox not found
+	    -401 token rejected                  -408 timed out
+	    -403 token lacks access to account   -502 could not connect
+	                                         -500 unexpected response
+	"""
+	return {"ok": False, "code": code, "msg": msg, "_chatwoot": meta or {}}
+
+
+def _meta(method: str, path: str, settings: dict) -> dict:
+	return {
+		"method": method,
+		"path": path,
+		"account_id": settings["account_id"],
+		"inbox_id": settings["inbox_id"],
+		"http_status": None,
+		"elapsed_ms": 0,
+		"server_epoch": int(time.time()),
+	}
+
+
+def _auth_headers(token: str | None) -> dict:
+	"""Headers for one Chatwoot call, with the token sent BOTH ways.
+
+	Chatwoot documents the header as `api_access_token`, but a header name
+	containing underscores does not survive every hop. nginx drops them unless
+	`underscores_in_headers on` is set, and VS Code dev tunnels drop them too --
+	which is exactly how this surfaced: the same token that worked against
+	Chatwoot directly came back 401 through a tunnel, because the header never
+	arrived. The 401 is indistinguishable from a bad token, since Chatwoot
+	answers "You need to sign in" for missing and invalid alike.
+
+	Rack folds both spellings into the same HTTP_API_ACCESS_TOKEN, so sending
+	the dashed form as well costs nothing and works through proxies that would
+	otherwise silently strip the documented one.
+	"""
+	return {
+		"api_access_token": token,
+		"api-access-token": token,
+		"Content-Type": "application/json",
+		"Accept": "application/json",
+	}
+
+
+def _request(method: str, path: str, settings: dict, body: dict | None = None,
+             params: dict | None = None) -> tuple[dict | list | None, dict]:
+	"""One call to Chatwoot. Returns (decoded_body, meta) or (None, meta+error).
+
+	The error path never raises -- when the first element is None the second
+	always carries `error` as (code, msg). `path` is relative to the account,
+	e.g. "/contacts/search".
+	"""
+	import requests
+
+	meta = _meta(method, path, settings)
+	token = _token(settings)
+
+	url = f"{settings['base_url']}{API_ROOT}/accounts/{settings['account_id']}{path}"
+	started = time.monotonic()
+
+	try:
+		resp = requests.request(
+			method,
+			url,
+			headers=_auth_headers(token),
+			json=body,
+			params=params,
+			timeout=settings["timeout"],
+		)
+		meta["elapsed_ms"] = int((time.monotonic() - started) * 1000)
+		meta["http_status"] = resp.status_code
+
+		if resp.status_code in (401, 403):
+			meta["error"] = (
+				-401 if resp.status_code == 401 else -403,
+				_("Chatwoot rejected the API token (HTTP {0}).").format(resp.status_code),
+			)
+			return None, meta
+
+		if resp.status_code == 404:
+			meta["error"] = (-404, _("Chatwoot has no such record (HTTP 404): {0}").format(path))
+			return None, meta
+
+		if resp.status_code >= 400:
+			meta["error"] = (
+				-500,
+				_("Chatwoot returned HTTP {0}: {1}").format(resp.status_code, resp.text[:300]),
+			)
+			return None, meta
+
+		# 204 and friends carry no body; that is a success with nothing to read.
+		if not (resp.text or "").strip():
+			return {}, meta
+
+		try:
+			return resp.json(), meta
+		except json.JSONDecodeError:
+			meta["error"] = (-500, _("Chatwoot sent a non-JSON response: {0}").format(resp.text[:300]))
+			return None, meta
+
+	except requests.exceptions.Timeout:
+		meta["elapsed_ms"] = int((time.monotonic() - started) * 1000)
+		meta["error"] = (-408, _("Chatwoot did not answer within {0}s.").format(settings["timeout"]))
+		return None, meta
+	except requests.exceptions.RequestException as e:
+		meta["elapsed_ms"] = int((time.monotonic() - started) * 1000)
+		meta["error"] = (-502, _("Could not reach Chatwoot: {0}").format(str(e)[:200]))
+		return None, meta
+
+
+# --------------------------------------------------------------------------
+# Layer 2: contacts and conversations
+# --------------------------------------------------------------------------
+
+
+def _payload(data):
+	"""Chatwoot wraps most list/create results in `payload`. Unwrap defensively."""
+	if isinstance(data, dict):
+		inner = data.get("payload", data)
+		return inner
+	return data
+
+
+def _find_contact(phone: str, settings: dict):
+	"""The first Chatwoot contact whose phone matches, or None.
+
+	Search is a fuzzy `q=`, so the result is filtered back down to an exact
+	phone match -- otherwise a search for +966500000001 can return the contact
+	for +966500000010 and the message goes to a stranger.
+	"""
+	data, meta = _request("GET", "/contacts/search", settings, params={"q": phone})
+	if data is None:
+		return None, meta
+
+	for contact in _payload(data) or []:
+		if _digits(contact.get("phone_number")) == _digits(phone):
+			return contact, meta
+
+	return None, meta
+
+
+def _create_contact(phone: str, name: str, settings: dict):
+	"""Create a contact already attached to the target inbox.
+
+	Passing `inbox_id` here is what makes Chatwoot mint a contact_inbox (and so
+	a source_id) in one call instead of two.
+	"""
+	body = {
+		"inbox_id": cint(settings["inbox_id"]),
+		"name": name or phone,
+		"phone_number": phone,
+	}
+	data, meta = _request("POST", "/contacts", settings, body=body)
+	if data is None:
+		return None, meta
+
+	contact = _payload(data) or {}
+	# Create wraps the record one level deeper than search does.
+	return contact.get("contact", contact), meta
+
+
+def _source_id(contact: dict, settings: dict):
+	"""The contact's source_id for the target inbox, minting one if needed.
+
+	A contact that exists but has never been messaged on this inbox has no
+	source_id for it, and creating a conversation without one fails.
+	"""
+	inbox_id = cint(settings["inbox_id"])
+
+	for ci in contact.get("contact_inboxes") or []:
+		if cint((ci.get("inbox") or {}).get("id") or ci.get("inbox_id")) == inbox_id:
+			if ci.get("source_id"):
+				return ci["source_id"], None
+
+	data, meta = _request(
+		"POST", f"/contacts/{contact['id']}/contact_inboxes", settings,
+		body={"inbox_id": inbox_id},
+	)
+	if data is None:
+		return None, meta
+
+	return (_payload(data) or {}).get("source_id"), meta
+
+
+def _whatsapp_inbox_ids(settings: dict) -> set:
+	"""Every WhatsApp inbox id on the account -- the set a reply may land on.
+
+	"Send to whichever conversation is open" only makes sense across the
+	WhatsApp numbers: a contact may also carry a web-widget or Facebook thread,
+	and a customer's WhatsApp message must never go out on one of those.
+	Discovered from /inboxes so adding a second WhatsApp number needs no code
+	change, and memoised on frappe.local so a batch of sends asks Chatwoot once.
+	Falls back to just the configured inbox if the lookup ever comes back empty.
+	"""
+	cached = getattr(frappe.local, "_cw_wa_inboxes", None)
+	if cached is not None:
+		return cached
+
+	ids = set()
+	data, _meta = _request("GET", "/inboxes", settings)
+	for ib in (_payload(data) or []):
+		if "whatsapp" in str(ib.get("channel_type") or "").lower():
+			cid = cint(ib.get("id"))
+			if cid:
+				ids.add(cid)
+
+	cfg = cint(settings.get("inbox_id"))
+	if not ids and cfg:
+		ids = {cfg}
+
+	frappe.local._cw_wa_inboxes = ids
+	return ids
+
+
+def _open_conversation(contact_id, settings: dict):
+	"""The best existing conversation to post into, across ALL WhatsApp inboxes.
+
+	Not pinned to the configured inbox: a customer who wrote to 0500110134 and
+	one who wrote to 920003886 must each be answered on the number they used, so
+	every WhatsApp inbox is considered and whichever conversation is *open* wins.
+	Among several, the most recently active is chosen; a resolved thread is kept
+	only as the fallback when nothing is open (posting into one reopens it). The
+	conversation carries its own inbox, so the reply goes out on the right number
+	with no inbox_id decided here.
+
+	Reused rather than replaced so a follow-up lands in the thread the agent is
+	already reading. Returns (conversation_id, meta) or (None, meta).
+	"""
+	data, meta = _request("GET", f"/contacts/{contact_id}/conversations", settings)
+	if data is None:
+		return None, meta
+
+	allowed = _whatsapp_inbox_ids(settings)
+	best_key, best_id = None, None
+	for conv in _payload(data) or []:
+		# When the inbox set is known, stay inside it; if discovery failed and
+		# the set is empty, consider any conversation rather than none.
+		if allowed and cint(conv.get("inbox_id")) not in allowed:
+			continue
+		is_open = str(conv.get("status") or "").lower() == "open"
+		last = conv.get("last_activity_at") or conv.get("timestamp") or 0
+		key = (1 if is_open else 0, last, cint(conv.get("id")))
+		if best_key is None or key > best_key:
+			best_key, best_id = key, conv.get("id")
+
+	return best_id, meta
+
+
+def _resolve_conversation(phone: str, name: str, settings: dict) -> dict:
+	"""Find-or-create the conversation to post into.
+
+	Returns {"ok": True, "conversation_id": .., "contact_id": ..} or a _fail().
+	"""
+	contact, meta = _find_contact(phone, settings)
+	if contact is None and meta.get("error"):
+		return _fail(*meta["error"], meta)
+
+	if not contact:
+		contact, meta = _create_contact(phone, name, settings)
+		if contact is None:
+			return _fail(*meta.get("error", (-500, _("Could not create the Chatwoot contact."))), meta)
+
+	if not contact.get("id"):
+		return _fail(-500, _("Chatwoot returned a contact with no id."), meta)
+
+	conversation_id, meta = _open_conversation(contact["id"], settings)
+	if conversation_id:
+		return {"ok": True, "conversation_id": conversation_id, "contact_id": contact["id"], "created": False}
+
+	source_id, sid_meta = _source_id(contact, settings)
+	if not source_id:
+		err = (sid_meta or {}).get("error") or (-500, _("Could not obtain a Chatwoot source id for this inbox."))
+		return _fail(*err, sid_meta or {})
+
+	data, meta = _request("POST", "/conversations", settings, body={
+		"source_id": source_id,
+		"inbox_id": cint(settings["inbox_id"]),
+		"contact_id": contact["id"],
+	})
+	if data is None:
+		return _fail(*meta.get("error", (-500, _("Could not open a Chatwoot conversation."))), meta)
+
+	conversation_id = (_payload(data) or {}).get("id")
+	if not conversation_id:
+		return _fail(-500, _("Chatwoot opened a conversation with no id."), meta)
+
+	return {"ok": True, "conversation_id": conversation_id, "contact_id": contact["id"], "created": True}
+
+
+# --------------------------------------------------------------------------
+# Phone numbers, language, and template rendering
+# --------------------------------------------------------------------------
+
+
+# Both now live in app_apis.phone, so the technician side normalises numbers by
+# exactly the same rule this side does. Kept under their old private names so
+# the rest of this module reads unchanged.
+_digits = digits
+_normalise_phone = normalise
+
+
+def ticket_phones(doc) -> list[dict]:
+	"""Every usable number on a ticket, best first, deduped.
+
+	Returned as a list rather than a single best guess so the operator can pick:
+	`driver_mobile` and `driver_mobile2` hold the same value on essentially
+	every ticket, but `issue_mobile` is often a different person, and choosing
+	wrongly means messaging a stranger about someone else's vehicle.
+
+	Each row carries the field's own label from the ticket, so the dialog says
+	"Mobile No" -- what the operator sees on the form -- rather than a fieldname.
+	"""
+	meta = frappe.get_meta("xticket")
+	seen, found = set(), []
+
+	for field in TICKET_PHONE_FIELDS:
+		phone = _normalise_phone(doc.get(field))
+		if not phone or phone in seen:
+			continue
+		seen.add(phone)
+		found.append({
+			"phone": phone,
+			"label": meta.get_label(field) or field,
+			"source": field,
+			"raw": str(doc.get(field) or ""),
+		})
+
+	# The Customer's own number backs the ticket up: it is set on about half the
+	# customers and is often the only number for a ticket raised by phone.
+	if doc.get("customer"):
+		raw = frappe.db.get_value("Customer", doc.customer, "mobile_no")
+		phone = _normalise_phone(raw)
+		if phone and phone not in seen:
+			found.append({
+				"phone": phone,
+				"label": _("Customer Mobile"),
+				"source": "customer.mobile_no",
+				"raw": str(raw or ""),
+			})
+
+	return found
+
+
+def ticket_phone(doc) -> str | None:
+	"""The best phone number on a ticket, or None."""
+	phones = ticket_phones(doc)
+	return phones[0]["phone"] if phones else None
+
+
+def _language(doc, requested, settings: dict) -> str:
+	"""Which language to write in.
+
+	An explicit argument wins, then the Customer's own `language` (set to `ar`
+	on essentially every customer here), then the configured default.
+	"""
+	requested = str(requested or "").strip().lower()[:2]
+	if requested in LANGUAGES:
+		return requested
+
+	if doc is not None and doc.get("customer"):
+		customer_lang = str(frappe.db.get_value("Customer", doc.customer, "language") or "")[:2].lower()
+		if customer_lang in LANGUAGES:
+			return customer_lang
+
+	default = settings["default_language"][:2]
+	return default if default in LANGUAGES else "ar"
+
+
+def _language_for(doc, template: str, requested, settings: dict) -> str:
+	"""Which language to write THIS template in.
+
+	A technician message is staff-facing, so the customer's own `language` has
+	no bearing on it -- an engineer does not start reading English because the
+	company they are visiting does. Passing `doc=None` skips that lookup and
+	leaves an explicit argument, then the configured default, deciding.
+	"""
+	if recipient_of(template) == TO_TECHNICIAN:
+		return _language(None, requested, settings)
+	return _language(doc, requested, settings)
+
+
+def recipient_phone(doc, template: str) -> str | None:
+	"""The number this template should go to, or None if nobody recorded one."""
+	if recipient_of(template) == TO_TECHNICIAN:
+		return technicians.phone(doc)
+	return ticket_phone(doc)
+
+
+def recipient_name(doc, template: str) -> str:
+	"""The name Chatwoot should file the contact under."""
+	if recipient_of(template) == TO_TECHNICIAN:
+		return technicians.name(doc)
+	return doc.get("translated_customer_name") or doc.get("customer") or ""
+
+
+# Labels for the placeholders that render as a whole line. Same idea as the
+# vehicle label in app_apis/vehicle.py: a built-in, and an operator who wants
+# different wording writes their own line around the bare value instead.
+LINE_LABELS = {
+	"location": {"ar": "📍 الموقع", "en": "📍 Location"},
+	"phone": {"ar": "📞 رقم التواصل", "en": "📞 Contact"},
+}
+
+# Where the job actually is, best first. All three are plain display strings on
+# the ticket; whichever is filled is the one worth putting in a work order.
+TICKET_LOCATION_FIELDS = ("installation_location", "city_text", "city")
+
+# A work order is read on a phone. Enough for an address, not enough for
+# somebody to have pasted an essay into the field.
+MAX_LOCATION = 160
+
+
+def _location(doc) -> str:
+	for field in TICKET_LOCATION_FIELDS:
+		value = strip_html_tags(str(doc.get(field) or "")).strip()
+		if value:
+			return value[:MAX_LOCATION]
+	return ""
+
+
+def _line(value: str, key: str, lang: str) -> str:
+	""""📍 Location: Riyadh", or "" when there is nothing to say."""
+	if not value:
+		return ""
+	label = LINE_LABELS[key][lang if lang in LANGUAGES else "ar"]
+	return f"{label}: {value}"
+
+
+def _context(doc, template: str, lang: str = "ar", link: str | None = None) -> dict:
+	"""Placeholder values for a ticket.
+
+	Kept flat and string-only: these are pasted into a message, not used for
+	logic, and a None reaching the customer as "None" is the failure worth
+	preventing.
+	"""
+	to = recipient_of(template)
+
+	ctx = {
+		"ticket": doc.name,
+		"state": doc.get("workflow_state") or doc.get("status") or "",
+		"customer": doc.get("translated_customer_name") or doc.get("customer") or "",
+		# `technician` on the right is the xticket's own fieldname -- that
+		# doctype belongs to the site, not this app, so it keeps its name even
+		# though the role is called the installation engineer everywhere here.
+		"engineer": technicians.name(doc),
+		# Both read through app_apis.vehicle, which picks the plate written in
+		# THIS language -- Saudi plates carry Arabic and Latin forms of the same
+		# number. {vehicle} is the whole line and is what the shipped templates
+		# use; {plate} is the bare value, for an operator who wants to write
+		# their own wording around it.
+		#
+		# The customer-type gate applies only on the customer's side. An
+		# engineer is being told which vehicle to work on, and a company owning
+		# it does not make that less true -- see vehicle.staff_line.
+		"vehicle": vehicle_staff_line(doc, lang) if to == TO_TECHNICIAN else vehicle_line(doc, lang),
+		"plate": vehicle_plate(doc, lang) if to == TO_TECHNICIAN else vehicle_for_customer(doc, lang),
+		# Whole lines like {vehicle}, and empty when the ticket does not say --
+		# a work order with "Location:" and nothing after it is worse than one
+		# that does not mention location at all.
+		"location": _line(_location(doc), "location", lang),
+		"phone": _line(ticket_phone(doc) or "", "phone", lang),
+		"company": frappe.defaults.get_user_default("Company") or "",
+		"link": "",
+		# Read from the settings child table, never hardcoded, so the numbers
+		# can be changed from the desk or a script with no deploy.
+		"contacts": format_contacts(lang),
+	}
+
+	# Imported lazily and only when the template asks for it: this module must
+	# stay usable on a site where the valuation page was never deployed.
+	#
+	# A caller that is rendering the same message twice -- once per language --
+	# passes the link in, so both copies carry the same token. Minting one per
+	# render would hand the operator two links expiring seconds apart.
+	if template == "valuation":
+		if link is None:
+			from app_apis.valuation import build_url
+
+			link = build_url(doc.name)
+		ctx["link"] = link
+
+	return ctx
+
+
+def _render(template_text: str, ctx: dict) -> str:
+	"""Fill {placeholders} by plain replacement, then close any gap they left.
+
+	Deliberately not str.format: the template is operator-editable text, and
+	format() would turn a stray brace into a crash and expose attribute
+	traversal on the values. Unknown placeholders are left visible so a typo
+	shows up in the message instead of vanishing.
+
+	Some placeholders are whole lines that are allowed to be empty -- {vehicle}
+	for a company customer, {location} on a ticket that never recorded one,
+	{contacts} on a site with no numbers configured. Rendering is therefore done
+	a line at a time, and a line that had content in the template but came out
+	completely empty is dropped rather than left as a blank gap. That is what
+	lets the technician templates stack {vehicle} / {location} / {phone} as
+	consecutive lines: whichever of them the ticket does not have simply is not
+	there, instead of leaving a hole in the middle of a work order.
+
+	A line only disappears if it vanished entirely. "Vehicle: {plate}" with no
+	plate renders as "Vehicle:" and is kept -- silently eating wording an
+	operator typed would be worse than a stray label, and it is their line to
+	fix. A blank line they wrote themselves is likewise kept.
+
+	The newline collapse afterwards is the paragraph case: {vehicle} written as
+	its own paragraph leaves the blank line above AND below it, and those close
+	back up to the single blank line the rest of the message uses.
+	"""
+	kept = []
+	for line in str(template_text or "").split("\n"):
+		filled = line
+		for key, value in ctx.items():
+			filled = filled.replace("{" + key + "}", str(value if value is not None else ""))
+		if line.strip() and not filled.strip():
+			continue
+		kept.append(filled)
+
+	# Trailing spaces first, or a line holding only a space survives as content
+	# and the collapse below never sees the run of newlines it is looking for.
+	text = re.sub(r"[ \t]+(?=\n)", "", "\n".join(kept))
+	return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def _template_text(template: str, lang: str, settings: dict) -> str:
+	"""The configured text for this template and language, or the built-in."""
+	spec = TEMPLATES[template]
+	field = spec["ar_field"] if lang == "ar" else spec["en_field"]
+	configured = str(settings["doc"].get(field) or "").strip()
+	return configured or spec[lang]
+
+
+# --------------------------------------------------------------------------
+# Public surface -- whitelisted, safe to call from a Client or Server Script
+# --------------------------------------------------------------------------
+
+
+@frappe.whitelist()
+def test_connection(connector: str | None = None) -> dict:
+	"""Prove the domain, account id and token work. Sends nothing.
+
+	Run this first after filling in the settings -- every other failure in this
+	module is easier to read once this one passes.
+
+	`connector` picks which one to test: "1", "2", or blank for whichever is
+	live. That lets connector 2 be validated while connector 1 is still the one
+	sending -- try the new route, then switch to it. When connector 2 is in
+	webhook mode there is nothing to call until a message is sent, so this just
+	confirms a URL is set and says so.
+	"""
+	frappe.only_for("System Manager")
+
+	settings = _settings_for(connector)
+
+	if settings.get("method") == "webhook":
+		if not settings.get("webhook_url"):
+			return _fail(-400, _("Connector 2 Webhook URL is not set."))
+		return {
+			"ok": True,
+			"connector": "2",
+			"method": "webhook",
+			"enabled": settings["enabled"],
+			"webhook_url_set": True,
+			"webhook_secret_set": bool(settings.get("webhook_secret")),
+			"note": _("Webhook mode calls nothing until a message is sent. "
+			          "Send to a number you control to verify the relay end to end."),
+		}
+
+	# The enabled flag gates *sending*, not diagnosing: an operator has to be
+	# able to test the credentials before switching the connection on.
+	for check in (settings["base_url"], settings["account_id"], _token(settings)):
+		if not check:
+			return _fail(-400, _("Domain, Account ID and API Token must all be set."))
+
+	data, meta = _request("GET", "/inboxes", settings)
+	if data is None:
+		return _fail(*meta["error"], meta)
+
+	inboxes = _payload(data) or []
+	return {
+		"ok": True,
+		"connector": settings.get("connector"),
+		"method": settings.get("method"),
+		"enabled": settings["enabled"],
+		"account_id": settings["account_id"],
+		"inbox_count": len(inboxes),
+		"inbox_id_configured": settings["inbox_id"],
+		"inbox_id_valid": any(str(i.get("id")) == settings["inbox_id"] for i in inboxes),
+		"_chatwoot": meta,
+	}
+
+
+@frappe.whitelist()
+def list_inboxes(connector: str | None = None) -> dict:
+	"""Every inbox on the account, so an inbox id can be filled in.
+
+	The inbox decides which channel a message physically goes out on, and
+	Chatwoot's UI buries the numeric id, so this is the practical way to find
+	it. `connector` picks which one's account to read ("1"/"2"/blank=active);
+	webhook mode has no inbox list to give.
+	"""
+	frappe.only_for("System Manager")
+
+	settings = _settings_for(connector)
+	if settings.get("method") == "webhook":
+		return _fail(-400, _("Connector 2 is in webhook mode -- it has no Chatwoot inbox list. "
+		                     "Switch its Method to agent_bot to list inboxes."))
+
+	if not settings["base_url"] or not settings["account_id"] or not _token(settings):
+		return _fail(-400, _("Domain, Account ID and API Token must all be set."))
+
+	data, meta = _request("GET", "/inboxes", settings)
+	if data is None:
+		return _fail(*meta["error"], meta)
+
+	return {
+		"ok": True,
+		"connector": settings.get("connector"),
+		"inboxes": [
+			{"id": i.get("id"), "name": i.get("name"), "channel": i.get("channel_type")}
+			for i in (_payload(data) or [])
+		],
+	}
+
+
+@frappe.whitelist()
+def render_message(ticket: str, template: str = "valuation", lang: str | None = None) -> dict:
+	"""The exact text that would be sent, without sending it.
+
+	Whitelisted separately so a Client Script can show the operator a preview
+	and let them confirm, rather than firing blind.
+	"""
+	if template not in TEMPLATES:
+		return _fail(-400, _("Unknown message template: {0}").format(template))
+
+	doc = frappe.get_doc("xticket", ticket)
+	doc.check_permission("read")
+
+	settings = active_settings()
+	language = _language_for(doc, template, lang, settings)
+
+	return {
+		"ok": True,
+		"ticket": doc.name,
+		"template": template,
+		"recipient": recipient_of(template),
+		"lang": language,
+		"phone": recipient_phone(doc, template),
+		"message": _render(_template_text(template, language, settings), _context(doc, template, language)),
+	}
+
+
+@frappe.whitelist()
+def render_both(ticket: str, template: str = "valuation") -> dict:
+	"""One template in BOTH languages, sharing a single link.
+
+	Drives the dialog on the ticket form, which shows the Arabic message, the
+	English message and the bare link together. The link is built once and
+	handed to both renders: rendering each language through its own call would
+	mint two tokens a second apart, and the operator would be looking at three
+	boxes carrying two different URLs.
+
+	Rendering is not sending, so this deliberately does not require Chatwoot to
+	be configured or enabled -- the messages come from the settings fields (or
+	the built-in text) either way.
+	"""
+	if template not in TEMPLATES:
+		return _fail(-400, _("Unknown message template: {0}").format(template))
+
+	doc = frappe.get_doc("xticket", ticket)
+	doc.check_permission("read")
+
+	settings = active_settings()
+
+	link_info = {}
+	if template == "valuation":
+		from app_apis.valuation import build_link
+
+		link_info = build_link(doc.name)
+
+	messages = {
+		lang: _render(
+			_template_text(template, lang, settings),
+			_context(doc, template, lang, link=link_info.get("url")),
+		)
+		for lang in LANGUAGES
+	}
+
+	ready, why = _ready(settings)
+	to = recipient_of(template)
+
+	# A technician template has exactly one destination -- the engineer -- so
+	# the dialog is offered that instead of the customer's numbers. Offering the
+	# customer's list for a message addressed to the engineer is how somebody
+	# sends a work order to the person who booked the job.
+	if to == TO_TECHNICIAN:
+		found = technicians.engineer(doc)
+		phones = (
+			[{"phone": found["phone"], "label": found["name"] or _("Engineer"),
+			  "source": found["source"], "raw": found["phone"]}]
+			if found["phone"] else []
+		)
+	else:
+		phones = ticket_phones(doc)
+
+	return {
+		"ok": True,
+		"ticket": doc.name,
+		"template": template,
+		"recipient": to,
+		"state": doc.get("workflow_state") or "",
+		"customer": doc.get("translated_customer_name") or doc.get("customer") or "",
+		"engineer": technicians.name(doc),
+		"phone": recipient_phone(doc, template),
+		# Every candidate, so the dialog can offer a choice instead of silently
+		# picking one -- and can tell the operator to type one when empty.
+		"phones": phones,
+		"messages": messages,
+		# Which language a send would pick on its own, so a preview can show
+		# the message that would actually go out rather than guessing.
+		"default_lang": _language_for(doc, template, None, settings),
+		"link": link_info.get("url", ""),
+		"expires_on": link_info.get("expires_on", ""),
+		"valid_hours": link_info.get("valid_hours", 0),
+		# Rendering works with Chatwoot switched off; sending does not. Saying
+		# so here lets a caller warn before the operator presses Send.
+		"can_send": ready,
+		"cannot_send_reason": why,
+		# Which connector a Send would actually go through, so the dialog can
+		# show the operator whether they are on the primary or the alternative.
+		"connector": settings.get("connector"),
+		"method": settings.get("method"),
+	}
+
+
+@frappe.whitelist()
+def send_message(text: str, phone: str | None = None, conversation_id=None,
+                 name: str | None = None, private: int = 0) -> dict:
+	"""Post one message. The raw sender -- no ticket, no template.
+
+	Give it either a `conversation_id` (post straight into a known thread) or a
+	`phone` (find-or-create contact and conversation first). `private=1` writes
+	an internal note the customer never sees, which is useful for logging an
+	action against a thread.
+
+	System Manager only. Arbitrary text to an arbitrary number is a much broader
+	capability than "message this ticket's customer", so it is gated separately
+	from `send_ticket_message`, which any agent who can read the ticket may use.
+	"""
+	frappe.only_for("System Manager")
+	return _send(text, phone=phone, conversation_id=conversation_id, name=name, private=private)
+
+
+def _send_via_webhook(text: str, phone: str | None, name: str | None, private,
+                      conversation_id, settings: dict, context: dict | None) -> dict:
+	"""Connector 2, webhook method: POST the rendered message to an outside URL.
+
+	Chatwoot is never touched. The whole message -- text, destination, and
+	whatever the caller knew about the ticket -- is handed to `webhook_url` as
+	one JSON body, and it is that endpoint's job to deliver it (relay into
+	Chatwoot as an admin, hit the WhatsApp Cloud API directly, whatever). Any
+	2xx is treated as accepted; the relay owns delivery from there.
+
+	The optional secret is sent in `webhook_auth_header`: as `Bearer <secret>`
+	when that header is Authorization (the usual case), otherwise as the raw
+	value, which suits an `X-Api-Key`-style header.
+	"""
+	import requests
+
+	url = settings.get("webhook_url")
+	if not url:
+		return _fail(-400, _("Connector 2 Webhook URL is not set in App APIs settings."))
+
+	destination = _normalise_phone(phone) if phone else None
+	if phone and not destination:
+		return _fail(-400, _("{0} is not a usable phone number.").format(phone))
+	if not destination and not conversation_id:
+		return _fail(-400, _("Either a phone number or a conversation id is required."))
+
+	ctx = context or {}
+	payload = {
+		"event": "outgoing_message",
+		"source": "app_apis.chatwoot_connector",
+		"connector": "2",
+		"method": "webhook",
+		"ticket": ctx.get("ticket"),
+		"template": ctx.get("template"),
+		"lang": ctx.get("lang"),
+		"customer": ctx.get("customer"),
+		"name": name or ctx.get("customer") or "",
+		"to": destination,
+		"phone": destination or (phone or None),
+		"raw_phone": phone or None,
+		"conversation_id": conversation_id,
+		"private": bool(cint(private)),
+		"account_id": settings.get("account_id") or "",
+		"inbox_id": settings.get("inbox_id") or "",
+		"text": text,
+	}
+
+	headers = {"Content-Type": "application/json", "Accept": "application/json"}
+	secret = settings.get("webhook_secret")
+	hdr_name = settings.get("webhook_auth_header") or "Authorization"
+	if secret:
+		headers[hdr_name] = ("Bearer " + secret) if hdr_name.lower() == "authorization" else secret
+
+	started = time.monotonic()
+	try:
+		resp = requests.post(url, json=payload, headers=headers, timeout=settings.get("timeout", 20))
+	except requests.exceptions.Timeout:
+		return _fail(-408, _("The webhook did not answer within {0}s.").format(settings.get("timeout", 20)))
+	except requests.exceptions.RequestException as e:
+		return _fail(-502, _("Could not reach the webhook: {0}").format(str(e)[:200]))
+
+	meta = {
+		"method": "POST",
+		"url": url,
+		"http_status": resp.status_code,
+		"elapsed_ms": int((time.monotonic() - started) * 1000),
+		"server_epoch": int(time.time()),
+	}
+	if resp.status_code >= 400:
+		return _fail(-500, _("Webhook returned HTTP {0}: {1}").format(resp.status_code, resp.text[:300]), meta)
+
+	message_id = None
+	try:
+		j = resp.json()
+		if isinstance(j, dict):
+			message_id = j.get("message_id") or j.get("id")
+	except Exception:
+		pass
+
+	frappe.logger(LOGGER).warning(
+		f"chatwoot(webhook): relayed to {url} ({len(text)} chars) -> HTTP {resp.status_code}"
+	)
+
+	return {
+		"ok": True,
+		"connector": "2",
+		"method": "webhook",
+		"webhook_status": resp.status_code,
+		"conversation_id": conversation_id,
+		"message_id": message_id,
+		"phone": destination or phone,
+		"message": text,
+		"_chatwoot": meta,
+	}
+
+
+def _send(text: str, phone: str | None = None, conversation_id=None,
+          name: str | None = None, private: int = 0, context: dict | None = None) -> dict:
+	"""The actual send. Internal: callers decide who is allowed to reach it.
+
+	Reads through `active_settings()`, so the live connector -- and, for
+	connector 2, its method -- decides the route. `agent_api` (connector 1) and
+	`agent_bot` (connector 2) share the REST chain below unchanged; `webhook`
+	peels off to `_send_via_webhook`. `context` is optional ticket metadata that
+	only the webhook payload uses; the REST path ignores it.
+	"""
+	settings = active_settings()
+	ready, why = _ready(settings)
+	if not ready:
+		return _fail(-400, why)
+
+	body_text = strip_html_tags(str(text or "")).strip()
+	if not body_text:
+		return _fail(-400, _("Refusing to send an empty message."))
+
+	if settings.get("method") == "webhook":
+		return _send_via_webhook(
+			body_text, phone=phone, name=name, private=private,
+			conversation_id=conversation_id, settings=settings, context=context,
+		)
+
+	if not conversation_id:
+		if not phone:
+			return _fail(-400, _("Either a phone number or a conversation id is required."))
+		if not settings["inbox_id"]:
+			return _fail(-400, _("Chatwoot Inbox ID is not set in App APIs settings."))
+
+		destination = _normalise_phone(phone)
+		if not destination:
+			return _fail(-400, _("{0} is not a usable phone number.").format(phone))
+
+		resolved = _resolve_conversation(destination, name or "", settings)
+		if not resolved.get("ok"):
+			return resolved
+		conversation_id = resolved["conversation_id"]
+
+	data, meta = _request("POST", f"/conversations/{conversation_id}/messages", settings, body={
+		"content": body_text,
+		"message_type": "outgoing",
+		"private": bool(cint(private)),
+	})
+	if data is None:
+		return _fail(*meta["error"], meta)
+
+	frappe.logger(LOGGER).warning(
+		f"chatwoot: sent to conversation {conversation_id} ({len(body_text)} chars)"
+	)
+
+	return {
+		"ok": True,
+		"connector": settings.get("connector"),
+		"method": settings.get("method"),
+		"conversation_id": conversation_id,
+		"message_id": (_payload(data) or {}).get("id"),
+		"message": body_text,
+	}
+
+
+@frappe.whitelist()
+def send_ticket_message(ticket: str, template: str = "valuation", lang: str | None = None,
+                        phone: str | None = None, text: str | None = None) -> dict:
+	"""Send a ticket's message to its customer. The one scripts should call.
+
+	Renders the ar/en template for the ticket, resolves the phone off the ticket
+	(or its Customer) unless one is passed, and posts it. `text` overrides the
+	template entirely, for a one-off message typed by an operator.
+
+	Gated on read access to the ticket rather than on System Manager: the point
+	of this function is that the agent working a ticket can message its
+	customer. The destination still comes off the ticket, so read access is the
+	honest permission -- whoever may see the customer's number may write to it.
+	"""
+	if template not in TEMPLATES:
+		return _fail(-400, _("Unknown message template: {0}").format(template))
+
+	doc = frappe.get_doc("xticket", ticket)
+	doc.check_permission("read")
+
+	settings = active_settings()
+	ready, why = _ready(settings)
+	if not ready:
+		return _fail(-400, why)
+
+	to = recipient_of(template)
+	language = _language_for(doc, template, lang, settings)
+	body_text = text or _render(_template_text(template, language, settings), _context(doc, template, language))
+
+	destination = _normalise_phone(phone) if phone else recipient_phone(doc, template)
+	if not destination:
+		# Worth its own code: this is a data problem, not a Chatwoot problem,
+		# and the two sides are fixed in different places -- so they get
+		# different sentences rather than one vague one.
+		if to == TO_TECHNICIAN:
+			who = technicians.name(doc) or doc.get("assigned_to") or _("the engineer")
+			return _fail(
+				-404,
+				_("No phone number on file for {0}. Add one to their User or Employee record.").format(who),
+			)
+		return _fail(-404, _("No usable phone number on ticket {0} or its customer.").format(ticket))
+
+	context = {
+		"ticket": doc.name,
+		"template": template,
+		"lang": language,
+		"recipient": to,
+		"customer": doc.get("translated_customer_name") or doc.get("customer") or "",
+	}
+	result = _send(body_text, phone=destination, name=recipient_name(doc, template), context=context)
+	result["ticket"] = doc.name
+	result["lang"] = language
+	result["template"] = template
+	result["recipient"] = to
+	result["phone"] = destination
+	# Only ever the engineer's own name, and only on a message addressed to
+	# them -- so the log can say who was written to without the customer's row
+	# picking up a staff name it has no business holding.
+	result["engineer"] = technicians.name(doc) if to == TO_TECHNICIAN else ""
+	return result
+
+
+@frappe.whitelist()
+def send_valuation_link(ticket: str, lang: str | None = None, phone: str | None = None) -> dict:
+	"""Send the customer their 24-hour feedback link.
+
+	A named shortcut for the `valuation` template, because this is the message
+	the workflow actually wants and `send_ticket_message(ticket, "valuation")`
+	is easy to typo into a silent status message.
+	"""
+	return send_ticket_message(ticket, template="valuation", lang=lang, phone=phone)
+
+
+def status() -> dict:
+	"""Configuration summary for the desk, with no secrets in it.
+
+	Reports BOTH connectors and which one is live, so an operator running the
+	two side by side can see at a glance which is ready and which is switched
+	on. No token or secret is ever included -- only whether one is set.
+	"""
+	active = active_settings()
+	ready, why = _ready(active)
+
+	s1 = _settings_for("1")
+	r1, w1 = _ready(s1)
+
+	s2 = _settings_for("2")
+	r2, w2 = _ready(s2)
+
+	return {
+		"active_connector": active.get("connector"),
+		"active_method": active.get("method"),
+		"ready": ready,
+		"reason": why,
+		"default_language": active["default_language"],
+		"connector_1": {
+			"enabled": s1["enabled"],
+			"method": "agent_api",
+			"base_url": s1["base_url"],
+			"account_id": s1["account_id"],
+			"inbox_id": s1["inbox_id"],
+			"token_set": bool(_token(s1)),
+			"ready": r1,
+			"reason": w1,
+		},
+		"connector_2": {
+			"enabled": s2["enabled"],
+			"method": s2["method"],
+			"base_url": s2["base_url"],
+			"account_id": s2["account_id"],
+			"inbox_id": s2["inbox_id"],
+			"token_set": bool(_token(s2)),
+			"webhook_url_set": bool(s2.get("webhook_url")),
+			"webhook_secret_set": bool(s2.get("webhook_secret")),
+			"ready": r2,
+			"reason": w2,
+		},
+		"templates": sorted(TEMPLATES),
+		"customer_templates": templates_for(TO_CUSTOMER),
+		"technician_templates": templates_for(TO_TECHNICIAN),
+	}

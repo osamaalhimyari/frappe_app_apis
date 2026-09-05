@@ -1,0 +1,303 @@
+app_name = "app_apis"
+app_title = "App Apis"
+app_publisher = "osama"
+app_description = "this app used to fetch data from pilot tracking system "
+app_email = "osama@im2m.ws"
+app_license = "mit"
+
+# Apps
+# ------------------
+
+# required_apps = []
+
+# Each item in the list will be shown as an app in the apps page
+# add_to_apps_screen = [
+# 	{
+# 		"name": "app_apis",
+# 		"logo": "/assets/app_apis/logo.png",
+# 		"title": "App Apis",
+# 		"route": "/app_apis",
+# 		"has_permission": "app_apis.api.permission.has_app_permission"
+# 	}
+# ]
+
+# Includes in <head>
+# ------------------
+
+# include js, css files in header of desk.html
+# app_include_css = "/assets/app_apis/css/app_apis.css"
+# app_include_js = "/assets/app_apis/js/app_apis.js"
+
+# include js, css files in header of web template
+# web_include_css = "/assets/app_apis/css/app_apis.css"
+# web_include_js = "/assets/app_apis/js/app_apis.js"
+
+# include custom scss in every website theme (without file extension ".scss")
+# website_theme_scss = "app_apis/public/scss/website"
+
+# include js, css files in header of web form
+# webform_include_js = {"doctype": "public/js/doctype.js"}
+# webform_include_css = {"doctype": "public/css/doctype.css"}
+
+# include js in page
+# page_js = {"page" : "public/js/file.js"}
+
+# include js in doctype views
+# doctype_js = {"doctype" : "public/js/doctype.js"}
+# doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
+# doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
+# doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
+
+# Svg Icons
+# ------------------
+# include app icons in desk
+# app_include_icons = "app_apis/public/icons.svg"
+
+# Home Pages
+# ----------
+
+# application home page (will override Website Settings)
+# home_page = "login"
+
+# website user home page (by Role)
+# role_home_page = {
+# 	"Role": "home_page"
+# }
+
+# Generators
+# ----------
+
+# automatically create page for each record of this doctype
+# website_generators = ["Web Page"]
+
+# automatically load and sync documents of this doctype from downstream apps
+# importable_doctypes = [doctype_1]
+
+# Jinja
+# ----------
+
+# add methods and filters to jinja environment
+# jinja = {
+# 	"methods": "app_apis.utils.jinja_methods",
+# 	"filters": "app_apis.utils.jinja_filters"
+# }
+
+# Installation
+# ------------
+
+# before_install = "app_apis.install.before_install"
+# after_install = "app_apis.install.after_install"
+
+# Uninstallation
+# ------------
+
+# before_uninstall = "app_apis.uninstall.before_uninstall"
+# after_uninstall = "app_apis.uninstall.after_uninstall"
+
+# Integration Setup
+# ------------------
+# To set up dependencies/integrations with other apps
+# Name of the app being installed is passed as an argument
+
+# before_app_install = "app_apis.utils.before_app_install"
+# after_app_install = "app_apis.utils.after_app_install"
+
+# Integration Cleanup
+# -------------------
+# To clean up dependencies/integrations with other apps
+# Name of the app being uninstalled is passed as an argument
+
+# before_app_uninstall = "app_apis.utils.before_app_uninstall"
+# after_app_uninstall = "app_apis.utils.after_app_uninstall"
+
+# Build
+# ------------------
+# To hook into the build process
+
+# after_build = "app_apis.build.after_build"
+
+# Desk Notifications
+# ------------------
+# See frappe.core.notifications.get_notification_config
+
+# notification_config = "app_apis.notifications.get_notification_config"
+
+# Permissions
+# -----------
+# Permissions evaluated in scripted ways
+
+# permission_query_conditions = {
+# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
+# }
+#
+# has_permission = {
+# 	"Event": "frappe.desk.doctype.event.event.has_permission",
+# }
+
+# Document Events
+# ---------------
+# Hook on document methods and events
+
+# `xticket` is a UI-created custom doctype, so it has no controller file to hold
+# an on_update method -- doc_events is the only place this hook can live. See
+# app_apis/xticket_events.py for why the trigger is `workflow_state`.
+#
+# Two handlers, listed separately rather than chained: they answer different
+# questions ("tell the team" vs "ask the customer"), they are gated by
+# different settings, and neither should be able to stop the other from
+# running. Both swallow their own exceptions -- a handler in this list runs
+# inside the operator's save, so anything that escapes would roll back their
+# status change.
+doc_events = {
+    "xticket": {
+        "on_update": [
+            "app_apis.xticket_events.on_status_change",
+            "app_apis.auto_messages.on_ticket_update",
+        ],
+    },
+}
+
+# Scheduled Tasks
+# ---------------
+
+# Scheduler Events
+# ----------------
+#
+# Hourly rather than daily, and the hook itself decides nothing: the hour and
+# the weekday are `subscription_reminder_hour` and `subscription_reminder_weekday`
+# on the settings Single, so an operator changes when this runs from the desk
+# instead of editing this file and redeploying. `hourly_long` because a pass
+# reads 22,000 vehicle rows and can then sit on HTTP calls to Chatwoot; the
+# short queue is for work that finishes quickly.
+#
+# The job is a no-op unless `subscription_reminder_enabled` is ticked, and sends
+# nothing at all while `subscription_reminder_dry_run` is on. See
+# app_apis/subscription_reminders.py for why there are three separate guards.
+scheduler_events = {
+	"hourly_long": [
+		"app_apis.subscription_reminders.hourly",
+	],
+}
+
+# Testing
+# -------
+
+# before_tests = "app_apis.install.before_tests"
+
+# Extend DocType Class
+# ------------------------------
+#
+# Specify custom mixins to extend the standard doctype controller.
+# extend_doctype_class = {
+# 	"Task": "app_apis.custom.task.CustomTaskMixin"
+# }
+
+# Overriding Methods
+# ------------------------------
+#
+# override_whitelisted_methods = {
+# 	"frappe.desk.doctype.event.event.get_events": "app_apis.event.get_events"
+# }
+#
+# each overriding function accepts a `data` argument;
+# generated from the base implementation of the doctype dashboard,
+# along with any modifications made in other Frappe apps
+# override_doctype_dashboards = {
+# 	"Task": "app_apis.task.get_dashboard_data"
+# }
+
+# exempt linked doctypes from being automatically cancelled
+#
+# auto_cancel_exempted_doctypes = ["Auto Repeat"]
+
+# Ignore links to specified DocTypes when deleting documents
+# -----------------------------------------------------------
+
+# ignore_links_on_delete = ["Communication", "ToDo"]
+
+# Fixtures
+# --------
+# Ship BOTH toolbar buttons with the app, so `bench install-app app_apis` on any
+# site that already has the doctypes delivers working features, not just a
+# library. The Client Scripts are the app's entire front end -- they call
+# app_apis.connector.get_snapshot / app_apis.im_connector.get_snapshot and
+# render the result.
+#
+# Both records live in ONE fixtures/client_script.json, and that filename is not
+# a choice: frappe resolves a fixture file by the scrubbed doctype name, so a
+# second file (im_client_script.json) is silently never imported.
+#
+# Regenerate after editing either script in the desk:
+#     bench --site <site> export-fixtures --app app_apis
+#
+# There is no Server Script to ship: all logic lives in the two connectors.
+fixtures = [
+    {
+        "dt": "Client Script",
+        "filters": [
+            [
+                "name",
+                "in",
+                [
+                    "xticket-check-pilot",
+                    "xticket-check-im",
+                    "xticket-valuation-link",
+                    "xticket-message-toast",
+                ],
+            ]
+        ],
+    },
+]
+
+# Request Events
+# ----------------
+# Intentionally empty. An earlier design hooked before_request to monkeypatch
+# the Server Script sandbox's HTTP helpers, so no Server Script could reach the
+# network behind the app's back. That is now moot: there are no Server Scripts,
+# and `server_script_enabled` is off. See app_apis/connector.py.
+# before_request = []
+# after_request = []
+
+# User Data Protection
+# --------------------
+
+# user_data_fields = [
+# 	{
+# 		"doctype": "{doctype_1}",
+# 		"filter_by": "{filter_by}",
+# 		"redact_fields": ["{field_1}", "{field_2}"],
+# 		"partial": 1,
+# 	},
+# 	{
+# 		"doctype": "{doctype_2}",
+# 		"filter_by": "{filter_by}",
+# 		"partial": 1,
+# 	},
+# 	{
+# 		"doctype": "{doctype_3}",
+# 		"strict": False,
+# 	},
+# 	{
+# 		"doctype": "{doctype_4}"
+# 	}
+# ]
+
+# Authentication and authorization
+# --------------------------------
+
+# auth_hooks = [
+# 	"app_apis.auth.validate"
+# ]
+
+# Automatically update python controller files with type annotations for this app.
+# export_python_type_annotations = True
+
+# default_log_clearing_doctypes = {
+# 	"Logging DocType Name": 30  # days to retain logs
+# }
+
+# Translation
+# ------------
+# List of apps whose translatable strings should be excluded from this app's translations.
+# ignore_translatable_strings_from = []
+

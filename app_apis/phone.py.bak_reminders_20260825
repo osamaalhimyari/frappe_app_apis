@@ -1,0 +1,49 @@
+# Copyright (c) 2026, osama and contributors
+# For license information, please see license.txt
+
+"""Turning whatever somebody typed into a number you can actually send to.
+
+Lifted out of chatwoot_connector once a second caller appeared: the customer's
+number comes off the ticket and the technician's comes off their User or
+Employee record, and both have to end up in the same shape before Chatwoot sees
+them. Two copies of the country-code rule would eventually disagree about a
+leading zero, and the symptom would be a message going to the wrong person.
+
+A leaf module: frappe is not even imported, so this can be reasoned about and
+tested on its own.
+"""
+
+import re
+
+# Saudi. Applied only to a local number that clearly has no country code.
+DEFAULT_COUNTRY_CODE = "966"
+
+# Shortest string of digits that can be a real mobile number. Half this site's
+# `driver_mobile` values are a bare "+966" with no number after it -- 3 digits,
+# which looks filled to a NOT NULL check and is not a destination.
+MIN_PHONE_DIGITS = 9
+
+
+def digits(value) -> str:
+	"""Everything that is not a digit, removed."""
+	return re.sub(r"\D", "", str(value or ""))
+
+
+def normalise(raw) -> str | None:
+	"""Return an E.164 number, or None if `raw` is not one.
+
+	None rather than a best guess: a number this cannot make sense of must not
+	reach Chatwoot, where the failure would look like a delivery problem rather
+	than the data problem it is.
+	"""
+	value = digits(raw)
+	if len(value) < MIN_PHONE_DIGITS:
+		return None
+
+	# 00966… and 966… are already international; 05xxxxxxxx and 5xxxxxxxx are local.
+	if value.startswith("00"):
+		value = value[2:]
+	elif not value.startswith(DEFAULT_COUNTRY_CODE):
+		value = DEFAULT_COUNTRY_CODE + value.lstrip("0")
+
+	return "+" + value

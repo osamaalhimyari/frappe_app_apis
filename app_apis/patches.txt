@@ -1,0 +1,54 @@
+[pre_model_sync]
+# Patches added in this section will be executed before doctypes are migrated
+# Read docs to understand patches: https://frappeframework.com/docs/v14/user/en/database-migrations
+
+[post_model_sync]
+# Patches added in this section will be executed after doctypes are migrated
+# Folds "Pilot API Settings" + "IM Settings" into the single "app_apis" doctype.
+# Must run post-sync: the target doctype has to exist before values move into it.
+app_apis.patches.merge_settings_into_app_apis
+# Valuation's technician* columns become engineer*, and rating/description gain
+# their engineer_ prefix. Post-sync: the new columns must exist to copy into.
+app_apis.patches.rename_valuation_technician_to_engineer
+# Same rename in the saved Chatwoot message text. Separate from the doctype
+# patch above because it edits DATA an operator may have since reworded.
+app_apis.patches.rename_technician_placeholder_in_messages
+# The scratch send button is retired; its flow moved into the valuation-link
+# dialog. Fixtures import but never delete, so the record needs removing here.
+app_apis.patches.drop_chatwoot_test_client_script
+# Fills message fields that are still blank with the shipped defaults, so a site
+# upgraded across the field being added is not left with an empty template.
+app_apis.patches.seed_blank_chatwoot_messages
+# Moves the single-message automation onto the status/template rule table and
+# seeds the three stages. Leaves the master switch off: enabling automatic
+# messages to real customers is a decision, not a migration step.
+app_apis.patches.migrate_auto_valuation_to_auto_messages
+# The accepted/working templates arrived after seed_blank_chatwoot_messages had
+# already run, leaving their four fields empty. Fills any message still blank.
+app_apis.patches.seed_message_defaults
+# Cuts the message list back to the three that actually fire. Removing a field
+# from a Single leaves its value row behind, so the rows go here.
+app_apis.patches.drop_unused_message_templates
+# Seeds who is shown their vehicle number, and adds {vehicle} to any message
+# wording still identical to the shipped text. Reworded messages are left alone.
+app_apis.patches.show_vehicle_number
+# Adds the engineer's three templates and their status rules. Leaves the
+# 'Send to Technicians' switch off: messaging staff is a decision, not a migration.
+app_apis.patches.add_technician_messages
+# Twelve message boxes and a language picker become six bilingual boxes. Wording
+# an operator edited is stacked into the new field rather than dropped; the
+# retired fieldnames are deleted from tabSingles, which removing a field from a
+# Single does not do on its own.
+app_apis.patches.merge_message_languages
+# Seeds the Subscription Reminders section on a site that predates it. Leaves the
+# send switch OFF and Dry Run ON: messaging 966 real customers is a decision, not
+# a migration step.
+app_apis.patches.seed_subscription_reminders
+# The first bilingual wording read like a status field with a tick in front of
+# it. Swaps all seven messages for the warmer version, leaving anything an
+# operator has reworded exactly as it is.
+app_apis.patches.warm_message_wording
+# The reminder window used to open only once a subscription had already lapsed.
+# It now opens 50 days BEFORE the expiry date, so the customer can renew without
+# losing tracking. Moves the two old day-count settings across.
+app_apis.patches.subscription_reminder_lead_time

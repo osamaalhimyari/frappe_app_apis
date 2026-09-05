@@ -1,0 +1,199 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-08-15 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "ticket",
+  "recipient",
+  "customer",
+  "engineer",
+  "phone",
+  "col_a",
+  "status",
+  "template",
+  "language",
+  "sent_on",
+  "sec_why",
+  "trigger_source",
+  "reason",
+  "code",
+  "sec_what",
+  "message",
+  "sec_chatwoot",
+  "conversation_id",
+  "col_b",
+  "message_id"
+ ],
+ "fields": [
+  {
+   "fieldname": "ticket",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Ticket",
+   "options": "xticket",
+   "read_only": 1
+  },
+  {
+   "description": "Who this message was written to. The customer's messages are filtered by customer type; the engineer's are not.",
+   "fieldname": "recipient",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Sent To",
+   "options": "Customer\nTechnician",
+   "read_only": 1
+  },
+  {
+   "description": "The ticket's customer, recorded on every row whoever the message went to.",
+   "fieldname": "customer",
+   "fieldtype": "Data",
+   "label": "Customer",
+   "read_only": 1
+  },
+  {
+   "description": "Only filled on a message addressed to the engineer.",
+   "fieldname": "engineer",
+   "fieldtype": "Data",
+   "label": "Engineer",
+   "read_only": 1
+  },
+  {
+   "description": "Where it was actually sent.",
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Phone",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Skipped means the send was declined on purpose; Failed means it was attempted and did not land.",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Sent\nFailed\nSkipped",
+   "read_only": 1
+  },
+  {
+   "fieldname": "template",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Template",
+   "read_only": 1
+  },
+  {
+   "fieldname": "language",
+   "fieldtype": "Data",
+   "label": "Language",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sent_on",
+   "fieldtype": "Datetime",
+   "label": "Sent On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_why",
+   "fieldtype": "Section Break",
+   "label": "Outcome"
+  },
+  {
+   "description": "What set this off, e.g. the field and state that changed.",
+   "fieldname": "trigger_source",
+   "fieldtype": "Data",
+   "label": "Trigger",
+   "read_only": 1
+  },
+  {
+   "description": "Why it was skipped, or how it failed.",
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Reason",
+   "read_only": 1
+  },
+  {
+   "description": "Chatwoot connector code. Negative values are local refusals, not HTTP.",
+   "fieldname": "code",
+   "fieldtype": "Int",
+   "label": "Code",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_what",
+   "fieldtype": "Section Break",
+   "label": "Message"
+  },
+  {
+   "description": "Exactly the text that went out, link included.",
+   "fieldname": "message",
+   "fieldtype": "Text",
+   "label": "Body",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "sec_chatwoot",
+   "fieldtype": "Section Break",
+   "label": "Chatwoot"
+  },
+  {
+   "fieldname": "conversation_id",
+   "fieldtype": "Data",
+   "label": "Conversation ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_b",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "message_id",
+   "fieldtype": "Data",
+   "label": "Message ID",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "App Apis Message Log",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Support Team"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "ticket",
+ "track_changes": 0
+}

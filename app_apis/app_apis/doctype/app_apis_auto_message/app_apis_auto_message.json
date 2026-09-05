@@ -1,0 +1,67 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-15 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "enabled",
+  "state",
+  "template",
+  "send_once"
+ ],
+ "fields": [
+  {
+   "columns": 1,
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "On"
+  },
+  {
+   "columns": 4,
+   "description": "Ticket status that fires this message. Must match the Status option exactly, apostrophe included.",
+   "fieldname": "state",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "When Status Becomes",
+   "reqd": 1
+  },
+  {
+   "columns": 3,
+   "description": "Which message to send, and to whom: the three plain names go to the customer, the tech_ ones go to the engineer who was assigned the ticket. The wording for each lives in the message sections above.",
+   "fieldname": "template",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Send Message",
+   "options": "accepted\nworking\nvaluation\ntech_accepted\ntech_working\ntech_done",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "default": "1",
+   "description": "Never send this message twice for the same ticket, however often it re-enters the state.",
+   "fieldname": "send_once",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Once Per Ticket"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "App Apis Auto Message",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "states": [],
+ "track_changes": 0
+}

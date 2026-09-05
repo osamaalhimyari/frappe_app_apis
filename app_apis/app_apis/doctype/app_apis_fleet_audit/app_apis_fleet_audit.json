@@ -1,0 +1,324 @@
+{
+ "actions": [],
+ "allow_copy": 1,
+ "allow_rename": 0,
+ "creation": "2026-09-03 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "imei",
+  "verdict",
+  "on_pilot",
+  "on_pilot_1",
+  "on_pilot_2",
+  "on_im",
+  "pilot_checked",
+  "im_checked",
+  "col_a",
+  "erp_vehicle",
+  "plate",
+  "customer",
+  "customer_name",
+  "erp_status",
+  "server_type",
+  "device_model",
+  "expects_pilot",
+  "expects_im",
+  "subscription_expiry",
+  "sec_issues",
+  "issues",
+  "sec_pilot",
+  "pilot_vehicle",
+  "pilot_folder",
+  "col_p",
+  "pilot_account",
+  "pilot_active",
+  "pilot_last_seen",
+  "pilot_msisdn",
+  "sec_im",
+  "im_vehicle",
+  "im_company",
+  "col_i",
+  "im_status",
+  "im_last_seen",
+  "sec_sim",
+  "sim_status",
+  "sim_last_seen",
+  "col_sim",
+  "sim_msisdn",
+  "sec_meta",
+  "audited_at"
+ ],
+ "fields": [
+  {
+   "description": "The device serial. The key every one of the three systems is joined on.",
+   "fieldname": "imei",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "IMEI",
+   "search_index": 1
+  },
+  {
+   "fieldname": "verdict",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Verdict",
+   "options": "OK\nMissing on Pilot\nMissing on IM\nMissing on both\nDeleted but still live\nUnexpected platform\nNot in ERP\nNo device serial\nNot checked\nUnmatchable ID"
+  },
+  {
+   "description": "On at least one configured Pilot admin account.",
+   "fieldname": "on_pilot",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "On Pilot"
+  },
+  {
+   "description": "Seen in the Pilot (WSL) admin account's estate sweep.",
+   "fieldname": "on_pilot_1",
+   "fieldtype": "Check",
+   "label": "On Pilot (WSL)"
+  },
+  {
+   "description": "Seen in the second Pilot admin account's estate sweep.",
+   "fieldname": "on_pilot_2",
+   "fieldtype": "Check",
+   "label": "On Pilot 2"
+  },
+  {
+   "fieldname": "on_im",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "On IM"
+  },
+  {
+   "description": "0 means Pilot was not read in this run, so a blank On Pilot proves nothing.",
+   "fieldname": "pilot_checked",
+   "fieldtype": "Check",
+   "label": "Pilot was read"
+  },
+  {
+   "description": "0 means IM was not read in this run, so a blank On IM proves nothing.",
+   "fieldname": "im_checked",
+   "fieldtype": "Check",
+   "label": "IM was read"
+  },
+  {
+   "fieldname": "col_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "erp_vehicle",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Vehicle",
+   "options": "Customer Vehicle"
+  },
+  {
+   "fieldname": "plate",
+   "fieldtype": "Data",
+   "label": "Plate"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "customer_name",
+   "fieldtype": "Data",
+   "label": "Customer Name"
+  },
+  {
+   "fieldname": "erp_status",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "ERP Device Status"
+  },
+  {
+   "fieldname": "server_type",
+   "fieldtype": "Data",
+   "label": "ERP Server Type"
+  },
+  {
+   "fieldname": "device_model",
+   "fieldtype": "Data",
+   "label": "Device Model"
+  },
+  {
+   "fieldname": "expects_pilot",
+   "fieldtype": "Check",
+   "label": "ERP expects Pilot"
+  },
+  {
+   "fieldname": "expects_im",
+   "fieldtype": "Check",
+   "label": "ERP expects IM"
+  },
+  {
+   "fieldname": "subscription_expiry",
+   "fieldtype": "Date",
+   "label": "Subscription Expiry"
+  },
+  {
+   "fieldname": "sec_issues",
+   "fieldtype": "Section Break",
+   "label": "What is wrong"
+  },
+  {
+   "fieldname": "issues",
+   "fieldtype": "Small Text",
+   "label": "Issues"
+  },
+  {
+   "fieldname": "sec_pilot",
+   "fieldtype": "Section Break",
+   "label": "Pilot"
+  },
+  {
+   "fieldname": "pilot_vehicle",
+   "fieldtype": "Data",
+   "label": "Pilot Vehicle Number"
+  },
+  {
+   "fieldname": "pilot_folder",
+   "fieldtype": "Data",
+   "label": "Pilot Folder"
+  },
+  {
+   "fieldname": "col_p",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "pilot_account",
+   "fieldtype": "Data",
+   "label": "Pilot Account"
+  },
+  {
+   "description": "Pilot's own active flag. A device can be present on Pilot but inactive.",
+   "fieldname": "pilot_active",
+   "fieldtype": "Check",
+   "label": "Active on Pilot"
+  },
+  {
+   "fieldname": "pilot_last_seen",
+   "fieldtype": "Datetime",
+   "label": "Pilot Last Seen"
+  },
+  {
+   "description": "Pilot's own record of the device's SIM number. Used to join a SIM import row that carries no IMEI.",
+   "fieldname": "pilot_msisdn",
+   "fieldtype": "Data",
+   "label": "Pilot MSISDN"
+  },
+  {
+   "fieldname": "sec_im",
+   "fieldtype": "Section Break",
+   "label": "IM"
+  },
+  {
+   "fieldname": "im_vehicle",
+   "fieldtype": "Data",
+   "label": "IM Vehicle Number"
+  },
+  {
+   "fieldname": "im_company",
+   "fieldtype": "Data",
+   "label": "IM Company"
+  },
+  {
+   "fieldname": "col_i",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "im_status",
+   "fieldtype": "Data",
+   "label": "IM Status"
+  },
+  {
+   "fieldname": "im_last_seen",
+   "fieldtype": "Datetime",
+   "label": "IM Last Seen"
+  },
+  {
+   "collapsible": 1,
+   "description": "Not read live -- filled in from the last uploaded Lebara SIM export (App APIs → Fleet Audit → Upload SIM Export), matched by IMEI first and by Pilot MSISDN as a fallback.",
+   "fieldname": "sec_sim",
+   "fieldtype": "Section Break",
+   "label": "SIM (Lebara)"
+  },
+  {
+   "fieldname": "sim_status",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "SIM Status"
+  },
+  {
+   "fieldname": "sim_last_seen",
+   "fieldtype": "Datetime",
+   "label": "SIM Last Connection"
+  },
+  {
+   "fieldname": "col_sim",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sim_msisdn",
+   "fieldtype": "Data",
+   "label": "SIM MSISDN"
+  },
+  {
+   "fieldname": "sec_meta",
+   "fieldtype": "Section Break",
+   "label": "Run"
+  },
+  {
+   "fieldname": "audited_at",
+   "fieldtype": "Datetime",
+   "label": "Audited At"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "app_apis_fleet_audit",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Technical"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Support Team"
+  }
+ ],
+ "quick_entry": 0,
+ "read_only": 1,
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

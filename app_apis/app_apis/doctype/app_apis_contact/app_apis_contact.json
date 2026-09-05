@@ -1,0 +1,73 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-13 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "label_en",
+  "label_ar",
+  "phone",
+  "is_whatsapp",
+  "show_on_valuation"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "fieldname": "label_en",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Label (English)"
+  },
+  {
+   "columns": 2,
+   "description": "Blank falls back to the English label.",
+   "fieldname": "label_ar",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Label (Arabic)"
+  },
+  {
+   "columns": 2,
+   "description": "Written however reads best; the tel: link strips the rest.",
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Number",
+   "options": "Phone",
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "default": "0",
+   "fieldname": "is_whatsapp",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "WhatsApp"
+  },
+  {
+   "columns": 1,
+   "default": "1",
+   "description": "Off keeps an internal number out of customer-facing pages and messages.",
+   "fieldname": "show_on_valuation",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Public"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-13 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "App Apis Contact",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

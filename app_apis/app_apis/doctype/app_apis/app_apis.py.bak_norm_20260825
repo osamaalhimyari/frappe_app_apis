@@ -1,0 +1,80 @@
+# Copyright (c) 2026, osama and contributors
+# For license information, please see license.txt
+
+import frappe
+from frappe import _
+from frappe.model.document import Document
+
+
+class app_apis(Document):
+	"""One Single doctype holding every connection this app makes.
+
+	Pilot and IM used to own a settings doctype each, and Chatwoot would have
+	been a third. They are merged here because they are connections of one app,
+	not three apps -- an operator configuring this integration should see one
+	screen, not hunt for others whose existence is only discoverable by reading
+	the code.
+
+	Every fieldname is prefixed `pilot_`, `im_` or `chatwoot_`. That is not
+	decoration: all three have a base URL and a request timeout, so unprefixed
+	names would collide and silently share a value between unrelated endpoints.
+	"""
+
+	def validate(self):
+		# IM signs in with one account for the whole site, so a missing username
+		# is a configuration error worth catching here rather than surfacing
+		# later as an opaque 401 from IM. Pilot has no equivalent check: its
+		# account comes off the ticket, not from this form.
+		if (self.im_base_url or "").strip() and not (self.im_username or "").strip():
+			frappe.throw(
+				_("IM Username is required when an IM Base URL is set."),
+				title=_("App APIs"),
+			)
+
+		# IM rate-limits live data to about one call per minute per account.
+		# Letting these drop to 0 turns the ignition test into a request storm
+		# that IM answers with "The call exceeded the limit".
+		if frappe.utils.cint(self.im_min_call_interval_seconds) < 10:
+			self.im_min_call_interval_seconds = 60
+		if frappe.utils.cint(self.im_ignition_poll_seconds) < 30:
+			self.im_ignition_poll_seconds = 90
+
+		self._validate_chatwoot()
+
+	def _validate_chatwoot(self):
+		"""Only checked when Chatwoot is switched on.
+
+		Half-filled settings are a legitimate saved state while an operator is
+		still collecting the account id and token, so the enabled flag is what
+		makes them mandatory -- and nothing sends until that flag is set.
+		"""
+		if not frappe.utils.cint(self.chatwoot_enabled):
+			return
+
+		missing = [
+			label
+			for label, value in (
+				(_("Chatwoot Domain"), self.chatwoot_base_url),
+				(_("Chatwoot Account ID"), self.chatwoot_account_id),
+				(_("Chatwoot Inbox ID"), self.chatwoot_inbox_id),
+				# Read through the field rather than get_password(): the token
+				# may legitimately live in site_config instead of here.
+				(_("Chatwoot API Token"), self.chatwoot_api_token or frappe.conf.get("chatwoot_api_token")),
+			)
+			if not str(value or "").strip()
+		]
+
+		if missing:
+			frappe.throw(
+				_("Chatwoot is enabled but these are not set: {0}").format(", ".join(missing)),
+				title=_("App APIs"),
+			)
+
+	def on_update(self):
+		# Credentials or endpoint changed -> the cached IM token and any cached
+		# snapshots describe the previous account. Drop them rather than serve
+		# them. Imported lazily so a broken connector can never make this
+		# doctype unsaveable.
+		from app_apis.im_connector import clear_cache
+
+		clear_cache()

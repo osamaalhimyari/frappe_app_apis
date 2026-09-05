@@ -1,0 +1,577 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-11 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sec_pilot",
+  "pilot_base_url",
+  "pilot_node",
+  "pilot_fallback_username",
+  "col_pilot_a",
+  "pilot_password",
+  "pilot_request_timeout",
+  "pilot_stale_after_minutes",
+  "sec_im",
+  "im_base_url",
+  "im_project_id",
+  "im_username",
+  "im_password",
+  "col_im_a",
+  "im_request_timeout",
+  "im_stale_after_minutes",
+  "im_data_timezone",
+  "col_im_b",
+  "im_min_call_interval_seconds",
+  "im_token_ttl_minutes",
+  "im_ignition_poll_seconds",
+  "im_ignition_window_minutes",
+  "sec_chatwoot",
+  "chatwoot_enabled",
+  "chatwoot_base_url",
+  "chatwoot_account_id",
+  "chatwoot_inbox_id",
+  "col_chatwoot_a",
+  "chatwoot_api_token",
+  "chatwoot_request_timeout",
+  "chatwoot_default_language",
+  "sec_chatwoot2",
+  "chatwoot_active_connector",
+  "chatwoot2_enabled",
+  "chatwoot2_method",
+  "chatwoot2_base_url",
+  "chatwoot2_account_id",
+  "chatwoot2_inbox_id",
+  "col_chatwoot2_a",
+  "chatwoot2_api_token",
+  "chatwoot2_webhook_url",
+  "chatwoot2_webhook_auth_header",
+  "chatwoot2_webhook_secret",
+  "chatwoot2_request_timeout",
+  "sec_chatwoot_messages",
+  "chatwoot_accepted_message_en",
+  "chatwoot_working_message_en",
+  "chatwoot_valuation_message_en",
+  "col_chatwoot_b",
+  "chatwoot_accepted_message_ar",
+  "chatwoot_working_message_ar",
+  "chatwoot_valuation_message_ar",
+  "sec_tech_messages",
+  "tech_accepted_message_en",
+  "tech_working_message_en",
+  "tech_done_message_en",
+  "col_tech_b",
+  "tech_accepted_message_ar",
+  "tech_working_message_ar",
+  "tech_done_message_ar",
+  "sec_contacts",
+  "contact_numbers",
+  "sec_auto_messages",
+  "auto_message_enabled",
+  "auto_message_customer_types",
+  "show_vehicle_customer_types",
+  "col_auto_a",
+  "technician_message_enabled",
+  "auto_message_language",
+  "sec_auto_rules",
+  "auto_message_rules"
+ ],
+ "fields": [
+  {
+   "description": "Account comes off the ticket, not from here — only the shared password below.",
+   "fieldname": "sec_pilot",
+   "fieldtype": "Section Break",
+   "label": "Pilot Connection"
+  },
+  {
+   "default": "https://ksa.pilot-gps.com/api/api.php",
+   "description": "Pilot API endpoint.",
+   "fieldname": "pilot_base_url",
+   "fieldtype": "Data",
+   "label": "Pilot Base URL"
+  },
+  {
+   "default": "5",
+   "description": "Wrong node answers “Invalid imei”.",
+   "fieldname": "pilot_node",
+   "fieldtype": "Data",
+   "label": "Pilot Node"
+  },
+  {
+   "description": "Used only when the ticket carries no pilot email.",
+   "fieldname": "pilot_fallback_username",
+   "fieldtype": "Data",
+   "label": "Pilot Fallback Username"
+  },
+  {
+   "fieldname": "col_pilot_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Shared password. site_config pilot_passwords wins.",
+   "fieldname": "pilot_password",
+   "fieldtype": "Password",
+   "label": "Pilot Password"
+  },
+  {
+   "default": "20",
+   "fieldname": "pilot_request_timeout",
+   "fieldtype": "Int",
+   "label": "Pilot Request Timeout (seconds)"
+  },
+  {
+   "default": "15",
+   "fieldname": "pilot_stale_after_minutes",
+   "fieldtype": "Int",
+   "label": "Pilot Stale After (minutes)"
+  },
+  {
+   "description": "One account for the whole site. Live reads, IMEI lookups only.",
+   "fieldname": "sec_im",
+   "fieldtype": "Section Break",
+   "label": "IM Connection"
+  },
+  {
+   "default": "https://gps.im2m.ws/webservice",
+   "description": "IM webservice endpoint.",
+   "fieldname": "im_base_url",
+   "fieldtype": "Data",
+   "label": "IM Base URL"
+  },
+  {
+   "default": "37",
+   "description": "Sent as ProjectId.",
+   "fieldname": "im_project_id",
+   "fieldtype": "Data",
+   "label": "IM Project ID"
+  },
+  {
+   "fieldname": "im_username",
+   "fieldtype": "Data",
+   "label": "IM Username"
+  },
+  {
+   "description": "Case-sensitive.",
+   "fieldname": "im_password",
+   "fieldtype": "Password",
+   "label": "IM Password"
+  },
+  {
+   "fieldname": "col_im_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "20",
+   "fieldname": "im_request_timeout",
+   "fieldtype": "Int",
+   "label": "IM Request Timeout (seconds)"
+  },
+  {
+   "default": "15",
+   "fieldname": "im_stale_after_minutes",
+   "fieldtype": "Int",
+   "label": "IM Stale After (minutes)"
+  },
+  {
+   "description": "Blank = System Timezone. Wrong value shifts “last seen” by hours.",
+   "fieldname": "im_data_timezone",
+   "fieldtype": "Data",
+   "label": "IM Data Timezone (blank = system)"
+  },
+  {
+   "fieldname": "col_im_b",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "60",
+   "description": "IM allows about one call a minute. Newer snapshots come from cache.",
+   "fieldname": "im_min_call_interval_seconds",
+   "fieldtype": "Int",
+   "label": "IM Minimum Call Interval (seconds)"
+  },
+  {
+   "default": "45",
+   "description": "How long an access token is reused.",
+   "fieldname": "im_token_ttl_minutes",
+   "fieldtype": "Int",
+   "label": "IM Token Cache TTL (minutes)"
+  },
+  {
+   "default": "90",
+   "description": "Must stay above the rate limit.",
+   "fieldname": "im_ignition_poll_seconds",
+   "fieldtype": "Int",
+   "label": "IM Ignition Test Poll (seconds)"
+  },
+  {
+   "default": "10",
+   "fieldname": "im_ignition_window_minutes",
+   "fieldtype": "Int",
+   "label": "IM Ignition Test Window (minutes)"
+  },
+  {
+   "description": "Nothing calls Chatwoot on its own. Run test_connection before enabling.",
+   "fieldname": "sec_chatwoot",
+   "fieldtype": "Section Break",
+   "label": "Chatwoot Connection"
+  },
+  {
+   "default": "0",
+   "description": "Off = configure without sending. test_connection still works.",
+   "fieldname": "chatwoot_enabled",
+   "fieldtype": "Check",
+   "label": "Chatwoot Enabled"
+  },
+  {
+   "default": "https://app.chatwoot.com",
+   "description": "Scheme and host only, e.g. https://chat.example.com",
+   "fieldname": "chatwoot_base_url",
+   "fieldtype": "Data",
+   "label": "Chatwoot Domain"
+  },
+  {
+   "description": "The number after /accounts/ in your Chatwoot URL.",
+   "fieldname": "chatwoot_account_id",
+   "fieldtype": "Data",
+   "label": "Chatwoot Account ID"
+  },
+  {
+   "description": "Decides the channel (WhatsApp / SMS / web). See list_inboxes.",
+   "fieldname": "chatwoot_inbox_id",
+   "fieldtype": "Data",
+   "label": "Chatwoot Inbox ID"
+  },
+  {
+   "fieldname": "col_chatwoot_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Chatwoot → Profile Settings → Access Token.",
+   "fieldname": "chatwoot_api_token",
+   "fieldtype": "Password",
+   "label": "Chatwoot API Token"
+  },
+  {
+   "default": "20",
+   "fieldname": "chatwoot_request_timeout",
+   "fieldtype": "Int",
+   "label": "Chatwoot Request Timeout (seconds)"
+  },
+  {
+   "default": "ar",
+   "description": "Used when the Customer has no Print Language.",
+   "fieldname": "chatwoot_default_language",
+   "fieldtype": "Select",
+   "label": "Chatwoot Default Language",
+   "options": "ar\nen"
+  },
+  {
+   "collapsible": 1,
+   "description": "A SECOND Chatwoot route, kept next to the one above so you can try another way of sending without touching what already works. Same messages, different exit. Pick which one is live with “Active Connector”. Method agent_bot talks to Chatwoot with the token here (use an Agent Bot or an Administrator token so it can open conversations on any inbox); method webhook posts the message to your own URL instead and never touches Chatwoot. Nothing here sends until “Connector 2 Enabled” is on and Active Connector is 2.",
+   "fieldname": "sec_chatwoot2",
+   "fieldtype": "Section Break",
+   "label": "Chatwoot Connection 2 (Alternative)"
+  },
+  {
+   "default": "1",
+   "description": "Which connection actually sends. 1 = the primary above. 2 = the alternative configured here. Change this to switch routes; the toolbar button and the automatic messages both follow it.",
+   "fieldname": "chatwoot_active_connector",
+   "fieldtype": "Select",
+   "label": "Active Connector",
+   "options": "1\n2"
+  },
+  {
+   "default": "0",
+   "description": "Off = configure connector 2 without sending, exactly like the primary’s switch. Even with Active Connector = 2, nothing goes out until this is on.",
+   "fieldname": "chatwoot2_enabled",
+   "fieldtype": "Check",
+   "label": "Connector 2 Enabled"
+  },
+  {
+   "default": "agent_bot",
+   "description": "agent_bot = same Chatwoot API as connector 1, with the token below. webhook = POST the message to your own URL and let that deliver it. The fields below change with this choice.",
+   "fieldname": "chatwoot2_method",
+   "fieldtype": "Select",
+   "label": "Method",
+   "options": "agent_bot\nwebhook"
+  },
+  {
+   "default": "https://app.chatwoot.com",
+   "depends_on": "eval:doc.chatwoot2_method=='agent_bot'",
+   "description": "Scheme and host only, e.g. https://chat.example.com",
+   "fieldname": "chatwoot2_base_url",
+   "fieldtype": "Data",
+   "label": "Chatwoot Domain (2)"
+  },
+  {
+   "depends_on": "eval:doc.chatwoot2_method=='agent_bot'",
+   "description": "The number after /accounts/ in your Chatwoot URL.",
+   "fieldname": "chatwoot2_account_id",
+   "fieldtype": "Data",
+   "label": "Account ID (2)"
+  },
+  {
+   "depends_on": "eval:doc.chatwoot2_method=='agent_bot'",
+   "description": "Which inbox / channel the message physically leaves on. Use list_inboxes to find the number.",
+   "fieldname": "chatwoot2_inbox_id",
+   "fieldtype": "Data",
+   "label": "Inbox ID (2)"
+  },
+  {
+   "fieldname": "col_chatwoot2_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.chatwoot2_method=='agent_bot'",
+   "description": "Agent Bot or Administrator access token. An admin token can open conversations on any inbox — the plain agent token could not, which is exactly what blocked the primary. site_config chatwoot2_api_token wins if set.",
+   "fieldname": "chatwoot2_api_token",
+   "fieldtype": "Password",
+   "label": "Access Token (2)"
+  },
+  {
+   "depends_on": "eval:doc.chatwoot2_method=='webhook'",
+   "description": "The message is POSTed here as JSON (text, phone, ticket, customer, lang). Your endpoint delivers it however it likes. Any 2xx is treated as accepted.",
+   "fieldname": "chatwoot2_webhook_url",
+   "fieldtype": "Data",
+   "label": "Webhook URL"
+  },
+  {
+   "default": "Authorization",
+   "depends_on": "eval:doc.chatwoot2_method=='webhook'",
+   "description": "Header the secret below is sent in. Authorization sends it as “Bearer <secret>”; anything else (e.g. X-Api-Key) sends the raw value.",
+   "fieldname": "chatwoot2_webhook_auth_header",
+   "fieldtype": "Data",
+   "label": "Webhook Auth Header"
+  },
+  {
+   "depends_on": "eval:doc.chatwoot2_method=='webhook'",
+   "description": "Optional. Sent in the header above so your endpoint can authenticate the call. site_config chatwoot2_webhook_secret wins if set.",
+   "fieldname": "chatwoot2_webhook_secret",
+   "fieldtype": "Password",
+   "label": "Webhook Secret"
+  },
+  {
+   "default": "20",
+   "fieldname": "chatwoot2_request_timeout",
+   "fieldtype": "Int",
+   "label": "Request Timeout (2) (seconds)"
+  },
+  {
+   "description": "English on the left, Arabic on the right, both in the order a job happens: accepted → work started → feedback. Placeholders: {ticket} {state} {customer} {engineer} {vehicle} {plate} {company} {link} {contacts}. {vehicle} is a whole line — “🚗 Vehicle: 1234 ABC” — and disappears, gap and all, for a customer who is not shown one; {plate} is the bare number, for your own wording.",
+   "fieldname": "sec_chatwoot_messages",
+   "fieldtype": "Section Break",
+   "label": "Chatwoot Messages"
+  },
+  {
+   "fieldname": "col_chatwoot_b",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Template “valuation”. Must include {link}.",
+   "fieldname": "chatwoot_valuation_message_en",
+   "fieldtype": "Small Text",
+   "label": "Feedback Request (English)",
+   "default": "Hello {customer} 👋\n\n✅ Your request {ticket} has been completed by {engineer}.\n\n⭐ We'd appreciate your feedback on our service — it takes less than a minute:\n\n🔗 {link}\n\n⏰ This link is valid for 24 hours.\n\nThank you for your trust 🙏"
+  },
+  {
+   "description": "Template “valuation”, Arabic. Must include {link}.",
+   "fieldname": "chatwoot_valuation_message_ar",
+   "fieldtype": "Small Text",
+   "label": "Feedback Request (Arabic)",
+   "default": "مرحباً {customer} 👋\n\n✅ تم إنجاز طلبك رقم {ticket} بواسطة {engineer}.\n\n⭐ نسعد بتقييمك للخدمة، ولن يستغرق الأمر أكثر من دقيقة:\n\n🔗 {link}\n\n⏰ هذا الرابط صالح لمدة ٢٤ ساعة.\n\nشكراً لثقتكم بنا 🙏"
+  },
+  {
+   "description": "Template “accepted”, English. Sent when the job is taken on.",
+   "fieldname": "chatwoot_accepted_message_en",
+   "fieldtype": "Small Text",
+   "label": "Accepted Message (English)",
+   "default": "Hello {customer} 👋\n\n✅ Your request {ticket} has been accepted.\n\n🔧 Installation Engineer: {engineer}\n\nWe will be in touch as soon as the work begins 🙏"
+  },
+  {
+   "description": "Template “accepted”, Arabic.",
+   "fieldname": "chatwoot_accepted_message_ar",
+   "fieldtype": "Small Text",
+   "label": "Accepted Message (Arabic)",
+   "default": "مرحباً {customer} 👋\n\n✅ تم قبول طلبك رقم {ticket}.\n\n🔧 مهندس التركيب: {engineer}\n\nسنوافيكم فور بدء العمل 🙏"
+  },
+  {
+   "description": "Template “working”, English. Sent when the engineer starts.",
+   "fieldname": "chatwoot_working_message_en",
+   "fieldtype": "Small Text",
+   "label": "Work Started Message (English)",
+   "default": "Hello {customer} 👋\n\n🛠️ Work on your request {ticket} is now under way.\n\n🔧 Installation Engineer: {engineer}\n\nWe will let you know as soon as it is complete 🙏"
+  },
+  {
+   "description": "Template “working”, Arabic.",
+   "fieldname": "chatwoot_working_message_ar",
+   "fieldtype": "Small Text",
+   "label": "Work Started Message (Arabic)",
+   "default": "مرحباً {customer} 👋\n\n🛠️ العمل جارٍ الآن على طلبك رقم {ticket}.\n\n🔧 مهندس التركيب: {engineer}\n\nسنبلغكم فور الانتهاء 🙏"
+  },
+  {
+   "collapsible": 1,
+   "description": "Sent to the engineer assigned to the ticket, not to the customer. Same three stages, same two columns. These are work orders: they always carry the vehicle number whoever the customer is, and they never carry the feedback link. Placeholders: {ticket} {state} {customer} {engineer} {vehicle} {plate} {location} {phone} {company} {contacts}",
+   "fieldname": "sec_tech_messages",
+   "fieldtype": "Section Break",
+   "label": "Technician Messages"
+  },
+  {
+   "description": "Template “tech_accepted”, English. Sent when the job is assigned.",
+   "fieldname": "tech_accepted_message_en",
+   "fieldtype": "Small Text",
+   "label": "Job Assigned (EN)"
+  },
+  {
+   "description": "Template “tech_working”, English.",
+   "fieldname": "tech_working_message_en",
+   "fieldtype": "Small Text",
+   "label": "Work Started (EN)"
+  },
+  {
+   "description": "Template “tech_done”, English.",
+   "fieldname": "tech_done_message_en",
+   "fieldtype": "Small Text",
+   "label": "Job Closed (EN)"
+  },
+  {
+   "fieldname": "col_tech_b",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Template “tech_accepted”, Arabic.",
+   "fieldname": "tech_accepted_message_ar",
+   "fieldtype": "Small Text",
+   "label": "Job Assigned (AR)"
+  },
+  {
+   "description": "Template “tech_working”, Arabic.",
+   "fieldname": "tech_working_message_ar",
+   "fieldtype": "Small Text",
+   "label": "Work Started (AR)"
+  },
+  {
+   "description": "Template “tech_done”, Arabic.",
+   "fieldname": "tech_done_message_ar",
+   "fieldtype": "Small Text",
+   "label": "Job Closed (AR)"
+  },
+  {
+   "description": "Shown at the bottom of the feedback page and available to messages as {contacts}. Edit here or from a script — nothing is hardcoded.",
+   "fieldname": "sec_contacts",
+   "fieldtype": "Section Break",
+   "label": "Contact Numbers"
+  },
+  {
+   "fieldname": "contact_numbers",
+   "fieldtype": "Table",
+   "label": "Contact Numbers",
+   "options": "App Apis Contact"
+  },
+  {
+   "description": "Messages the customer on their own as a ticket moves through its statuses. Runs in the background — it can never delay or block a status change.",
+   "fieldname": "sec_auto_messages",
+   "fieldtype": "Section Break",
+   "label": "Automatic Messages"
+  },
+  {
+   "default": "0",
+   "description": "Off means no customer is ever messaged by a status change. Governs the customer rules below and nothing else.",
+   "fieldname": "auto_message_enabled",
+   "fieldtype": "Check",
+   "label": "Send to Customers"
+  },
+  {
+   "default": "Individual",
+   "description": "Only these customer types are messaged, comma separated. Write All to switch the filter off — blank falls back to Individual.",
+   "fieldname": "auto_message_customer_types",
+   "fieldtype": "Data",
+   "label": "Customer Types"
+  },
+  {
+   "default": "Individual",
+   "description": "Who sees their vehicle number, in the message and on the feedback page. An individual owns the one car the visit was about; a company owns a fleet, so the plate tells its office contact nothing. Comma separated — All shows it to everyone, blank falls back to Individual.",
+   "fieldname": "show_vehicle_customer_types",
+   "fieldtype": "Data",
+   "label": "Show Vehicle Number To"
+  },
+  {
+   "fieldname": "col_auto_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Off means the engineer is never messaged. Independent of the customer switch — either side can run without the other — and deliberately not filtered by customer type: the engineer is being sent to do a job whoever owns the vehicle. They need a phone number on their User or Employee record; run app_apis.technicians.missing_numbers to see who has none.",
+   "fieldname": "technician_message_enabled",
+   "fieldtype": "Check",
+   "label": "Send to Technicians"
+  },
+  {
+   "default": "Auto",
+   "description": "Auto reads the customer's own language, then falls back to the Chatwoot default. Technician messages ignore this reading of the customer and use the Chatwoot default.",
+   "fieldname": "auto_message_language",
+   "fieldtype": "Select",
+   "label": "Language",
+   "options": "Auto\nar\nen"
+  },
+  {
+   "fieldname": "sec_auto_rules",
+   "fieldtype": "Section Break",
+   "label": "Status Rules"
+  },
+  {
+   "description": "One row per stage: when the status becomes this, send that message. The tech_ templates go to the engineer and are governed by Send to Technicians; the rest go to the customer. Add, reorder or untick rows freely — nothing here is fixed in code.",
+   "fieldname": "auto_message_rules",
+   "fieldtype": "Table",
+   "label": "Status Rules",
+   "options": "App Apis Auto Message"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-08-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "app_apis",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Support Team",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Technical",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
