@@ -1181,6 +1181,7 @@ def get_summary() -> dict:
 def get_rows(verdict: str = "", erp_status: str = "", on_pilot: str = "", on_im: str = "",
              on_pilot_1: str = "", on_pilot_2: str = "",
              imei: str = "", vehicle: str = "", customer: str = "", sim_status: str = "",
+             sim_msisdn: str = "",
              pilot_last_seen_from: str = "", pilot_last_seen_to: str = "",
              im_last_seen_from: str = "", im_last_seen_to: str = "",
              sim_last_seen_from: str = "", sim_last_seen_to: str = "",
@@ -1234,6 +1235,9 @@ def get_rows(verdict: str = "", erp_status: str = "", on_pilot: str = "", on_im:
 	if sim_status:
 		where.append("ifnull(sim_status, '') = %s")
 		vals.append(sim_status)
+	if sim_msisdn:
+		where.append("ifnull(sim_msisdn, '') like %s")
+		vals.append(like(sim_msisdn))
 
 	def date_range(col, from_, to_):
 		# "to" means the END of that calendar day, not midnight at its start --
