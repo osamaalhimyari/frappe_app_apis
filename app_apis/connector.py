@@ -152,13 +152,17 @@ _DEVICES = {
 
 
 def is_offline() -> bool:
-	"""Offline unless site_config explicitly says otherwise.
+	"""Live unless site_config deliberately turns the offline fixtures on.
 
-	cint(), not bool(): `bench set-config pilot_offline 0` (without --parse)
-	writes the STRING "0", and bool("0") is True -- which would silently keep
-	serving canned data on a site that meant to go live.
+	`pilot_offline` defaults to 0 (live) when the key is absent, so a site that
+	never mentions it gets real Pilot calls -- fixtures are opt-in, not the
+	silent default a bare install would otherwise fall back to.
+
+	cint(), not bool(): `bench set-config pilot_offline 1` (without --parse)
+	writes the STRING "1", and this must equal the int 1, not just be truthy in
+	Python's own sense -- cint() is what makes "0" and "" both mean off.
 	"""
-	return bool(frappe.utils.cint(frappe.conf.get("pilot_offline", 1)))
+	return bool(frappe.utils.cint(frappe.conf.get("pilot_offline", 0)))
 
 
 def _settings() -> dict:
@@ -218,7 +222,16 @@ def _fail(code: int, msg: str, meta: dict) -> dict:
 
 def _offline_status(imei: str, email: str, meta: dict) -> dict:
 	if email not in VALID_ACCOUNTS:
-		return _fail(-401, f"401 Unauthorized -- offline stand-in does not know '{email}'.", meta)
+		# NOT -401: this is a local fixture miss, not a rejected credential, and
+		# must never be counted by the `auth_failures` tally in get_snapshot /
+		# get_vehicle_live or worded like a Pilot rejection -- no request was
+		# sent, so nothing was actually rejected.
+		return _fail(
+			-900,
+			f"OFFLINE FIXTURES -- the offline stand-in has no account '{email}' in its "
+			"list. This is not a Pilot response; no request was sent.",
+			meta,
+		)
 
 	dev = _DEVICES.get(imei)
 	if not dev:
@@ -248,6 +261,9 @@ def _fetch_status(imei: str, email: str, node: str, settings: dict) -> dict:
 	    -401 credentials rejected      -404 endpoint/device not found
 	    -403 forbidden for this node   -408 timed out
 	    -502 could not connect         -500 unexpected / undecodable response
+	    -900 offline fixtures miss (see `is_offline`) -- never a real Pilot
+	         answer, and deliberately NOT -401: nothing was sent, so nothing
+	         was rejected.
 
 	`_pilot` carries non-secret diagnostics. The password is never returned,
 	logged or echoed.
@@ -639,11 +655,25 @@ def get_snapshot(ticket: str, imei: str | None = None, node: str | None = None) 
 		rejected.append(f"{email} ({origin}) -> {why}")
 
 	if not result:
+		offline = is_offline()
+
 		detail = _("Pilot returned no data for IMEI {0} on node {1}.").format(imei, node)
 		detail += "\n\n" + _("Tried {0} account(s):").format(len(candidates))
 		detail += "\n- " + "\n- ".join(rejected)
 
-		if auth_failures and auth_failures == len(candidates):
+		if offline:
+			# Deliberately avoids the words "401" / "unauthorized" / "credential" /
+			# "rejected": the Client Script's error handler pattern-matches on
+			# those to show a "Pilot Login Rejected" dialog, and nothing here was
+			# ever rejected -- no request reached Pilot at all. See `is_offline`.
+			detail += "\n\n" + _(
+				"This site is running on OFFLINE FIXTURES -- `pilot_offline` is set in "
+				"site_config.json, so no request was ever sent to Pilot and no password "
+				"was ever checked. The account(s) above were only compared against the "
+				"offline stand-in's own short list. Set `pilot_offline` to 0 (or remove "
+				"it) to make Check Pilot a live call."
+			)
+		elif auth_failures and auth_failures == len(candidates):
 			detail += "\n\n" + _(
 				"EVERY account was rejected with 401 Unauthorized. That is a credential "
 				"problem on the Pilot side, not a bug in this integration. Confirm the "
@@ -652,7 +682,7 @@ def get_snapshot(ticket: str, imei: str | None = None, node: str | None = None) 
 				"these accounts."
 			).format(node, imei)
 
-		frappe.throw(detail, title=_("Pilot: No Data"))
+		frappe.throw(detail, title=_("Pilot: Offline Fixtures") if offline else _("Pilot: No Data"))
 
 	# ---- shape the result ----------------------------------------------
 	device = (result.get("data") or [])[0]
@@ -831,17 +861,29 @@ def get_vehicle_live(imei: str, customer: str | None = None, node: str | None = 
 		rejected.append(f"{email} ({origin}) -> {why}")
 
 	if not result:
+		offline = is_offline()
+
 		detail = _("Pilot returned no data for IMEI {0} on node {1}.").format(imei, node)
 		detail += "\n\n" + _("Tried {0} account(s):").format(len(candidates))
 		detail += "\n- " + "\n- ".join(rejected)
 
-		if auth_failures and auth_failures == len(candidates):
+		if offline:
+			# Same wording constraint as get_snapshot: avoid "401" / "unauthorized"
+			# / "credential" / "rejected" so the Client Script's error-matching
+			# regex cannot mistake this for a Pilot login rejection.
+			detail += "\n\n" + _(
+				"This site is running on OFFLINE FIXTURES -- `pilot_offline` is set in "
+				"site_config.json, so no request was ever sent to Pilot and no password "
+				"was ever checked. Set `pilot_offline` to 0 (or remove it) to make this a "
+				"live call."
+			)
+		elif auth_failures and auth_failures == len(candidates):
 			detail += "\n\n" + _(
 				"EVERY account was rejected with 401 Unauthorized. That is a credential "
 				"problem on the Pilot side, not a bug in this integration."
 			)
 
-		frappe.throw(detail, title=_("Pilot: No Data"))
+		frappe.throw(detail, title=_("Pilot: Offline Fixtures") if offline else _("Pilot: No Data"))
 
 	device = (result.get("data") or [])[0]
 	status_ = device.get("status") or {}
