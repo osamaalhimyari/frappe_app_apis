@@ -14,7 +14,7 @@
   "pilot_password",
   "pilot_request_timeout",
   "pilot_stale_after_minutes",
-  "sec_pilot_admin",
+  "col_pilot_wsl_divider",
   "pilot_admin_enabled",
   "pilot_admin_base_url",
   "pilot_admin_username",
@@ -24,6 +24,14 @@
   "pilot_admin_request_timeout",
   "pilot_admin_token_ttl_minutes",
   "sec_pilot_admin2",
+  "pilot2_base_url",
+  "pilot2_node",
+  "pilot2_fallback_username",
+  "col_pilot2_a",
+  "pilot2_password",
+  "pilot2_request_timeout",
+  "pilot2_stale_after_minutes",
+  "col_pilot2_admin_divider",
   "pilot_admin2_enabled",
   "pilot_admin2_base_url",
   "pilot_admin2_username",
@@ -54,7 +62,7 @@
   "chatwoot_api_token",
   "chatwoot_request_timeout",
   "chatwoot_inboxes",
-  "sec_chatwoot2",
+  "col_chatwoot_alt_divider",
   "chatwoot_active_connector",
   "chatwoot2_enabled",
   "chatwoot2_method",
@@ -106,10 +114,10 @@
  "fields": [
   {
    "collapsible": 1,
-   "description": "Account comes off the ticket. Same estate as Pilot Admin (WSL).",
+   "description": "Two ways into the same estate: the fields below sign in as the CUSTOMER (read off each ticket) for live per-vehicle reads; the Admin fields sign in as the partner account for the whole-estate sweep the Fleet Audit uses.",
    "fieldname": "sec_pilot",
    "fieldtype": "Section Break",
-   "label": "Pilot Connection — Pilot (WSL)"
+   "label": "Pilot (WSL)"
   },
   {
    "default": "https://ksa.pilot-gps.com/api/api.php",
@@ -152,13 +160,6 @@
    "fieldname": "pilot_stale_after_minutes",
    "fieldtype": "Int",
    "label": "Pilot Stale After (minutes)"
-  },
-  {
-   "collapsible": 1,
-   "description": "Partner/admin login for Pilot's REST API v3, site-wide.",
-   "fieldname": "sec_pilot_admin",
-   "fieldtype": "Section Break",
-   "label": "Pilot Admin Connection — Pilot (WSL)"
   },
   {
    "default": "0",
@@ -211,10 +212,10 @@
   },
   {
    "collapsible": 1,
-   "description": "A second, separate Pilot estate — not a backup.",
+   "description": "A second, separate Pilot estate -- not a backup for Pilot (WSL). Same shape: a per-customer connection for live reads, an Admin connection for the estate sweep.",
    "fieldname": "sec_pilot_admin2",
    "fieldtype": "Section Break",
-   "label": "Pilot Admin Connection 2"
+   "label": "Pilot 2"
   },
   {
    "default": "0",
@@ -351,10 +352,10 @@
   },
   {
    "collapsible": 1,
-   "description": "Run test_connection before enabling.",
+   "description": "Two send routes; Active Connector below decides which one actually sends.",
    "fieldname": "sec_chatwoot",
    "fieldtype": "Section Break",
-   "label": "Chatwoot Connection"
+   "label": "Chatwoot"
   },
   {
    "default": "0",
@@ -398,13 +399,6 @@
    "fieldtype": "Table",
    "label": "Chatwoot Inboxes",
    "options": "App Apis Inbox"
-  },
-  {
-   "collapsible": 1,
-   "description": "Alternative send route — off until enabled and active.",
-   "fieldname": "sec_chatwoot2",
-   "fieldtype": "Section Break",
-   "label": "Chatwoot Connection 2 (Alternative)"
   },
   {
    "default": "1",
@@ -727,6 +721,62 @@
    "fieldtype": "Table",
    "label": "Do Not Message",
    "options": "App Apis Excluded Customer"
+  },
+  {
+   "fieldname": "col_pilot_wsl_divider",
+   "fieldtype": "Column Break",
+   "label": "Pilot Admin (estate sweep)"
+  },
+  {
+   "fieldname": "pilot2_base_url",
+   "fieldtype": "Data",
+   "label": "Pilot Base URL (2)",
+   "description": "Pilot API endpoint for this estate."
+  },
+  {
+   "fieldname": "pilot2_node",
+   "fieldtype": "Data",
+   "label": "Pilot Node (2)",
+   "default": "5",
+   "description": "Wrong node answers \"Invalid imei\"."
+  },
+  {
+   "fieldname": "pilot2_fallback_username",
+   "fieldtype": "Data",
+   "label": "Pilot Fallback Username (2)",
+   "description": "Used only when no per-customer email is found."
+  },
+  {
+   "fieldname": "col_pilot2_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "pilot2_password",
+   "fieldtype": "Password",
+   "label": "Pilot Password (2)",
+   "description": "Shared password for this estate. site_config pilot2_passwords overrides it."
+  },
+  {
+   "fieldname": "pilot2_request_timeout",
+   "fieldtype": "Int",
+   "label": "Pilot Request Timeout (2) (seconds)",
+   "default": "20"
+  },
+  {
+   "fieldname": "pilot2_stale_after_minutes",
+   "fieldtype": "Int",
+   "label": "Pilot Stale After (2) (minutes)",
+   "default": "15"
+  },
+  {
+   "fieldname": "col_pilot2_admin_divider",
+   "fieldtype": "Column Break",
+   "label": "Pilot Admin 2 (estate sweep)"
+  },
+  {
+   "fieldname": "col_chatwoot_alt_divider",
+   "fieldtype": "Column Break",
+   "label": "Connection 2 (Alternative)"
   }
  ],
  "grid_page_length": 50,

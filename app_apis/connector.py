@@ -165,7 +165,7 @@ def is_offline() -> bool:
 	return bool(frappe.utils.cint(frappe.conf.get("pilot_offline", 0)))
 
 
-def _settings() -> dict:
+def _settings(account: int = 1) -> dict:
 	"""Pilot's half of the merged `app_apis` settings doctype.
 
 	Both providers live in one Single now, so every field here is read under its
@@ -173,15 +173,29 @@ def _settings() -> dict:
 	IM both have a base URL, a request timeout and a staleness threshold, and
 	unprefixed names would have silently shared one value between two unrelated
 	endpoints.
+
+	`account` selects which of the two Pilot ESTATES this is for -- 1 is the
+	original ("Pilot (WSL)", fields `pilot_*`), 2 is a second, unrelated one
+	(fields `pilot2_*`). Every existing caller passes nothing and gets account
+	1, unchanged. This is the per-CUSTOMER connection (see `pilot_admin.py` for
+	the separate, partner-level Admin connection each estate also has).
 	"""
+	account = frappe.utils.cint(account) or 1
+	prefix = "pilot" if account == 1 else "pilot2"
+	label = "Pilot (WSL)" if account == 1 else "Pilot 2"
+
 	s = frappe.get_cached_doc("app_apis")
 	return {
-		"base_url": str(s.pilot_base_url or "").strip(),
-		"node": str(s.pilot_node or "5").strip(),
-		"timeout": frappe.utils.cint(s.pilot_request_timeout) or 20,
-		"stale_after_minutes": frappe.utils.cint(s.pilot_stale_after_minutes) or 15,
-		"fallback_username": str(s.pilot_fallback_username or "").strip(),
+		"base_url": str(s.get(prefix + "_base_url") or "").strip(),
+		"node": str(s.get(prefix + "_node") or "5").strip(),
+		"timeout": frappe.utils.cint(s.get(prefix + "_request_timeout")) or 20,
+		"stale_after_minutes": frappe.utils.cint(s.get(prefix + "_stale_after_minutes")) or 15,
+		"fallback_username": str(s.get(prefix + "_fallback_username") or "").strip(),
 		"doc": s,
+		"account_no": account,
+		"label": label,
+		"pw_field": prefix + "_password",
+		"conf_key": prefix + "_passwords",
 	}
 
 
@@ -191,24 +205,27 @@ def _password_for(email: str, settings: dict) -> str | None:
 	Pilot may or may not use the same password across a customer's accounts.
 	Resolution order:
 
-	  1. `pilot_passwords` in site_config -- an {email: password} map, for the
-	     case where accounts genuinely differ.
-	  2. `app_apis.pilot_password` -- the shared password, encrypted at rest,
-	     which is what this deployment currently uses.
+	  1. `pilot_passwords` (or `pilot2_passwords` for the second estate) in
+	     site_config -- an {email: password} map, for the case where accounts
+	     genuinely differ.
+	  2. `app_apis.pilot_password` / `pilot2_password` -- the shared password
+	     for that estate, encrypted at rest, which is what this deployment
+	     currently uses for most accounts.
 
 	Step 1 makes per-account credentials possible with no schema change. If
 	per-account passwords become the norm rather than the exception, promote
 	them to a child table on `app_apis` (fields `pilot_email` +
 	`pilot_password`) so they are encrypted and editable from the desk.
 	"""
-	per = frappe.conf.get("pilot_passwords") or {}
+	per = frappe.conf.get(settings.get("conf_key", "pilot_passwords")) or {}
 	if isinstance(per, dict) and email:
 		pw = per.get(email) or per.get(email.strip().lower())
 		if pw:
 			return str(pw)
 
 	doc = settings["doc"]
-	return doc.get_password("pilot_password") if doc.pilot_password else None
+	pw_field = settings.get("pw_field", "pilot_password")
+	return doc.get_password(pw_field) if doc.get(pw_field) else None
 
 
 # --------------------------------------------------------------------------
@@ -281,16 +298,19 @@ def _fetch_status(imei: str, email: str, node: str, settings: dict) -> dict:
 	if is_offline():
 		return _offline_status(imei, email, meta)
 
+	label = settings.get("label", "Pilot")
+
 	base_url = settings["base_url"]
 	if not base_url:
-		return _fail(-500, "Pilot Base URL is not set in app_apis settings (Pilot Connection).", meta)
+		return _fail(-500, f"Pilot Base URL ({label}) is not set in app_apis settings.", meta)
 
 	password = _password_for(email, settings)
 	if not password:
 		return _fail(
 			-500,
 			f"no password available for '{email}' -- set app_apis > Pilot "
-			"Password, or add an entry to `pilot_passwords` in site_config.",
+			f"Password ({label}), or add an entry to `{settings.get('conf_key', 'pilot_passwords')}` "
+			"in site_config.",
 			meta,
 		)
 
@@ -803,7 +823,8 @@ def _collect_emails_for_customer(customer_name: str | None, settings: dict) -> l
 
 
 @frappe.whitelist()
-def get_vehicle_live(imei: str, customer: str | None = None, node: str | None = None) -> dict:
+def get_vehicle_live(imei: str, customer: str | None = None, node: str | None = None,
+                     account: int = 1) -> dict:
 	"""Live Pilot snapshot for one IMEI, with no ticket in the picture.
 
 	Same account resolution and multi-account retry as `get_snapshot` -- Pilot
@@ -811,6 +832,12 @@ def get_vehicle_live(imei: str, customer: str | None = None, node: str | None = 
 	usually entitled to a given IMEI -- entered from a CUSTOMER name (off a
 	Fleet Audit row) instead of an xticket. `get_snapshot` itself is untouched;
 	this is a second, independent entry point, not a refactor of it.
+
+	`account` (1 or 2) picks which Pilot ESTATE's per-customer connection to
+	use -- see `_settings`. Defaults to 1 (Pilot (WSL)), so every caller that
+	does not know about the second estate keeps its current behaviour
+	unchanged. The Fleet Audit passes 2 for a row whose `on_pilot_2` flag is
+	the one that is set.
 
 	Raises (via frappe.throw) when no account can produce data, with a message
 	naming every account tried and why each was rejected -- same contract as
@@ -822,7 +849,7 @@ def get_vehicle_live(imei: str, customer: str | None = None, node: str | None = 
 	if not imei:
 		frappe.throw(_("imei is required."), title=_("Pilot"))
 
-	settings = _settings()
+	settings = _settings(account)
 	node = str(node or settings["node"]).strip()
 	candidates = _collect_emails_for_customer(customer, settings)
 
@@ -863,7 +890,7 @@ def get_vehicle_live(imei: str, customer: str | None = None, node: str | None = 
 	if not result:
 		offline = is_offline()
 
-		detail = _("Pilot returned no data for IMEI {0} on node {1}.").format(imei, node)
+		detail = _("{0} returned no data for IMEI {1} on node {2}.").format(settings.get("label", "Pilot"), imei, node)
 		detail += "\n\n" + _("Tried {0} account(s):").format(len(candidates))
 		detail += "\n- " + "\n- ".join(rejected)
 
@@ -941,6 +968,7 @@ def get_vehicle_live(imei: str, customer: str | None = None, node: str | None = 
 		"stale_after_minutes": settings["stale_after_minutes"],
 		"account": used_email,
 		"account_source": used_origin,
+		"estate": settings.get("label"),
 		"imei_source": "argument",
 		"node": node,
 		"diagnostics": {
