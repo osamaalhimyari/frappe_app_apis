@@ -612,7 +612,8 @@ def _parse_location(device: dict) -> dict:
 
 
 @frappe.whitelist()
-def get_snapshot(ticket: str, imei: str | None = None, node: str | None = None) -> dict:
+def get_snapshot(ticket: str, imei: str | None = None, node: str | None = None,
+                 account: int = 1) -> dict:
 	"""Live Pilot snapshot for one xticket. THE public entry point.
 
 	Called from the Client Script as:
@@ -624,6 +625,11 @@ def get_snapshot(ticket: str, imei: str | None = None, node: str | None = None) 
 
 	`imei` and `node` are optional overrides, useful for diagnosing one device
 	without editing the ticket.
+
+	`account` (1 or 2) picks which Pilot ESTATE's per-customer connection to
+	use -- see `_settings`. Defaults to 1 (Pilot (WSL)), so the original
+	"Check Pilot" button is unaffected; "Check Pilot 2" (a separate Client
+	Script, xticket-check-pilot2) passes 2.
 
 	Raises (via frappe.throw) when no account can produce data, with a message
 	naming every account tried and why each was rejected.
@@ -638,7 +644,7 @@ def get_snapshot(ticket: str, imei: str | None = None, node: str | None = None) 
 			frappe.PermissionError,
 		)
 
-	settings = _settings()
+	settings = _settings(account)
 	node = str(node or settings["node"]).strip()
 
 	imei, imei_source = _resolve_imei(doc, imei)
@@ -677,7 +683,7 @@ def get_snapshot(ticket: str, imei: str | None = None, node: str | None = None) 
 	if not result:
 		offline = is_offline()
 
-		detail = _("Pilot returned no data for IMEI {0} on node {1}.").format(imei, node)
+		detail = _("{0} returned no data for IMEI {1} on node {2}.").format(settings.get("label", "Pilot"), imei, node)
 		detail += "\n\n" + _("Tried {0} account(s):").format(len(candidates))
 		detail += "\n- " + "\n- ".join(rejected)
 
@@ -767,6 +773,7 @@ def get_snapshot(ticket: str, imei: str | None = None, node: str | None = None) 
 		"stale_after_minutes": settings["stale_after_minutes"],
 		"account": used_email,
 		"account_source": used_origin,
+		"estate": settings.get("label"),
 		"imei_source": imei_source,
 		"node": node,
 		"diagnostics": {

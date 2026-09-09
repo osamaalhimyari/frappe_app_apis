@@ -240,6 +240,7 @@ fixtures = [
                 "in",
                 [
                     "xticket-check-pilot",
+                    "xticket-check-pilot2",
                     "xticket-check-im",
                     "xticket-valuation-link",
                     "xticket-message-toast",
