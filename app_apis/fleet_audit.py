@@ -98,6 +98,7 @@ VERDICTS = (
 	"Missing on IM",
 	"Missing on both",
 	"Deleted but still live",
+	"No platform",
 	"Unexpected platform",
 	"Not in ERP",
 	"No device serial",
@@ -152,7 +153,8 @@ def _erp_fleet() -> tuple[dict, list, dict]:
 
 	# customer_name is deliberately absent here -- see the note below.
 	cols = ["name", "device_serial", "license_plate", "customer",
-	        "device_statues", "server_type", "subscription_expiry_date", "devices_type"]
+	        "device_statues", "server_type", "subscription_expiry_date", "devices_type",
+	        "sim_serial"]
 	cols = [c for c in cols if has(c) or c == "name"]
 
 	rows = frappe.db.sql(
@@ -180,6 +182,23 @@ def _erp_fleet() -> tuple[dict, list, dict]:
 		frappe.db.sql("select name, customer_name from `tabCustomer`") or []
 	)
 
+	# SIM carrier: Customer Vehicle.sim_serial -> Serial No -> item_code ->
+	# Item.item_name ("Lebara SIM", "STC SIM", ...). One query, then a dict
+	# lookup per row -- same shape as customer_names above.
+	sim_items: dict[str, str] = {}
+	if has("sim_serial"):
+		sim_items = dict(
+			frappe.db.sql(
+				"""
+				select sn.name, it.item_name
+				from `tabSerial No` sn
+				join `tabItem` it on it.name = sn.item_code
+				where ifnull(sn.item_code, '') <> ''
+				"""
+			)
+			or []
+		)
+
 	by_imei: dict[str, dict] = {}
 	without: list[dict] = []
 	counts: dict[str, int] = {}
@@ -190,6 +209,7 @@ def _erp_fleet() -> tuple[dict, list, dict]:
 
 		customer = r.get("customer")
 		r["customer_name"] = (customer_names.get(customer) or customer) if customer else None
+		r["_sim_item"] = sim_items.get(r.get("sim_serial")) if r.get("sim_serial") else None
 
 		server = (r.get("server_type") or "").strip()
 		r["_expects_pilot"] = bool(
@@ -297,10 +317,20 @@ def _absorb_estate(by_imei: dict, rows, account, account_no: int = 1) -> int:
 
 	The Administrator API keys devices by `uniqid`, which is the device serial
 	but NOT always an IMEI: of 24,085 rows, 14,211 are 15-digit IMEIs and the
-	rest are 10-digit registration ids and 23-25 digit SIM identifiers. They
-	are all kept and joined on the raw value -- the non-IMEIs simply fail to
+	rest are 10-digit registration ids and 23-25 digit SIM identifiers. A
+	non-IMEI id is kept and joined on the raw value -- it simply fails to
 	match a Customer Vehicle, which is the correct outcome rather than a
-	silently dropped device.
+	silently dropped device -- UNLESS Pilot also reports it inactive, in
+	which case it is dropped outright. Verified empirically: every one of
+	Pilot's malformed placeholder ids (a decimal number and a
+	"<timestamp>_<n>" pair glued together with a space, e.g.
+	"0.00073000 1776682821_64") comes back active=0, and so do ~95% of the
+	10-digit registration ids -- both are Pilot's own record of a device it
+	no longer tracks, not a vehicle anyone can act on. The other ~5% of
+	registration ids ARE still active: a vehicle Pilot tracks by plate with
+	no IMEI on ERP's file, which is a real finding and stays visible under
+	"Unmatchable ID". Only the combination -- not a real IMEI AND inactive
+	-- is dropped; either alone is kept.
 
 	`account_no` (1 or 2) is recorded in `pilot_accounts_no` on EVERY row this
 	call touches, including one already merged in by a previous account --
@@ -312,6 +342,8 @@ def _absorb_estate(by_imei: dict, rows, account, account_no: int = 1) -> int:
 	for row in rows or []:
 		imei = str(row.get("imei") or "").strip()
 		if not imei:
+			continue
+		if not _is_imei(imei) and not cint(row.get("active")):
 			continue
 		if imei in by_imei:
 			by_imei[imei].setdefault("pilot_accounts_no", set()).add(account_no)
@@ -581,6 +613,28 @@ def _verdict(erp, on_pilot, on_im, pilot_checked=True, im_checked=True, key=None
 		return "OK", issues
 
 	# From here on the ERP believes the device is Installed.
+
+	# No tracking platform is configured on the Customer Vehicle at all -- none
+	# of the ch_pilot_* flags, not ch_trakzee, and server_type is neither
+	# PILOT* nor TRAKZEE. That is the finding on its own: the record says this
+	# vehicle is on nothing. Reported whether or not a platform happens to be
+	# tracking the device -- an ERP record with no platform set is the thing to
+	# fix either way.
+	if not expects_pilot and not expects_im:
+		if on_pilot or on_im:
+			where = " and ".join(
+				x for x in (("Pilot" if on_pilot else None), ("IM" if on_im else None)) if x
+			)
+			issues.append("No tracking platform is set on the ERP record, but %s is tracking it." % where)
+		elif unread:
+			issues.append(
+				"No tracking platform is set on the ERP record (%s was not read this run)."
+				% " and ".join(unread)
+			)
+		else:
+			issues.append("No tracking platform is set on the ERP record, and none is tracking it.")
+		return "No platform", issues
+
 	missing_pilot = expects_pilot and pilot_checked and not on_pilot
 	missing_im = expects_im and im_checked and not on_im
 
@@ -606,13 +660,9 @@ def _verdict(erp, on_pilot, on_im, pilot_checked=True, im_checked=True, key=None
 		              % " and ".join(unread))
 		return "Not checked", issues
 
-	if not expects_pilot and not expects_im and not on_pilot and not on_im:
-		if unread:
-			issues.append("No platform is expected, and %s was not read." % " and ".join(unread))
-			return "Not checked", issues
-		issues.append("Installed, but no platform is expected and none has it.")
-		return "Unexpected platform", issues
-
+	# Reaches here only with a platform configured (expects_pilot or expects_im
+	# is set) and not missing from it -- so any issue left is a SECOND platform
+	# tracking it that the ERP record did not flag.
 	if issues:
 		return "Unexpected platform", issues
 
@@ -690,6 +740,9 @@ def _build_rows(erp_by_imei, erp_without, im_by_imei, pilot_by_imei, audited_at,
 			"subscription_expiry": (erp or {}).get("subscription_expiry_date"),
 			"verdict": verdict,
 			"issues": "\n".join(issues),
+			# The SIM's carrier, straight off the ERP: Customer Vehicle.sim_serial
+			# -> Serial No -> Item.item_name ("Lebara SIM", "STC SIM", ...).
+			"sim_item": (erp or {}).get("_sim_item"),
 			# Filled in afterwards by `_apply_sim_data()`, from the last Lebara
 			# SIM import -- not part of this reconciliation's own three-way
 			# read, but merged onto the same row because it is one more fact
@@ -731,6 +784,7 @@ def _build_rows(erp_by_imei, erp_without, im_by_imei, pilot_by_imei, audited_at,
 			"issues": "No device serial on the ERP record, so this vehicle cannot be "
 			          "matched against Pilot or IM at all."
 			          + ("" if status != "Installed" else " It is marked Installed."),
+			"sim_item": erp.get("_sim_item"),
 			"sim_status": None,
 			"sim_last_seen": None,
 			"sim_msisdn": None,
@@ -746,7 +800,7 @@ COLUMNS = (
 	"on_pilot", "on_pilot_1", "on_pilot_2", "on_im", "pilot_checked", "im_checked",
 	"pilot_vehicle", "pilot_folder", "pilot_account", "pilot_last_seen", "pilot_active", "pilot_msisdn",
 	"im_vehicle", "im_company", "im_status", "im_last_seen",
-	"sim_status", "sim_last_seen", "sim_msisdn",
+	"sim_item", "sim_status", "sim_last_seen", "sim_msisdn",
 	"subscription_expiry", "verdict", "issues", "audited_at",
 )
 
@@ -1149,7 +1203,7 @@ def get_summary() -> dict:
 		"deleted_live": frappe.db.count(SNAPSHOT_DT, {"verdict": "Deleted but still live"}),
 		"both_not_in_erp": cint(frappe.db.sql(
 			"select count(*) from `tab%s` where on_pilot = 1 and on_im = 1"
-			" and ifnull(erp_vehicle, '') = ''" % SNAPSHOT_DT
+			" and ifnull(erp_vehicle, '') = '' and %s" % (SNAPSHOT_DT, real_imei)
 		)[0][0]),
 		"missing_on_pilot": frappe.db.count(SNAPSHOT_DT, {"verdict": "Missing on Pilot"}),
 		"no_device_serial": frappe.db.count(SNAPSHOT_DT, {"verdict": "No device serial"}),
@@ -1181,7 +1235,7 @@ def get_summary() -> dict:
 def get_rows(verdict: str = "", erp_status: str = "", on_pilot: str = "", on_im: str = "",
              on_pilot_1: str = "", on_pilot_2: str = "",
              imei: str = "", vehicle: str = "", customer: str = "", sim_status: str = "",
-             sim_msisdn: str = "", sim_match: str = "",
+             sim_msisdn: str = "", no_sim: str = "", sim_item: str = "",
              pilot_last_seen_from: str = "", pilot_last_seen_to: str = "",
              im_last_seen_from: str = "", im_last_seen_to: str = "",
              sim_last_seen_from: str = "", sim_last_seen_to: str = "",
@@ -1205,6 +1259,17 @@ def get_rows(verdict: str = "", erp_status: str = "", on_pilot: str = "", on_im:
 	def like(term):
 		return "%" + str(term).strip().replace("%", r"\%") + "%"
 
+	# Same restriction get_summary()'s cards already apply: Pilot's own device
+	# id (`uniqid`) is not always an IMEI -- about 10,000 of the ~24,000 rows
+	# one estate sweep returns are 10-digit registration numbers or
+	# SIM-length ids that can never be a real vehicle (see _absorb_estate).
+	# Those rows are kept in the snapshot -- under "Unmatchable ID" -- rather
+	# than dropped, but "on_pilot_1 = 1" has to mean the same ~14,000 real
+	# devices the "On Pilot (WSL)" tile counts, or clicking that tile lands on
+	# a table of ~24,000 rows nobody asked for. Only the "yes" side needs the
+	# restriction: a junk-id row's on_pilot* is always 1 (that row exists ONLY
+	# because Pilot reported it), so it can never match "= 0" anyway.
+	real_imei = "imei regexp '^[0-9]{15}$'"
 	if verdict:
 		where.append("verdict = %s")
 		vals.append(verdict)
@@ -1212,13 +1277,13 @@ def get_rows(verdict: str = "", erp_status: str = "", on_pilot: str = "", on_im:
 		where.append("erp_status = %s")
 		vals.append(erp_status)
 	if str(on_pilot) in ("0", "1"):
-		where.append("on_pilot = %s")
+		where.append("on_pilot = %s" + (" and " + real_imei if str(on_pilot) == "1" else ""))
 		vals.append(cint(on_pilot))
 	if str(on_pilot_1) in ("0", "1"):
-		where.append("on_pilot_1 = %s")
+		where.append("on_pilot_1 = %s" + (" and " + real_imei if str(on_pilot_1) == "1" else ""))
 		vals.append(cint(on_pilot_1))
 	if str(on_pilot_2) in ("0", "1"):
-		where.append("on_pilot_2 = %s")
+		where.append("on_pilot_2 = %s" + (" and " + real_imei if str(on_pilot_2) == "1" else ""))
 		vals.append(cint(on_pilot_2))
 	if str(on_im) in ("0", "1"):
 		where.append("on_im = %s")
@@ -1238,17 +1303,11 @@ def get_rows(verdict: str = "", erp_status: str = "", on_pilot: str = "", on_im:
 	if sim_msisdn:
 		where.append("ifnull(sim_msisdn, '') like %s")
 		vals.append(like(sim_msisdn))
-
-	# Not a stored column -- the same comparison the table cell itself makes:
-	# Pilot's own MSISDN field is blank or a literal "0" on most of this
-	# estate, so "not enough data" is a real, common bucket, not an edge case.
-	both_present = "ifnull(sim_msisdn,'') <> '' and ifnull(pilot_msisdn,'') not in ('', '0')"
-	if sim_match == "match":
-		where.append("(%s and sim_msisdn = pilot_msisdn)" % both_present)
-	elif sim_match == "mismatch":
-		where.append("(%s and sim_msisdn <> pilot_msisdn)" % both_present)
-	elif sim_match == "na":
-		where.append("not (%s)" % both_present)
+	if cint(no_sim):
+		where.append("ifnull(sim_msisdn, '') = ''")
+	if sim_item:
+		where.append("ifnull(sim_item, '') like %s")
+		vals.append(like(sim_item))
 
 	def date_range(col, from_, to_):
 		# "to" means the END of that calendar day, not midnight at its start --
@@ -1283,7 +1342,7 @@ def get_rows(verdict: str = "", erp_status: str = "", on_pilot: str = "", on_im:
 	          "pilot_checked, im_checked, pilot_active, pilot_last_seen, pilot_msisdn, "
 	          "pilot_vehicle, pilot_folder, pilot_account, "
 	          "im_vehicle, im_company, im_status, im_last_seen, "
-	          "sim_status, sim_last_seen, sim_msisdn, "
+	          "sim_item, sim_status, sim_last_seen, sim_msisdn, "
 	          "verdict, issues")
 
 	rows = frappe.db.sql(
@@ -1294,6 +1353,45 @@ def get_rows(verdict: str = "", erp_status: str = "", on_pilot: str = "", on_im:
 	)
 
 	return {"rows": rows, "total": total, "start": cint(start), "limit": cint(limit) or 100}
+
+
+@frappe.whitelist()
+def get_row_emails() -> dict:
+	"""Per-customer login email(s) for each of the three systems, keyed by
+	snapshot row name -- CSV export only.
+
+	Kept out of get_rows() on purpose: these never affect the reconciliation
+	and would just be extra JOIN weight on every normal page load and every
+	filter click, for a value only the export needs.
+
+	Pilot (WSL) splits one customer across up to five accounts by fleet type
+	(tow, SFDA, motorcycle, tracking-only, plus the main one) -- see
+	CUSTOMER_EMAIL_FIELDS -- so that column joins whichever of those are
+	actually set. Pilot 2's login is recorded per Customer Vehicle, not
+	Customer (see VEHICLE_EMAIL_FIELDS), which is why this needs both joins
+	rather than one.
+	"""
+	frappe.only_for(READ_ROLES)
+
+	rows = frappe.db.sql(
+		"""
+		select
+			t.name,
+			concat_ws('; ',
+				nullif(c.email_pilot, ''), nullif(c.email_pilot_tow, ''),
+				nullif(c.email_pilot_sfda, ''), nullif(c.email_pilot_motorcycle, ''),
+				nullif(c.email_pilot_tracking_only, '')
+			) as pilot_wsl_emails,
+			cv.email_pilot2 as pilot2_email,
+			c.email_im_platform as im_platform_email
+		from `tab%s` t
+		left join `tabCustomer` c on c.name = t.customer
+		left join `tabCustomer Vehicle` cv on cv.name = t.erp_vehicle
+		"""
+		% SNAPSHOT_DT,
+		as_dict=True,
+	)
+	return {r["name"]: r for r in rows}
 
 
 @frappe.whitelist()
@@ -1317,6 +1415,7 @@ def get_filter_options() -> dict:
 		"verdicts": distinct("verdict"),
 		"erp_statuses": distinct("erp_status"),
 		"sim_statuses": distinct("sim_status"),
+		"sim_items": distinct("sim_item"),
 	}
 
 

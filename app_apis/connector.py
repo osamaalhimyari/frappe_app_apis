@@ -262,7 +262,7 @@ def _offline_status(imei: str, email: str, meta: dict) -> dict:
 	return {"code": 0, "msg": "OK", "data": [dev], "_pilot": meta}
 
 
-def _fetch_status(imei: str, email: str, node: str, settings: dict) -> dict:
+def _fetch_status(imei: str, email: str, node: str, settings: dict, password: str | None = None) -> dict:
 	"""One `cmd=status` request for one account.
 
 	NEVER raises for an unusable account -- an account that does not work is a
@@ -284,6 +284,12 @@ def _fetch_status(imei: str, email: str, node: str, settings: dict) -> dict:
 
 	`_pilot` carries non-secret diagnostics. The password is never returned,
 	logged or echoed.
+
+	`password`, when given, is used AS-IS instead of resolving one from
+	`app_apis` / site_config -- the one-off "test this login yourself" path
+	(`get_vehicle_live_with_credentials`), where the caller supplies both
+	halves of the credential directly. Every existing caller leaves this
+	unset and gets the exact resolution `_password_for` already did.
 	"""
 	meta = {
 		"account": email,
@@ -304,7 +310,7 @@ def _fetch_status(imei: str, email: str, node: str, settings: dict) -> dict:
 	if not base_url:
 		return _fail(-500, f"Pilot Base URL ({label}) is not set in app_apis settings.", meta)
 
-	password = _password_for(email, settings)
+	password = password or _password_for(email, settings)
 	if not password:
 		return _fail(
 			-500,
@@ -986,6 +992,127 @@ def get_vehicle_live(imei: str, customer: str | None = None, node: str | None = 
 			"server_epoch": now_epoch,
 			"accounts_tried": len(rejected) + 1,
 			"rejected": rejected,
+		},
+		"raw": device,
+	}
+
+
+@frappe.whitelist()
+def get_vehicle_live_with_credentials(imei: str = "", email: str = "", password: str = "",
+                                      node: str | None = None, account: int = 1) -> dict:
+	"""One-off Pilot login test: fetch this device's live status using an
+	EXACT email/password the caller supplies, entirely bypassing the
+	Customer/ticket email lookup chain in `_collect_emails*`.
+
+	For the "every account on file was rejected -- try one yourself" box the
+	Fleet Audit shows next to its admin-sweep fallback: a technician who
+	knows the customer's CURRENT Pilot password (it may have changed since
+	whatever is on file) can prove the device is reachable without waiting
+	on a settings change. Deliberately separate from `get_vehicle_live`
+	rather than a parameter added to it -- that function's multi-account
+	retry loop is unrelated to this single, explicit login and stays exactly
+	as it was.
+
+	The password is used for exactly one HTTP request (via `_fetch_status`'s
+	optional override) and is never written to the database, a log, or the
+	settings doctype's shared password fields.
+	"""
+	frappe.only_for(["System Manager", "Technical", "Support Team"])
+
+	imei = str(imei or "").strip()
+	email = str(email or "").strip()
+	password = str(password or "")
+	if not imei:
+		frappe.throw(_("imei is required."), title=_("Pilot"))
+	if not email:
+		frappe.throw(_("email is required."), title=_("Pilot"))
+	if not password:
+		frappe.throw(_("password is required."), title=_("Pilot"))
+
+	settings = _settings(account)
+	node = str(node or settings["node"]).strip()
+
+	result = _fetch_status(imei, email, node, settings, password=password)
+	code = frappe.utils.cint(result.get("code"))
+	rows = result.get("data") or []
+
+	if code != 0 or not rows:
+		why = (
+			_("authenticated, but Pilot returned no device for this IMEI")
+			if code == 0
+			else str(result.get("msg") or _("code {0}").format(code))
+		)
+		detail = _("{0} returned no data for IMEI {1} on node {2} using {3}.").format(
+			settings.get("label", "Pilot"), imei, node, email
+		)
+		detail += "\n\n" + why
+		frappe.throw(detail, title=_("Pilot: No Data"))
+
+	device = rows[0]
+	status_ = device.get("status") or {}
+	diag = result.get("_pilot") or {}
+
+	probes, others, naming = _parse_sensors(device.get("sensors_status") or [])
+
+	last_epoch = frappe.utils.cint(status_.get("unixtimestamp"))
+	now_epoch = frappe.utils.cint(diag.get("server_epoch"))
+	age_seconds = (now_epoch - last_epoch) if (last_epoch and now_epoch) else None
+	is_stale = (age_seconds > settings["stale_after_minutes"] * 60) if age_seconds is not None else None
+
+	# Same shape as get_vehicle_live -- the Fleet Audit's dialog renderer is
+	# shared between the two, so a different shape here would just mean
+	# missing sections for no reason.
+	return {
+		"device": {
+			"imei": device.get("imei") or imei,
+			"name": device.get("vehiclenumber"),
+			"folder": device.get("folder"),
+			"type": device.get("type"),
+			"typeid": device.get("typeid"),
+			"model": device.get("model") or device.get("configuration"),
+			"configuration": device.get("configuration"),
+			"agentid": device.get("agentid"),
+			"uniqid": device.get("uniqid"),
+			"vin": device.get("vin"),
+			"info": device.get("info"),
+			"driver_name": device.get("driver_name"),
+			"driver_phone": device.get("driver_phone"),
+			"created_time": frappe.utils.cint(device.get("created_time")) or None,
+			"current_mileage": _as_number(device.get("current_mileage")),
+			"initial_mileage": _as_number(device.get("initial_mileage")),
+		},
+		"state": {
+			"active": frappe.utils.cint(status_.get("active")),
+			"ignition": status_.get("firing"),
+			"moving": frappe.utils.cint(status_.get("moving")),
+			"parking": frappe.utils.cint(status_.get("parking")),
+			"speed": frappe.utils.flt(status_.get("speed")),
+			"direction": status_.get("direction"),
+			"altitude": _as_number(status_.get("alt")),
+		},
+		"last_update": {
+			"epoch": last_epoch,
+			"age_seconds": age_seconds,
+			"is_stale": is_stale,
+		},
+		"location": _parse_location(device),
+		"probes": probes,
+		"probe_naming": naming,
+		"others": others,
+		"stale_after_minutes": settings["stale_after_minutes"],
+		"account": email,
+		"account_source": "manual entry",
+		"estate": settings.get("label"),
+		"imei_source": "argument",
+		"node": node,
+		"diagnostics": {
+			"http_status": diag.get("http_status"),
+			"elapsed_ms": diag.get("elapsed_ms"),
+			"pilot_msg": result.get("msg"),
+			"pilot_request_time": result.get("reqest_time"),
+			"server_epoch": now_epoch,
+			"accounts_tried": 1,
+			"rejected": [],
 		},
 		"raw": device,
 	}

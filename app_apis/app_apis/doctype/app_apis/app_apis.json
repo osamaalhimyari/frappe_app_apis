@@ -61,6 +61,7 @@
   "col_chatwoot_a",
   "chatwoot_api_token",
   "chatwoot_request_timeout",
+  "sec_chatwoot_inboxes",
   "chatwoot_inboxes",
   "col_chatwoot_alt_divider",
   "chatwoot_active_connector",
@@ -392,6 +393,13 @@
    "fieldname": "chatwoot_request_timeout",
    "fieldtype": "Int",
    "label": "Chatwoot Request Timeout (seconds)"
+  },
+  {
+   "collapsible": 1,
+   "description": "Fill with Sync Inboxes.",
+   "fieldname": "sec_chatwoot_inboxes",
+   "fieldtype": "Section Break",
+   "label": "Chatwoot Inboxes"
   },
   {
    "description": "Inboxes to send from. Fill with Sync Inboxes.",
@@ -775,8 +783,9 @@
   },
   {
    "fieldname": "col_chatwoot_alt_divider",
-   "fieldtype": "Column Break",
-   "label": "Connection 2 (Alternative)"
+   "fieldtype": "Section Break",
+   "label": "Connection 2 (Alternative)",
+   "collapsible": 1
   }
  ],
  "grid_page_length": 50,

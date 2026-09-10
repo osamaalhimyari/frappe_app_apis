@@ -43,6 +43,7 @@
   "im_status",
   "im_last_seen",
   "sec_sim",
+  "sim_item",
   "sim_status",
   "sim_last_seen",
   "col_sim",
@@ -249,6 +250,13 @@
    "fieldname": "sec_sim",
    "fieldtype": "Section Break",
    "label": "SIM (Lebara)"
+  },
+  {
+   "fieldname": "sim_item",
+   "fieldtype": "Data",
+   "label": "SIM Type",
+   "in_standard_filter": 1,
+   "description": "SIM carrier from the ERP: Customer Vehicle → SIM Serial → Item name."
   },
   {
    "fieldname": "sim_status",
