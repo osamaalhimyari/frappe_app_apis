@@ -58,10 +58,12 @@
   "chatwoot_enabled",
   "chatwoot_base_url",
   "chatwoot_account_id",
+  "stale_ticket_reminder_enabled",
+  "stale_ticket_reminder_hour",
+  "stale_ticket_rules",
   "col_chatwoot_a",
   "chatwoot_api_token",
   "chatwoot_request_timeout",
-  "sec_chatwoot_inboxes",
   "chatwoot_inboxes",
   "col_chatwoot_alt_divider",
   "chatwoot_active_connector",
@@ -76,24 +78,13 @@
   "chatwoot2_webhook_auth_header",
   "chatwoot2_webhook_secret",
   "chatwoot2_request_timeout",
-  "sec_chatwoot_messages",
-  "chatwoot_accepted_message",
-  "chatwoot_working_message",
-  "chatwoot_valuation_message",
-  "sec_tech_messages",
-  "tech_accepted_message",
-  "tech_working_message",
-  "tech_done_message",
-  "sec_contacts",
-  "contact_numbers",
   "sec_auto_messages",
   "auto_message_enabled",
   "auto_message_customer_types",
   "show_vehicle_customer_types",
-  "col_auto_a",
   "technician_message_enabled",
-  "sec_auto_rules",
   "auto_message_rules",
+  "contact_numbers",
   "sec_subscription_reminders",
   "subscription_reminder_enabled",
   "subscription_reminder_dry_run",
@@ -106,7 +97,6 @@
   "subscription_reminder_days_after",
   "subscription_reminder_customer_types",
   "subscription_reminder_phone_source",
-  "sec_subscription_message",
   "subscription_expiring_message",
   "subscription_reminder_message",
   "sec_excluded",
@@ -379,6 +369,27 @@
    "label": "Chatwoot Account ID"
   },
   {
+   "fieldname": "stale_ticket_reminder_enabled",
+   "fieldtype": "Check",
+   "default": "0",
+   "label": "Nudge Stuck Tickets",
+   "description": "Once a day, message the technician on any ticket that has sat in one of the statuses below without an update. Off by default."
+  },
+  {
+   "fieldname": "stale_ticket_reminder_hour",
+   "fieldtype": "Int",
+   "default": "9",
+   "label": "Run At Hour",
+   "description": "Server hour, 0–23. The check runs once on this hour."
+  },
+  {
+   "fieldname": "stale_ticket_rules",
+   "fieldtype": "Table",
+   "label": "Stale Ticket Rules",
+   "options": "App Apis Stale Ticket Rule",
+   "description": "Status → hours → message mapping for the nudge above."
+  },
+  {
    "fieldname": "col_chatwoot_a",
    "fieldtype": "Column Break"
   },
@@ -393,13 +404,6 @@
    "fieldname": "chatwoot_request_timeout",
    "fieldtype": "Int",
    "label": "Chatwoot Request Timeout (seconds)"
-  },
-  {
-   "collapsible": 1,
-   "description": "Fill with Sync Inboxes.",
-   "fieldname": "sec_chatwoot_inboxes",
-   "fieldtype": "Section Break",
-   "label": "Chatwoot Inboxes"
   },
   {
    "description": "Inboxes to send from. Fill with Sync Inboxes.",
@@ -493,69 +497,6 @@
    "label": "Request Timeout (2) (seconds)"
   },
   {
-   "collapsible": 1,
-   "description": "Ticket-stage messages, Arabic + English. Placeholders: {ticket} {customer} {vehicle} etc.",
-   "fieldname": "sec_chatwoot_messages",
-   "fieldtype": "Section Break",
-   "label": "Chatwoot Messages"
-  },
-  {
-   "default": "👋 أهلاً {customer}\n\n🎫 {ticket}\n{vehicle}\n🔧 {engineer}\n\n✅ استلمنا طلبك وصار بين إيدينا! بنخبرك أول ما يبدأ العمل 🚀\n✅ Got it — your request is in good hands! We'll tell you the moment work starts 🚀\n\nشكراً لثقتك فينا / Thanks for trusting us 🤝",
-   "description": "Sent when the job is taken on.",
-   "fieldname": "chatwoot_accepted_message",
-   "fieldtype": "Small Text",
-   "label": "Accepted Message"
-  },
-  {
-   "default": "👋 أهلاً {customer}\n\n🎫 {ticket}\n{vehicle}\n🔧 {engineer}\n\n🛠️ فريقنا شغّال على طلبك الحين! ما راح ناخذ وقت طويل 💪\n🛠️ Our team is on it right now — we won't keep you long 💪\n\nبنبلغك أول ما نخلص / We'll let you know the second we're done ✅",
-   "description": "Sent when the engineer starts.",
-   "fieldname": "chatwoot_working_message",
-   "fieldtype": "Small Text",
-   "label": "Work Started Message"
-  },
-  {
-   "default": "🎉 خلصنا يا {customer}! / All done, {customer}!\n\n🎫 {ticket}\n{vehicle}\n🔧 {engineer}\n\n⭐ كيف كانت تجربتك معنا؟ رأيك يهمنا وما ياخذ دقيقة 🙏\n⭐ How did we do? Your feedback means a lot — under a minute 🙏\n\n🔗 {link}\n⏰ صالح ٢٤ ساعة / Valid for 24 hours",
-   "description": "Must include {link}.",
-   "fieldname": "chatwoot_valuation_message",
-   "fieldtype": "Small Text",
-   "label": "Feedback Request"
-  },
-  {
-   "collapsible": 1,
-   "description": "To the engineer, not the customer.",
-   "fieldname": "sec_tech_messages",
-   "fieldtype": "Section Break",
-   "label": "Technician Messages"
-  },
-  {
-   "default": "👋 يعطيك العافية {engineer}\n\n📋 عندك طلب جديد / New job for you:\n🎫 {ticket}\n👤 {customer}\n{vehicle}\n{location}\n{phone}\n\n📞 كلّم العميل ونسّق معه الموعد، وإذا احتجت شي إحنا معك 💪\n📞 Give the customer a call and set a time — shout if you need anything 💪",
-   "description": "Sent when assigned.",
-   "fieldname": "tech_accepted_message",
-   "fieldtype": "Small Text",
-   "label": "Job Assigned"
-  },
-  {
-   "default": "👋 يعطيك العافية {engineer}\n\n🛠️ الطلب صار قيد التنفيذ / Job is now in progress:\n🎫 {ticket}\n👤 {customer}\n{vehicle}\n{location}\n\n✅ حدّث الطلب أول ما تخلص التركيب، وبالتوفيق 🚀\n✅ Update the ticket once the install is done — good luck out there 🚀",
-   "description": "Template “tech_working”.",
-   "fieldname": "tech_working_message",
-   "fieldtype": "Small Text",
-   "label": "Work Started"
-  },
-  {
-   "default": "🎉 تمام يا {engineer}!\n\n✅ تم إغلاق الطلب / Job closed:\n🎫 {ticket}\n👤 {customer}\n{vehicle}\n\n🙏 شكراً لجهودك، شغل ممتاز! أرسلنا للعميل طلب تقييم ⭐\n🙏 Thanks for your effort — great work! We've asked the customer to rate it ⭐",
-   "description": "Template “tech_done”.",
-   "fieldname": "tech_done_message",
-   "fieldtype": "Small Text",
-   "label": "Job Closed"
-  },
-  {
-   "collapsible": 1,
-   "description": "Shown on the feedback page.",
-   "fieldname": "sec_contacts",
-   "fieldtype": "Section Break",
-   "label": "Contact Numbers"
-  },
-  {
    "fieldname": "contact_numbers",
    "fieldtype": "Table",
    "label": "Contact Numbers",
@@ -563,7 +504,7 @@
   },
   {
    "collapsible": 1,
-   "description": "Messages the customer as status changes.",
+   "description": "Who gets messaged, and by which status, as a ticket moves through its stages.",
    "fieldname": "sec_auto_messages",
    "fieldtype": "Section Break",
    "label": "Automatic Messages"
@@ -590,21 +531,11 @@
    "label": "Show Vehicle Number To"
   },
   {
-   "fieldname": "col_auto_a",
-   "fieldtype": "Column Break"
-  },
-  {
    "default": "0",
    "description": "Needs a phone on the engineer's record.",
    "fieldname": "technician_message_enabled",
    "fieldtype": "Check",
    "label": "Send to Technicians"
-  },
-  {
-   "collapsible": 1,
-   "fieldname": "sec_auto_rules",
-   "fieldtype": "Section Break",
-   "label": "Status Rules"
   },
   {
    "description": "Status → message mapping.",
@@ -615,7 +546,7 @@
   },
   {
    "collapsible": 1,
-   "description": "Warns before subscriptions expire. Read-only.",
+   "description": "Warns before subscriptions expire. Read-only. Message placeholders: {customer} {vehicles} {count} {expiry} etc.",
    "fieldname": "sec_subscription_reminders",
    "fieldtype": "Section Break",
    "label": "Subscription Reminders"
@@ -680,13 +611,6 @@
    "fieldtype": "Select",
    "label": "Phone Source",
    "options": "Customer, then vehicle\nCustomer only\nVehicle only"
-  },
-  {
-   "collapsible": 1,
-   "description": "Placeholders: {customer} {vehicles} {count} {expiry} etc.",
-   "fieldname": "sec_subscription_message",
-   "fieldtype": "Section Break",
-   "label": "Reminder Message"
   },
   {
    "default": "👋 أهلاً {customer}\n\n⏰ انتهى اشتراك التتبع للمركبات التالية ({count}):\n⏰ Tracking has expired for these ({count}):\n{vehicles}\n\n🔄 نجدده لك بخطوتين بس، وترجع تتابع مركباتك على طول 🚗💨\n🔄 A quick renewal and you're back to tracking — two steps 🚗💨\n\nتواصل معنا وإحنا في خدمتك / Reach out any time, we're here to help 🤝\n{contacts}",

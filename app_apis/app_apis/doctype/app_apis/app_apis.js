@@ -65,7 +65,6 @@ frappe.ui.form.on("app_apis", {
 					freeze_message: __("Signing in to Pilot\u2026"),
 					callback(r) {
 						const d = (r && r.message) || {};
-						const u = d.user || {};
 						const esc = (v) => frappe.utils.escape_html(String(v === undefined || v === null || v === "" ? "\u2014" : v));
 						frappe.msgprint({
 							title: __("Pilot Admin Connection"),
@@ -78,16 +77,12 @@ frappe.ui.form.on("app_apis", {
 								<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">
 									${__("Login")}: ${esc(d.account)} \u00b7
 									${__("Server")}: ${esc(d.base_url)} \u00b7
-									${__("Node")}: ${esc(d.node)} \u00b7
 									${__("Round trip")}: ${esc(d.elapsed_ms || 0)} ms
 								</div>
 								${
 									d.ok
 										? `<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">
-												${__("Role")}: ${esc(u.role)} \u00b7
-												${__("Account ID")}: ${esc(u.account_id)} \u00b7
-												${__("Partner ID")}: ${esc(u.partner_id)}
-												${u.ip_filter ? ` \u00b7 <b>${__("IP filter is on at Pilot")}</b>` : ""}
+												${__("Accounts visible")}: ${esc(d.account_count)}
 											</div>`
 										: ""
 								}
@@ -125,7 +120,6 @@ frappe.ui.form.on("app_apis", {
 					freeze_message: __("Signing in to Pilot…"),
 					callback(r) {
 						const d = (r && r.message) || {};
-						const u = d.user || {};
 						const esc = (v) => frappe.utils.escape_html(String(v === undefined || v === null || v === "" ? "—" : v));
 						frappe.msgprint({
 							title: __("Pilot Admin Connection 2"),
@@ -138,16 +132,12 @@ frappe.ui.form.on("app_apis", {
 								<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">
 									${__("Login")}: ${esc(d.account)} ·
 									${__("Server")}: ${esc(d.base_url)} ·
-									${__("Node")}: ${esc(d.node)} ·
 									${__("Round trip")}: ${esc(d.elapsed_ms || 0)} ms
 								</div>
 								${
 									d.ok
 										? `<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">
-												${__("Role")}: ${esc(u.role)} ·
-												${__("Account ID")}: ${esc(u.account_id)} ·
-												${__("Partner ID")}: ${esc(u.partner_id)}
-												${u.ip_filter ? ` · <b>${__("IP filter is on at Pilot")}</b>` : ""}
+												${__("Accounts visible")}: ${esc(d.account_count)}
 											</div>`
 										: ""
 								}
@@ -187,6 +177,34 @@ frappe.ui.form.on("app_apis", {
 			),
 			"blue",
 			true
+		);
+
+		frm.add_custom_button(
+			__("Check Stale Tickets Now"),
+			() => {
+				frappe.call({
+					method: "app_apis.stale_reminders.check_now",
+					freeze: true,
+					freeze_message: __("Scanning tickets…"),
+					callback(r) {
+						const d = (r && r.message) || {};
+						const esc = (v) => frappe.utils.escape_html(String(v === undefined || v === null || v === "" ? "—" : v));
+						frappe.msgprint({
+							title: __("Stale Ticket Reminders"),
+							indicator: d.ok && d.ran ? "green" : d.ok ? "orange" : "red",
+							message: d.ran
+								? `<div style="font-size:13px">
+										<div><b>${__("Checked {0} ticket(s), queued {1} reminder(s).", [esc(d.checked), esc(d.queued)])}</b></div>
+										<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">
+											${__("Rules checked")}: ${esc(d.rules)}
+										</div>
+									</div>`
+								: `<div style="font-size:13px">${esc(d.reason)}</div>`,
+						});
+					},
+				});
+			},
+			__("Stale Tickets")
 		);
 	},
 });

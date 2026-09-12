@@ -9,6 +9,7 @@
   "enabled",
   "state",
   "template",
+  "message",
   "send_once"
  ],
  "fields": [
@@ -21,7 +22,7 @@
    "label": "On"
   },
   {
-   "columns": 4,
+   "columns": 3,
    "description": "Ticket status that fires this message. Must match the Status option exactly, apostrophe included.",
    "fieldname": "state",
    "fieldtype": "Data",
@@ -30,14 +31,20 @@
    "reqd": 1
   },
   {
-   "columns": 3,
-   "description": "Which message to send, and to whom: the three plain names go to the customer, the tech_ ones go to the engineer who was assigned the ticket. The wording for each lives in the message sections above.",
+   "description": "Who this row is for and which built-in default it falls back to when Message is left blank: the three plain names go to the customer, the tech_ ones go to the engineer assigned to the ticket. Open the row to change it.",
    "fieldname": "template",
    "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Send Message",
+   "label": "Kind",
    "options": "accepted\nworking\nvaluation\ntech_accepted\ntech_working\ntech_done",
    "reqd": 1
+  },
+  {
+   "columns": 6,
+   "description": "The exact text to send. Edit it here, in this row -- leave it blank to fall back to the Kind's built-in default.",
+   "fieldname": "message",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Message"
   },
   {
    "columns": 2,

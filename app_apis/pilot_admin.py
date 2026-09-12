@@ -678,76 +678,42 @@ def _is_usable(settings: dict) -> bool:
 
 @frappe.whitelist()
 def test_connection(account: int = 1) -> dict:
-	"""Sign in, then ask Pilot who we are. Drives the button on the settings form.
+	"""Ping the Administrator API. Drives the button on the settings form.
 
-	Forces a fresh token rather than reporting on a cached one: "the token we
-	minted an hour ago still parses" is not the question anybody presses this
-	button to answer.
+	Used to sign in over v3 instead (Bearer token, `/auth/me`), which tested
+	the wrong protocol: this connection's `base_url` is the ADMIN host
+	(admksa...), and that host does not serve `/api/v3/*` at all -- every
+	press 404'd, credentials notwithstanding. `cmd=accountslist` is the
+	cheapest call that only Basic Auth to the admin host can answer, which
+	makes it the actual test of what this button claims to test.
 	"""
 	frappe.only_for(ADMIN_ROLES)
 
 	settings = _settings(account)
 	_require_configured(settings)
 
-	started = time.monotonic()
-	token, node, meta = _get_token(settings, force=True)
-	elapsed = int((time.monotonic() - started) * 1000)
+	result = backend_accounts(settings)
+	meta = result.get("_pilot_admin") or {}
+	elapsed = meta.get("elapsed_ms") or 0
 
-	if not token:
-		code, msg = meta.get("error", (-500, _("Pilot did not return a token.")))
+	if frappe.utils.cint(result.get("code")) != 0:
 		return {
 			"ok": False,
 			"account": settings["username"],
 			"base_url": settings["base_url"],
-			"node": settings["node"] or None,
 			"elapsed_ms": elapsed,
-			"message": f"[{code}] {msg}",
+			"message": f"[{result.get('code')}] {result.get('msg')}",
 		}
 
-	# The token is proof the credentials are good; auth/me is proof the token
-	# is actually usable on this node, which is the failure the node header
-	# exists to prevent -- and the only way to see it is to make one real call.
-	me = request("/auth/me", settings=settings)
-	elapsed = int((time.monotonic() - started) * 1000)
-
-	if not _ok(me):
-		return {
-			"ok": False,
-			"account": settings["username"],
-			"base_url": settings["base_url"],
-			"node": node,
-			"elapsed_ms": elapsed,
-			"message": _("Signed in ({0}-character token), but /auth/me failed: [{1}] {2}").format(
-				meta.get("token_length") or 0, me.get("code"), me.get("msg")
-			),
-		}
-
-	user = me.get("user") or {}
-	role_id = user.get("role_id")
-	role = ROLE_NAMES.get(frappe.utils.cint(role_id), f"role {role_id}")
+	accounts = result.get("data") or []
 	return {
 		"ok": True,
 		"account": settings["username"],
 		"base_url": settings["base_url"],
-		"node": node,
 		"elapsed_ms": elapsed,
-		"user": {
-			"name": user.get("name"),
-			"username": user.get("username"),
-			"email": user.get("email"),
-			"usr_id": user.get("usr_id"),
-			"account_id": user.get("account_id"),
-			"partner_id": user.get("partner_id"),
-			"node_id": user.get("node_id"),
-			"role_id": role_id,
-			"role": role,
-			"ip_filter": bool(frappe.utils.cint(user.get("ips_on"))),
-		},
-		"message": _("Signed in as {0} ({1}), account {2}, node {3}.").format(
-			user.get("name") or user.get("username") or settings["username"],
-			role,
-			user.get("account_id"),
-			node or user.get("node_id") or "-",
+		"account_count": len(accounts),
+		"message": _("Signed in as {0}. {1} accounts visible on the estate.").format(
+			settings["username"], len(accounts)
 		),
 	}
 

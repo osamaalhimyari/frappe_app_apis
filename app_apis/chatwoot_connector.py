@@ -111,21 +111,22 @@ TO_CUSTOMER = "customer"
 TO_TECHNICIAN = "technician"
 
 # Message kinds this module knows how to render. The key is what a caller
-# passes as `template=`; the values are who it is for, the settings fieldname
-# holding the text, and the built-in fallback used when that field is blank.
+# passes as `template=`; the values are who it is for and the built-in
+# fallback used when the matching Status Rules row's Message column is blank.
 #
-# ONE field per message, holding BOTH languages. There used to be an `_ar` and
+# ONE message per kind, holding BOTH languages. There used to be an `_ar` and
 # an `_en` field for each of these and a language picker deciding between them,
 # which meant twelve boxes on the settings form, a customer's `language` field
 # nobody maintained, and a real chance of a customer reading the wrong one. A
 # WhatsApp message is read on a phone by somebody who reads one of the two
 # alphabets; writing both costs three extra lines and removes the guess.
 #
-# The fallbacks below mirror the `default` on each settings field, which is the
-# wording actually in use on the live site. Keep the two in step: the field is
-# what an operator edits, and this is what a site that never touched the field
-# gets. They drifting apart is how a fresh install ends up sending a different
-# message from the one everyone reviewed.
+# The wording an operator actually edits lives on the row itself now -- the
+# Message column on the `app_apis` Status Rules table (`_template_text` reads
+# it, matched by `template`) -- not on a fixed field here. The text below is
+# only the fallback a row falls back to while its Message column is empty, so
+# a fresh install, or a row nobody has touched yet, still sends something
+# sensible.
 #
 # Shape of every message, and the reason they stay short: the facts once at the
 # top under emoji that need no translation, then one Arabic line and one English
@@ -146,7 +147,6 @@ TEMPLATES = {
 	# blank line behind them.
 	"accepted": {
 		"to": TO_CUSTOMER,
-		"field": "chatwoot_accepted_message",
 		"text": (
 			"👋 أهلاً {customer}\n\n"
 			"🎫 {ticket}\n"
@@ -159,7 +159,6 @@ TEMPLATES = {
 	},
 	"working": {
 		"to": TO_CUSTOMER,
-		"field": "chatwoot_working_message",
 		"text": (
 			"👋 أهلاً {customer}\n\n"
 			"🎫 {ticket}\n"
@@ -172,7 +171,6 @@ TEMPLATES = {
 	},
 	"valuation": {
 		"to": TO_CUSTOMER,
-		"field": "chatwoot_valuation_message",
 		"text": (
 			"🎉 خلصنا يا {customer}! / All done, {customer}!\n\n"
 			"🎫 {ticket}\n"
@@ -195,7 +193,6 @@ TEMPLATES = {
 	# ticket, and it must not be forwarded around the workshop.
 	"tech_accepted": {
 		"to": TO_TECHNICIAN,
-		"field": "tech_accepted_message",
 		"text": (
 			"👋 يعطيك العافية {engineer}\n\n"
 			"📋 عندك طلب جديد / New job for you:\n"
@@ -210,7 +207,6 @@ TEMPLATES = {
 	},
 	"tech_working": {
 		"to": TO_TECHNICIAN,
-		"field": "tech_working_message",
 		"text": (
 			"👋 يعطيك العافية {engineer}\n\n"
 			"🛠️ الطلب صار قيد التنفيذ / Job is now in progress:\n"
@@ -224,7 +220,6 @@ TEMPLATES = {
 	},
 	"tech_done": {
 		"to": TO_TECHNICIAN,
-		"field": "tech_done_message",
 		"text": (
 			"🎉 تمام يا {engineer}!\n\n"
 			"✅ تم إغلاق الطلب / Job closed:\n"
@@ -233,6 +228,27 @@ TEMPLATES = {
 			"{vehicle}\n\n"
 			"🙏 شكراً لجهودك، شغل ممتاز! أرسلنا للعميل طلب تقييم ⭐\n"
 			"🙏 Thanks for your effort — great work! We've asked the customer to rate it ⭐"
+		),
+	},
+	# A fourth audience for the technician side: not a stage of the job, but the
+	# clock. app_apis.stale_reminders fires this at whichever ticket has sat in
+	# a watched status past its configured hours, with wording that always comes
+	# from the matching Stale Ticket Rule row -- the fallback below is only ever
+	# seen if that row's Message were somehow empty, which the doctype does not
+	# allow. Registered here (rather than left as a bare string) purely so
+	# `_context`/`_render` treat it as a technician message, the same as the
+	# three above -- right side of {vehicle}, phone/location lines included.
+	"stale_reminder": {
+		"to": TO_TECHNICIAN,
+		"text": (
+			"👋 يعطيك العافية {engineer}\n\n"
+			"⏰ الطلب واقف من فترة وما تحدث / This job hasn't moved in a while:\n"
+			"🎫 {ticket}\n"
+			"👤 {customer}\n"
+			"{vehicle}\n"
+			"{location}\n\n"
+			"📋 حدّث حالته أو خبرنا وش الوضع 🙏\n"
+			"📋 Please update it or let us know what's going on 🙏"
 		),
 	},
 }
@@ -990,11 +1006,17 @@ def _render(template_text: str, ctx: dict) -> str:
 def _template_text(template: str, settings: dict) -> str:
 	"""The configured text for this template, or the built-in.
 
-	One field per message, holding both languages -- see TEMPLATES.
+	The wording lives on the Status Rules row itself now -- one Message field
+	per row, editable in place -- rather than in a fixed settings field per
+	template name. First row whose `template` matches wins, mirroring the
+	first-match convention `_rules`/`_run` already use for the same table.
 	"""
 	spec = TEMPLATES[template]
-	configured = str(settings["doc"].get(spec["field"]) or "").strip()
-	return configured or spec["text"]
+	for row in settings["doc"].get("auto_message_rules") or []:
+		if str(row.get("template") or "").strip() == template:
+			configured = str(row.get("message") or "").strip()
+			return configured or spec["text"]
+	return spec["text"]
 
 
 # --------------------------------------------------------------------------

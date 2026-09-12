@@ -173,9 +173,15 @@ doc_events = {
 # The job is a no-op unless `subscription_reminder_enabled` is ticked, and sends
 # nothing at all while `subscription_reminder_dry_run` is on. See
 # app_apis/subscription_reminders.py for why there are three separate guards.
+#
+# `stale_reminders.hourly` follows the same trick: `stale_ticket_reminder_hour`
+# on the settings Single decides which of these 24 ticks is the one that scans,
+# so that hour is a setting too, not a second cron line to keep in sync with
+# the first. See app_apis/stale_reminders.py.
 scheduler_events = {
 	"hourly_long": [
 		"app_apis.subscription_reminders.hourly",
+		"app_apis.stale_reminders.hourly",
 	],
 }
 
@@ -231,6 +237,12 @@ scheduler_events = {
 #     bench --site <site> export-fixtures --app app_apis
 #
 # There is no Server Script to ship: all logic lives in the two connectors.
+#
+# The Fleet Audit dashboard is a Custom HTML Block, which is desk-editable
+# document data rather than a file in this app -- without a fixture for it,
+# every dashboard change made from the desk (which is how it has always been
+# built) would live only in this site's database and never reach git at all.
+# Regenerate the same way, after editing the block in the desk.
 fixtures = [
     {
         "dt": "Client Script",
@@ -247,6 +259,10 @@ fixtures = [
                 ],
             ]
         ],
+    },
+    {
+        "dt": "Custom HTML Block",
+        "filters": [["name", "=", "Fleet Audit"]],
     },
 ]
 
