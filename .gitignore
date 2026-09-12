@@ -53,3 +53,6 @@ jspm_packages/
 
 # Aider AI Chat
 .aider*
+
+# On-server safety backups made before a deploy (app_apis.json.bak_<epoch>, etc.)
+*.bak_[0-9]*
