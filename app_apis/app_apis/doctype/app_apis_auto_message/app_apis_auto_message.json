@@ -8,7 +8,7 @@
  "field_order": [
   "enabled",
   "state",
-  "template",
+  "to",
   "message",
   "send_once"
  ],
@@ -31,20 +31,24 @@
    "reqd": 1
   },
   {
-   "description": "Who this row is for and which built-in default it falls back to when Message is left blank: the three plain names go to the customer, the tech_ ones go to the engineer assigned to the ticket. Open the row to change it.",
-   "fieldname": "template",
+   "columns": 2,
+   "default": "Customer",
+   "description": "Who gets this message.",
+   "fieldname": "to",
    "fieldtype": "Select",
-   "label": "Kind",
-   "options": "accepted\nworking\nvaluation\ntech_accepted\ntech_working\ntech_done",
+   "in_list_view": 1,
+   "label": "Send To",
+   "options": "Customer\nTechnician",
    "reqd": 1
   },
   {
-   "columns": 6,
-   "description": "The exact text to send. Edit it here, in this row -- leave it blank to fall back to the Kind's built-in default.",
+   "columns": 4,
+   "description": "The exact text to send.",
    "fieldname": "message",
    "fieldtype": "Small Text",
    "in_list_view": 1,
-   "label": "Message"
+   "label": "Message",
+   "reqd": 1
   },
   {
    "columns": 2,

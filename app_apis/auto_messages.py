@@ -1,14 +1,15 @@
 # Copyright (c) 2026, osama and contributors
 # For license information, please see license.txt
 
-"""Message the customer and the engineer as a ticket moves through its statuses.
+"""Message the customer or the engineer as a ticket moves through its statuses.
 
-Three stages as the customer experiences them -- we accepted your job, someone
-is working on it, please rate it -- each fired by a status change, and the same
-three stages told to the engineer who was assigned the ticket. Which status
-sends which message is a table on the settings Single (`auto_message_rules`),
-not a constant here: that pairing is a decision about how the business runs, and
-changing it should be a row in a grid rather than a deploy.
+Which status sends what, to whom, and in what words is entirely a table on the
+settings Single (`auto_message_rules`), not a constant here: that pairing is a
+decision about how the business runs, and changing it should be a row in a
+grid rather than a deploy. A row is just three things -- a status, a Customer
+or Technician choice, and its own Message text -- so adding a fourth stage, or
+a message that only exists for one particular status, is filling in a row, not
+naming a new kind of message in Python first.
 
 The two audiences are gated separately and completely, because they are asking
 different questions. A customer message needs `auto_message_enabled` AND the
@@ -16,9 +17,8 @@ customer-type filter -- most customers here are companies, and a company does
 not want a "rate your visit" text. A technician message needs only
 `technician_message_enabled`: the engineer is being sent to do a job, and who
 owns the vehicle has no bearing on whether they should be told. Either switch
-can be on with the other off. Which side a template belongs to is declared on
-the template itself, in chatwoot_connector.TEMPLATES, so the two can never be
-paired up wrongly.
+can be on with the other off. Which side a row is for is the row's own Send To
+field -- nothing here infers it from wording or guesses from the status.
 
 The whole design follows from one rule the operator set: the status change is
 the real work and the message is a courtesy that happens afterwards. Every
@@ -45,7 +45,8 @@ App Apis Message Log, which is its own table.
 
 Replaces the earlier `auto_valuation` module, which did this for one message
 only. Renamed rather than extended in place because "auto_valuation" stopped
-being true the moment it learned to send three different things.
+being true the moment it learned to send three different things -- and later
+stopped naming stages at all, once a row could be anything an operator typed.
 """
 
 import frappe
@@ -63,16 +64,69 @@ STATE_FIELDS = ("workflow_state", "status")
 
 # Used only when the rule table is empty, so a site that has never opened the
 # settings form still behaves sensibly. Mind the apostrophe in Work's Done: it
-# has to match the Select option on xticket exactly.
+# has to match the Select option on xticket exactly. Wording mirrors what this
+# app shipped with before Send To / Message replaced the six named templates.
 DEFAULT_RULES = (
-	{"state": "In Hand", "template": "accepted", "send_once": 1},
-	{"state": "Pending", "template": "working", "send_once": 1},
-	{"state": "Work's Done", "template": "valuation", "send_once": 1},
+	{"state": "In Hand", "to": "Customer", "send_once": 1, "message": (
+		"👋 أهلاً {customer}\n\n"
+		"🎫 {ticket}\n"
+		"{vehicle}\n"
+		"🔧 {engineer}\n\n"
+		"✅ استلمنا طلبك وصار بين إيدينا! بنخبرك أول ما يبدأ العمل 🚀\n"
+		"✅ Got it — your request is in good hands! We'll tell you the moment work starts 🚀\n\n"
+		"شكراً لثقتك فينا / Thanks for trusting us 🤝"
+	)},
+	{"state": "Pending", "to": "Customer", "send_once": 1, "message": (
+		"👋 أهلاً {customer}\n\n"
+		"🎫 {ticket}\n"
+		"{vehicle}\n"
+		"🔧 {engineer}\n\n"
+		"🛠️ فريقنا شغّال على طلبك الحين! ما راح ناخذ وقت طويل 💪\n"
+		"🛠️ Our team is on it right now — we won't keep you long 💪\n\n"
+		"بنبلغك أول ما نخلص / We'll let you know the second we're done ✅"
+	)},
+	{"state": "Work's Done", "to": "Customer", "send_once": 1, "message": (
+		"🎉 خلصنا يا {customer}! / All done, {customer}!\n\n"
+		"🎫 {ticket}\n"
+		"{vehicle}\n"
+		"🔧 {engineer}\n\n"
+		"⭐ كيف كانت تجربتك معنا؟ رأيك يهمنا وما ياخذ دقيقة 🙏\n"
+		"⭐ How did we do? Your feedback means a lot — under a minute 🙏\n\n"
+		"🔗 {link}\n"
+		"⏰ صالح ٢٤ ساعة / Valid for 24 hours"
+	)},
 	# The engineer's side of the same three stages. Same states, different
-	# templates, and each is gated by its own switch -- see _consider.
-	{"state": "In Hand", "template": "tech_accepted", "send_once": 1},
-	{"state": "Pending", "template": "tech_working", "send_once": 1},
-	{"state": "Work's Done", "template": "tech_done", "send_once": 1},
+	# audience, and each is gated by its own switch -- see _consider.
+	{"state": "In Hand", "to": "Technician", "send_once": 1, "message": (
+		"👋 يعطيك العافية {engineer}\n\n"
+		"📋 عندك طلب جديد / New job for you:\n"
+		"🎫 {ticket}\n"
+		"👤 {customer}\n"
+		"{vehicle}\n"
+		"{location}\n"
+		"{phone}\n\n"
+		"📞 كلّم العميل ونسّق معه الموعد، وإذا احتجت شي إحنا معك 💪\n"
+		"📞 Give the customer a call and set a time — shout if you need anything 💪"
+	)},
+	{"state": "Pending", "to": "Technician", "send_once": 1, "message": (
+		"👋 يعطيك العافية {engineer}\n\n"
+		"🛠️ الطلب صار قيد التنفيذ / Job is now in progress:\n"
+		"🎫 {ticket}\n"
+		"👤 {customer}\n"
+		"{vehicle}\n"
+		"{location}\n\n"
+		"✅ حدّث الطلب أول ما تخلص التركيب، وبالتوفيق 🚀\n"
+		"✅ Update the ticket once the install is done — good luck out there 🚀"
+	)},
+	{"state": "Work's Done", "to": "Technician", "send_once": 1, "message": (
+		"🎉 تمام يا {engineer}!\n\n"
+		"✅ تم إغلاق الطلب / Job closed:\n"
+		"🎫 {ticket}\n"
+		"👤 {customer}\n"
+		"{vehicle}\n\n"
+		"🙏 شكراً لجهودك، شغل ممتاز! أرسلنا للعميل طلب تقييم ⭐\n"
+		"🙏 Thanks for your effort — great work! We've asked the customer to rate it ⭐"
+	)},
 )
 
 def _settings():
@@ -81,17 +135,57 @@ def _settings():
 
 
 def _rules(settings) -> list[dict]:
-	"""Enabled rules, as plain dicts. Falls back to DEFAULT_RULES if empty."""
-	rows = [
-		{
-			"state": str(row.get("state") or "").strip(),
-			"template": str(row.get("template") or "").strip(),
+	"""Enabled, fully-filled-in rules, as plain dicts.
+
+	Falls back to DEFAULT_RULES if the table is empty, so a site that has never
+	opened the settings form still behaves sensibly. A row missing a status or
+	a message cannot do anything useful, so it is dropped rather than failing
+	loudly -- half-filled-in rows are a normal thing to have while an operator
+	is still typing (the Message field is required on the doctype, but that
+	only stops a *save*, not a row somebody is mid-edit on).
+	"""
+	rows = []
+	for row in settings.get("auto_message_rules") or []:
+		state = str(row.get("state") or "").strip()
+		to = str(row.get("to") or "").strip()
+		message = str(row.get("message") or "").strip()
+		if not cint(row.get("enabled")) or not state or to not in ("Customer", "Technician") or not message:
+			continue
+		rows.append({
+			"state": state,
+			"to": to,
+			"message": message,
 			"send_once": cint(row.get("send_once")),
-		}
-		for row in (settings.get("auto_message_rules") or [])
-		if cint(row.get("enabled")) and str(row.get("state") or "").strip()
-	]
+		})
 	return rows or [dict(r) for r in DEFAULT_RULES]
+
+
+def _identity(state: str, to: str) -> str:
+	"""How a rule identifies itself in the log and the realtime toast.
+
+	There is no template name to fall back on any more -- a rule is a status
+	and an audience, so that pair, written the way an operator reads it, is
+	the whole identity. Used for `_already_sent` and Message Log's `template`
+	column; kept ASCII-free of nothing special, but see `_job_key` for the
+	separate, ASCII-safe form used in job ids.
+	"""
+	return f"{state} → {to}"
+
+
+def _job_key(state: str, to: str) -> str:
+	"""The same identity, safe to put in a Redis job id."""
+	return f"{state.strip().lower()}::{to.strip().lower()}"
+
+
+def _cw_template(to: str) -> str:
+	"""Which entry in chatwoot_connector.TEMPLATES this audience renders as.
+
+	Purely a routing key -- see chatwoot_connector.TEMPLATES["auto_customer"]
+	and ["auto_technician"]. The wording sent is always the rule's own Message
+	field; these two exist only so `_context`/`_render`/`recipient_of` treat
+	the row as a customer or technician message, correctly and by construction.
+	"""
+	return "auto_technician" if to == "Technician" else "auto_customer"
 
 
 # --------------------------------------------------------------------------
@@ -139,10 +233,6 @@ def _consider(doc):
 	if not rules:
 		return
 
-	# Lazily, and only once a rule has actually matched: this runs inside the
-	# operator's save, and most saves match nothing.
-	from app_apis.chatwoot_connector import TO_TECHNICIAN, recipient_of
-
 	customer_on = cint(settings.get("auto_message_enabled"))
 	technician_on = cint(settings.get("technician_message_enabled"))
 
@@ -151,7 +241,7 @@ def _consider(doc):
 	customer_ok = None
 
 	for rule in rules:
-		if recipient_of(rule["template"]) == TO_TECHNICIAN:
+		if rule["to"] == "Technician":
 			if not technician_on:
 				continue
 		else:
@@ -174,11 +264,11 @@ def _consider(doc):
 			# A Client Script on this site saves the ticket again right after a
 			# workflow action. This drops the twin while the first is still
 			# queued; the log check in _run covers the case where it finished.
-			job_id=f"auto-message::{doc.name}::{rule['template']}",
+			job_id=f"auto-message::{doc.name}::{_job_key(rule['state'], rule['to'])}",
 			deduplicate=True,
 			ticket=doc.name,
-			template=rule["template"],
 			state=state,
+			to=rule["to"],
 			field=field,
 			# Captured here and carried into the worker, because by the time the
 			# message actually goes out the worker is running as Administrator
@@ -238,40 +328,37 @@ def _customer_allowed(doc, settings) -> bool:
 # --------------------------------------------------------------------------
 
 
-def run(ticket: str, template: str, state: str | None = None, field: str | None = None,
+def run(ticket: str, state: str, to: str, field: str | None = None,
         notify_user: str | None = None):
 	"""Background entry point. Never raises -- there is nobody to raise to."""
 	try:
-		_run(ticket, template, state, field, notify_user)
+		_run(ticket, state, to, field, notify_user)
 	except Exception:
 		# Here Error Log is the right home: a separate process, its own
 		# transaction, and a failure nobody can see is a failure nobody fixes.
-		frappe.log_error(frappe.get_traceback(), f"auto-message send failed: {ticket} / {template}")
+		frappe.log_error(frappe.get_traceback(), f"auto-message send failed: {ticket} / {state} -> {to}")
 		# Still tell whoever moved the ticket. A crash they never see is the
 		# worst outcome: they assume the customer was messaged.
 		_notify(notify_user, {
 			"ticket": ticket,
-			"template": template,
+			"template": _identity(state, to),
 			"status": "Failed",
 			"reason": "Unexpected error — see Error Log.",
 		})
 
 
-def _run(ticket: str, template: str, state: str | None, field: str | None,
+def _run(ticket: str, state: str, to: str, field: str | None,
          notify_user: str | None = None):
 	from app_apis import chatwoot_connector as cw
 
 	settings = _settings()
-
-	if template not in cw.TEMPLATES:
-		frappe.log_error(f"Unknown message template {template!r} on ticket {ticket}", "auto-message")
-		return
+	cw_template = _cw_template(to)
+	to_const = cw.recipient_of(cw_template)
 
 	# Re-checked here as well as at queue time: the switch can be turned off in
 	# the seconds between the transition committing and the worker picking the
 	# job up, and the switch being off has to mean nothing goes out.
-	to = cw.recipient_of(template)
-	switch = "technician_message_enabled" if to == cw.TO_TECHNICIAN else "auto_message_enabled"
+	switch = "technician_message_enabled" if to_const == cw.TO_TECHNICIAN else "auto_message_enabled"
 	if not cint(settings.get(switch)):
 		return
 
@@ -285,16 +372,23 @@ def _run(ticket: str, template: str, state: str | None, field: str | None,
 	trigger = f"{field or 'state'} = {state or '?'}"
 
 	# The queue is not instant, and a transition can be undone in the meantime.
-	rule = next((r for r in _rules(settings) if r["template"] == template), None)
+	# Re-fetched fresh (not the settings above, which were only needed for the
+	# switch) so a message edited seconds ago goes out in its current wording.
+	rule = next(
+		(r for r in _rules(settings) if r["state"].lower() == state.lower() and r["to"] == to),
+		None,
+	)
+	identity = _identity((rule or {}).get("state", state), to)
+
 	if rule:
 		current = [str(doc.get(f) or "").strip().lower() for f in STATE_FIELDS]
 		if rule["state"].lower() not in current:
 			reason = f"Ticket left {rule['state']} before the message went out (now: {doc.get('workflow_state') or '-'})."
-			_log(doc, template, "Skipped", trigger=trigger, reason=reason)
+			_log(doc, identity, "Skipped", to_const, trigger=trigger, reason=reason)
 			_notify(notify_user, {
 				"ticket": doc.name,
-				"template": template,
-				"recipient": to,
+				"template": identity,
+				"recipient": to_const,
 				"status": "Skipped",
 				"reason": reason,
 			})
@@ -303,26 +397,26 @@ def _run(ticket: str, template: str, state: str | None, field: str | None,
 	# Has this customer asked to be left alone? Checked on the customer side
 	# only: a technician message is internal, and an engineer is not a customer
 	# who can opt out of being told where their next job is.
-	if to != cw.TO_TECHNICIAN:
+	if to_const != cw.TO_TECHNICIAN:
 		from app_apis import do_not_contact
 
 		asked = do_not_contact.check(
 			customer=doc.get("customer"),
-			phone=cw.recipient_phone(doc, template),
+			phone=cw.recipient_phone(doc, cw_template),
 			scope=do_not_contact.TICKETS,
 		)
 		if asked["blocked"]:
-			_log(doc, template, "Skipped", trigger=trigger, reason=asked["reason"])
+			_log(doc, identity, "Skipped", to_const, trigger=trigger, reason=asked["reason"])
 			_notify(notify_user, {
 				"ticket": doc.name,
-				"template": template,
-				"recipient": to,
+				"template": identity,
+				"recipient": to_const,
 				"status": "Skipped",
 				"reason": asked["reason"],
 			})
 			return
 
-	if cint((rule or {}).get("send_once", 1)) and _already_sent(ticket, template):
+	if cint((rule or {}).get("send_once", 1)) and _already_sent(ticket, identity):
 		# Silent: the point of "once" is that the second attempt is a non-event,
 		# and a row for every non-event would bury the rows that matter.
 		return
@@ -332,28 +426,34 @@ def _run(ticket: str, template: str, state: str | None, field: str | None,
 	# type a number into a User or Employee record, and saying so plainly is
 	# the difference between a fixable gap and a mystery. See
 	# app_apis.technicians.missing_numbers for the full list.
-	if to == cw.TO_TECHNICIAN and not cw.recipient_phone(doc, template):
+	if to_const == cw.TO_TECHNICIAN and not cw.recipient_phone(doc, cw_template):
 		from app_apis import technicians
 
 		who = technicians.name(doc) or doc.get("assigned_to") or "the engineer"
 		reason = f"No phone number on file for {who} — add one to their User or Employee record."
-		_log(doc, template, "Skipped", trigger=trigger, reason=reason)
+		_log(doc, identity, "Skipped", to_const, trigger=trigger, reason=reason)
 		_notify(notify_user, {
 			"ticket": doc.name,
-			"template": template,
-			"recipient": to,
+			"template": identity,
+			"recipient": to_const,
 			"status": "Skipped",
 			"reason": reason,
 		})
 		return
 
-	result = cw.send_ticket_message(ticket, template=template) or {}
+	# The wording is always the rule's own Message field; a rule that vanished
+	# between the transition and the worker (deleted, or the table cleared)
+	# falls back to a plain built-in line rather than sending nothing silently.
+	message_text = (rule or {}).get("message") or cw.TEMPLATES[cw_template]["text"]
+	body = cw._render(message_text, cw._context(doc, cw_template))
+	result = cw.send_ticket_message(ticket, template=cw_template, text=body) or {}
 	status = "Sent" if result.get("ok") else "Failed"
 
 	_log(
 		doc,
-		template,
+		identity,
 		status,
+		to_const,
 		trigger=trigger,
 		reason="" if result.get("ok") else str(result.get("msg") or "")[:500],
 		result=result,
@@ -361,8 +461,8 @@ def _run(ticket: str, template: str, state: str | None, field: str | None,
 
 	_notify(notify_user, {
 		"ticket": doc.name,
-		"template": template,
-		"recipient": to,
+		"template": identity,
+		"recipient": to_const,
 		"status": status,
 		"phone": result.get("phone") or "",
 		"customer": str(doc.get("customer") or "")[:80],
@@ -399,24 +499,28 @@ def _notify(user: str | None, payload: dict):
 		frappe.logger("app_apis").warning(f"auto-message: could not notify {user}")
 
 
-def _already_sent(ticket: str, template: str) -> bool:
+def _already_sent(ticket: str, identity: str) -> bool:
 	"""Has this exact message already gone out for this ticket?"""
 	return bool(
 		frappe.db.exists(
 			"App Apis Message Log",
-			{"ticket": ticket, "template": template, "status": "Sent"},
+			{"ticket": ticket, "template": identity, "status": "Sent"},
 		)
 	)
 
 
-def _log(doc, template: str, status: str, trigger: str = "", reason: str = "", result: dict | None = None):
-	"""Record one outcome. Guarded: a logging failure must not lose the send."""
+def _log(doc, identity: str, status: str, to: str, trigger: str = "", reason: str = "",
+          result: dict | None = None):
+	"""Record one outcome. Guarded: a logging failure must not lose the send.
+
+	`to` is chatwoot_connector.TO_CUSTOMER/TO_TECHNICIAN, passed in rather than
+	derived from `identity` -- there is no TEMPLATES entry named "In Hand ->
+	Technician" to look the audience back up from.
+	"""
 	result = result or {}
 	try:
 		from app_apis import chatwoot_connector as cw
 		from app_apis import technicians
-
-		to = cw.recipient_of(template)
 
 		entry = frappe.new_doc("App Apis Message Log")
 		entry.ticket = getattr(doc, "name", None) or str(doc)
@@ -425,7 +529,7 @@ def _log(doc, template: str, status: str, trigger: str = "", reason: str = "", r
 		# than a memory test about which template names start with tech_.
 		entry.recipient = "Technician" if to == cw.TO_TECHNICIAN else "Customer"
 		entry.engineer = str(technicians.name(doc) or "")[:140] if to == cw.TO_TECHNICIAN else ""
-		entry.template = template
+		entry.template = identity
 		entry.status = status
 		entry.trigger_source = trigger
 		entry.reason = reason
@@ -450,8 +554,8 @@ def _log(doc, template: str, status: str, trigger: str = "", reason: str = "", r
 
 
 @frappe.whitelist()
-def send_now(ticket: str, template: str = "valuation", force: int = 0) -> dict:
-	"""Run one message against one ticket by hand.
+def send_now(ticket: str, state: str, to: str, force: int = 0) -> dict:
+	"""Run one rule against one ticket by hand.
 
 	Useful for testing without walking a real ticket through the workflow, and
 	for retrying something that failed. `force` ignores the already-sent check;
@@ -463,17 +567,19 @@ def send_now(ticket: str, template: str = "valuation", force: int = 0) -> dict:
 
 	from app_apis import chatwoot_connector as cw
 
-	if template not in cw.TEMPLATES:
-		return {"ok": False, "msg": f"Unknown template '{template}'. Known: {', '.join(cw.TEMPLATES)}."}
+	if to not in ("Customer", "Technician"):
+		return {"ok": False, "msg": "to must be 'Customer' or 'Technician'."}
 
 	settings = _settings()
 	doc = frappe.get_doc("xticket", ticket)
-	to = cw.recipient_of(template)
+	cw_template = _cw_template(to)
+	to_const = cw.recipient_of(cw_template)
+	identity = _identity(state, to)
 
-	if to == cw.TO_TECHNICIAN:
+	if to_const == cw.TO_TECHNICIAN:
 		if not cint(settings.get("technician_message_enabled")):
 			return {"ok": False, "msg": "Technician messages are switched off in App APIs settings."}
-		if not cw.recipient_phone(doc, template):
+		if not cw.recipient_phone(doc, cw_template):
 			from app_apis import technicians
 
 			who = technicians.name(doc) or doc.get("assigned_to") or "the engineer"
@@ -485,20 +591,20 @@ def send_now(ticket: str, template: str = "valuation", force: int = 0) -> dict:
 			customer_type = frappe.get_cached_value("Customer", doc.get("customer"), "customer_type")
 			return {"ok": False, "msg": f"Customer type '{customer_type or '-'}' is not in the allowed list."}
 
-	if not cint(force) and _already_sent(ticket, template):
-		return {"ok": False, "msg": f"'{template}' has already been sent for this ticket. Pass force=1 to repeat it."}
+	if not cint(force) and _already_sent(ticket, identity):
+		return {"ok": False, "msg": f"'{identity}' has already been sent for this ticket. Pass force=1 to repeat it."}
 
 	frappe.enqueue(
 		"app_apis.auto_messages.run",
 		queue="long",
 		timeout=300,
 		ticket=doc.name,
-		template=template,
-		state="manual",
+		state=state,
+		to=to,
 		field="send_now",
 		notify_user=frappe.session.user,
 	)
-	return {"ok": True, "msg": f"Queued '{template}' for {doc.name}."}
+	return {"ok": True, "msg": f"Queued '{identity}' for {doc.name}."}
 
 
 @frappe.whitelist()
@@ -527,8 +633,8 @@ def preview(ticket: str) -> dict:
 
 	rules = []
 	for rule in _rules(settings):
-		to = cw.recipient_of(rule["template"])
-		is_tech = to == cw.TO_TECHNICIAN
+		is_tech = rule["to"] == "Technician"
+		identity = _identity(rule["state"], rule["to"])
 		# EVERYTHING standing between this rule and a message, not just the first
 		# thing. "Why did nothing go out?" is usually asked once, and answering
 		# "the switch is off" only to be asked again about the missing phone
@@ -551,10 +657,11 @@ def preview(ticket: str) -> dict:
 
 		rules.append({
 			"state": rule["state"],
-			"template": rule["template"],
-			"recipient": to,
+			"to": rule["to"],
+			"identity": identity,
+			"recipient": cw.TO_TECHNICIAN if is_tech else cw.TO_CUSTOMER,
 			"matches_now": rule["state"].lower() in current,
-			"already_sent": _already_sent(ticket, rule["template"]),
+			"already_sent": _already_sent(ticket, identity),
 			"send_once": bool(cint(rule["send_once"])),
 			"blocked_by": blocked,
 			"would_send": not blocked,

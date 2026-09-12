@@ -111,8 +111,7 @@ TO_CUSTOMER = "customer"
 TO_TECHNICIAN = "technician"
 
 # Message kinds this module knows how to render. The key is what a caller
-# passes as `template=`; the values are who it is for and the built-in
-# fallback used when the matching Status Rules row's Message column is blank.
+# passes as `template=`; the values are who it is for and the built-in text.
 #
 # ONE message per kind, holding BOTH languages. There used to be an `_ar` and
 # an `_en` field for each of these and a language picker deciding between them,
@@ -121,12 +120,17 @@ TO_TECHNICIAN = "technician"
 # WhatsApp message is read on a phone by somebody who reads one of the two
 # alphabets; writing both costs three extra lines and removes the guess.
 #
-# The wording an operator actually edits lives on the row itself now -- the
-# Message column on the `app_apis` Status Rules table (`_template_text` reads
-# it, matched by `template`) -- not on a fixed field here. The text below is
-# only the fallback a row falls back to while its Message column is empty, so
-# a fresh install, or a row nobody has touched yet, still sends something
-# sensible.
+# Two different things get sent through this dict, and it shows in how the
+# text below is used. `accepted`/`working`/`valuation`/`tech_accepted`/
+# `tech_working`/`tech_done` are fixed kinds with nowhere left for an operator
+# to override their wording (see `_template_text`) -- they exist for manual,
+# specific call sites like "Send Valuation Link" on the ticket form, which ask
+# for one named thing and always get this exact text. `stale_reminder`,
+# `auto_customer` and `auto_technician` are the opposite: routing keys only,
+# whose `text` below is a fallback nothing should reach in practice, because
+# their real callers (app_apis.auto_messages, app_apis.stale_reminders) always
+# supply their own wording -- an operator's own Message field on a settings
+# table row -- as `text=` when they call send_ticket_message.
 #
 # Shape of every message, and the reason they stay short: the facts once at the
 # top under emoji that need no translation, then one Arabic line and one English
@@ -249,6 +253,35 @@ TEMPLATES = {
 			"{location}\n\n"
 			"📋 حدّث حالته أو خبرنا وش الوضع 🙏\n"
 			"📋 Please update it or let us know what's going on 🙏"
+		),
+	},
+	# The Automatic Messages table (app_apis.auto_messages) no longer names a
+	# specific stage per row -- a row is just a status, a Customer/Technician
+	# choice, and its own wording, so which of the three customer or three
+	# technician kinds above it "is" has stopped being a question the row can
+	# even ask. These two generic entries exist for the same reason
+	# stale_reminder does: purely so `_context`/`_render` (and `recipient_of`,
+	# for the customer-type filter and the do-not-contact gate) treat the row
+	# correctly. The wording is always the row's own Message field; the text
+	# below is only the fallback for the case the doctype does not allow -- an
+	# enabled row with a blank Message never reaches here (see
+	# auto_messages._rules).
+	"auto_customer": {
+		"to": TO_CUSTOMER,
+		"text": (
+			"👋 أهلاً {customer}\n\n"
+			"🎫 {ticket}\n"
+			"{vehicle}\n\n"
+			"📋 تحديث بخصوص طلبك / An update on your request."
+		),
+	},
+	"auto_technician": {
+		"to": TO_TECHNICIAN,
+		"text": (
+			"👋 يعطيك العافية {engineer}\n\n"
+			"🎫 {ticket}\n"
+			"{vehicle}\n\n"
+			"📋 تحديث بخصوص الطلب / An update on this job."
 		),
 	},
 }
@@ -946,13 +979,18 @@ def _context(doc, template: str, link: str | None = None) -> dict:
 		"contacts": format_contacts(BILINGUAL),
 	}
 
-	# Imported lazily and only when the template asks for it: this module must
-	# stay usable on a site where the valuation page was never deployed.
+	# Imported lazily and only when there is a customer to hand it to: this
+	# module must stay usable on a site where the valuation page was never
+	# deployed. Built for every customer-side message, not only "valuation" --
+	# an operator's own wording on any row of the Automatic Messages table can
+	# use {link} just as well, and build_url is pure computation (a signed
+	# token, no database write), so minting one that a message does not
+	# reference costs nothing.
 	#
 	# A caller that already minted a link -- the preview dialog, which shows the
 	# message and the bare URL side by side -- passes it in, so both boxes carry
 	# the same token. Minting one per render would show two links seconds apart.
-	if template == "valuation":
+	if to == TO_CUSTOMER:
 		if link is None:
 			from app_apis.valuation import build_url
 
@@ -1004,19 +1042,20 @@ def _render(template_text: str, ctx: dict) -> str:
 
 
 def _template_text(template: str, settings: dict) -> str:
-	"""The configured text for this template, or the built-in.
+	"""The built-in wording for this template.
 
-	The wording lives on the Status Rules row itself now -- one Message field
-	per row, editable in place -- rather than in a fixed settings field per
-	template name. First row whose `template` matches wins, mirroring the
-	first-match convention `_rules`/`_run` already use for the same table.
+	Used only by the six original named kinds (accepted, working, valuation,
+	tech_accepted, tech_working, tech_done) -- render_message, preview_message
+	and a bare send_ticket_message(ticket, template=...) with no `text=`
+	override are the only callers, and those three are what a manual button
+	like "Send Valuation Link" uses. Everything driven by the Automatic
+	Messages table (app_apis.auto_messages) renders its own row's Message
+	field and passes the result in as `text=`, bypassing this function
+	entirely -- a row there no longer names a template to look wording up by,
+	only a status and a Customer/Technician choice. `settings` is accepted for
+	the call sites' convenience; nothing here reads it any more.
 	"""
-	spec = TEMPLATES[template]
-	for row in settings["doc"].get("auto_message_rules") or []:
-		if str(row.get("template") or "").strip() == template:
-			configured = str(row.get("message") or "").strip()
-			return configured or spec["text"]
-	return spec["text"]
+	return TEMPLATES[template]["text"]
 
 
 # --------------------------------------------------------------------------
