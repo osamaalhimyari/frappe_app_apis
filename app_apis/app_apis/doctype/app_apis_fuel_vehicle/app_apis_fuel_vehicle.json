@@ -1,0 +1,346 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-09-13 00:00:00.000000",
+ "description": "One truck in an uploaded fuel-card report: what it bought, how far GPS says it drove, and the verdict.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "fuel_import",
+  "plate",
+  "plate_key",
+  "verdict",
+  "score",
+  "col_a",
+  "brand",
+  "model",
+  "branch",
+  "drivers",
+  "col_b",
+  "source",
+  "imei",
+  "platform_name",
+  "sec_fuel",
+  "fills",
+  "liters",
+  "cost",
+  "col_c",
+  "first_fill",
+  "last_fill",
+  "sec_gps",
+  "gps_km",
+  "lp100",
+  "peer_lp100",
+  "excess_pct",
+  "col_d",
+  "odometer_km",
+  "odometer_gap_pct",
+  "gps_points",
+  "sec_flags",
+  "away_fills",
+  "no_gps_fills",
+  "no_move_fills",
+  "quick_refills",
+  "big_fills",
+  "col_e",
+  "liters_at_risk",
+  "cost_at_risk",
+  "issues"
+ ],
+ "fields": [
+  {
+   "fieldname": "fuel_import",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Fuel Report",
+   "options": "App Apis Fuel Import",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "plate",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Plate",
+   "read_only": 1
+  },
+  {
+   "fieldname": "plate_key",
+   "fieldtype": "Data",
+   "label": "Plate Key",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "verdict",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Verdict",
+   "options": "Theft likely\nSuspicious\nOK\nNo GPS data\nNot tracked",
+   "read_only": 1
+  },
+  {
+   "description": "0–100, higher is worse. For sorting.",
+   "fieldname": "score",
+   "fieldtype": "Int",
+   "label": "Risk Score",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "brand",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Brand",
+   "read_only": 1
+  },
+  {
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "label": "Model",
+   "read_only": 1
+  },
+  {
+   "fieldname": "branch",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Branch",
+   "read_only": 1
+  },
+  {
+   "fieldname": "drivers",
+   "fieldtype": "Small Text",
+   "label": "Drivers",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_b",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Tracked On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "imei",
+   "fieldtype": "Data",
+   "label": "IMEI",
+   "read_only": 1
+  },
+  {
+   "fieldname": "platform_name",
+   "fieldtype": "Data",
+   "label": "Name on Platform",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_fuel",
+   "fieldtype": "Section Break",
+   "label": "Fuel Bought"
+  },
+  {
+   "fieldname": "fills",
+   "fieldtype": "Int",
+   "label": "Fills",
+   "read_only": 1
+  },
+  {
+   "fieldname": "liters",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Liters",
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cost",
+   "fieldtype": "Float",
+   "label": "Cost (SAR)",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_c",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "first_fill",
+   "fieldtype": "Datetime",
+   "label": "First Fill",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_fill",
+   "fieldtype": "Datetime",
+   "label": "Last Fill",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_gps",
+   "fieldtype": "Section Break",
+   "label": "Distance and Consumption"
+  },
+  {
+   "description": "Driven between the first and the last fill, from GPS.",
+   "fieldname": "gps_km",
+   "fieldtype": "Float",
+   "label": "GPS km",
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "description": "Liters bought after the first fill, per 100 GPS km.",
+   "fieldname": "lp100",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "L/100 km",
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "description": "Median L/100 km of trucks of the same brand and model in this report.",
+   "fieldname": "peer_lp100",
+   "fieldtype": "Float",
+   "label": "Peer L/100 km",
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "excess_pct",
+   "fieldtype": "Float",
+   "label": "Above Peers (%)",
+   "precision": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_d",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Last minus first odometer typed at the pump.",
+   "fieldname": "odometer_km",
+   "fieldtype": "Float",
+   "label": "Odometer km (card)",
+   "precision": "0",
+   "read_only": 1
+  },
+  {
+   "description": "How far the typed odometer is from the GPS distance.",
+   "fieldname": "odometer_gap_pct",
+   "fieldtype": "Float",
+   "label": "Odometer vs GPS (%)",
+   "precision": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "gps_points",
+   "fieldtype": "Int",
+   "label": "GPS Points Read",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_flags",
+   "fieldtype": "Section Break",
+   "label": "Findings"
+  },
+  {
+   "fieldname": "away_fills",
+   "fieldtype": "Int",
+   "label": "Fills Away From Station",
+   "read_only": 1
+  },
+  {
+   "fieldname": "no_gps_fills",
+   "fieldtype": "Int",
+   "label": "Fills With No GPS",
+   "read_only": 1
+  },
+  {
+   "fieldname": "no_move_fills",
+   "fieldtype": "Int",
+   "label": "Refuelled Without Driving",
+   "read_only": 1
+  },
+  {
+   "fieldname": "quick_refills",
+   "fieldtype": "Int",
+   "label": "Refilled Too Soon",
+   "read_only": 1
+  },
+  {
+   "fieldname": "big_fills",
+   "fieldtype": "Int",
+   "label": "Unusually Large Fills",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_e",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "liters_at_risk",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Liters at Risk",
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cost_at_risk",
+   "fieldtype": "Float",
+   "label": "Cost at Risk (SAR)",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "issues",
+   "fieldtype": "Small Text",
+   "label": "Issues",
+   "read_only": 1
+  }
+ ],
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-13 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "App Apis Fuel Vehicle",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Technical"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Support Team"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "score",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "plate",
+ "track_changes": 0
+}

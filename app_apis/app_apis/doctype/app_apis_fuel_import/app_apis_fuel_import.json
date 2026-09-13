@@ -1,0 +1,206 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:FUEL-{#####}",
+ "creation": "2026-09-13 00:00:00.000000",
+ "description": "One uploaded fuel-card report and the result of checking it against GPS. Created from the Fuel Efficiency dashboard.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "status",
+  "progress",
+  "col_a",
+  "period_from",
+  "period_to",
+  "analysed_on",
+  "col_b",
+  "source_file",
+  "file_name",
+  "sec_totals",
+  "fills",
+  "vehicles",
+  "tracked_vehicles",
+  "col_c",
+  "liters",
+  "cost",
+  "col_d",
+  "liters_at_risk",
+  "cost_at_risk",
+  "sec_error",
+  "error"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title",
+   "read_only": 1
+  },
+  {
+   "default": "Queued",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Queued\nRunning\nDone\nFailed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "progress",
+   "fieldtype": "Data",
+   "label": "Progress",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "period_from",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "From",
+   "read_only": 1
+  },
+  {
+   "fieldname": "period_to",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "To",
+   "read_only": 1
+  },
+  {
+   "fieldname": "analysed_on",
+   "fieldtype": "Datetime",
+   "label": "Analysed On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_b",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "source_file",
+   "fieldtype": "Attach",
+   "label": "Fuel Report File",
+   "read_only": 1
+  },
+  {
+   "fieldname": "file_name",
+   "fieldtype": "Data",
+   "label": "File Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_totals",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "fills",
+   "fieldtype": "Int",
+   "label": "Fills",
+   "read_only": 1
+  },
+  {
+   "fieldname": "vehicles",
+   "fieldtype": "Int",
+   "label": "Vehicles",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tracked_vehicles",
+   "fieldtype": "Int",
+   "label": "Tracked by GPS",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_c",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "liters",
+   "fieldtype": "Float",
+   "label": "Liters",
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cost",
+   "fieldtype": "Float",
+   "label": "Cost (SAR)",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_d",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "liters_at_risk",
+   "fieldtype": "Float",
+   "label": "Liters at Risk",
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cost_at_risk",
+   "fieldtype": "Float",
+   "label": "Cost at Risk (SAR)",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "sec_error",
+   "fieldtype": "Section Break",
+   "label": "Error"
+  },
+  {
+   "fieldname": "error",
+   "fieldtype": "Small Text",
+   "label": "Error",
+   "read_only": 1
+  }
+ ],
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-13 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "App Apis Fuel Import",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Technical"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Support Team"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "title",
+ "track_changes": 0
+}

@@ -262,7 +262,11 @@ fixtures = [
     },
     {
         "dt": "Custom HTML Block",
-        "filters": [["name", "=", "Fleet Audit"]],
+        "filters": [["name", "in", ["Fleet Audit", "Fuel Efficiency"]]],
+    },
+    {
+        "dt": "Workspace",
+        "filters": [["name", "in", ["Fuel Efficiency"]]],
     },
 ]
 

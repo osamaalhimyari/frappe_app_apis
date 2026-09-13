@@ -1,0 +1,342 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-09-13 00:00:00.000000",
+ "description": "One fill from an uploaded fuel-card report, with what the truck's GPS says about it.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "fuel_import",
+  "fill_time",
+  "plate",
+  "plate_key",
+  "col_a",
+  "brand",
+  "model",
+  "branch",
+  "driver",
+  "col_b",
+  "severity",
+  "flags",
+  "liters_at_risk",
+  "sec_fill",
+  "invoice_no",
+  "liters",
+  "price",
+  "cost",
+  "col_c",
+  "odometer",
+  "provider_kmpl",
+  "col_d",
+  "station",
+  "station_branch",
+  "station_area",
+  "station_lat",
+  "station_lng",
+  "sec_gps",
+  "source",
+  "imei",
+  "gps_status",
+  "col_e",
+  "distance_to_station_m",
+  "nearest_point_min",
+  "truck_lat",
+  "truck_lng",
+  "col_f",
+  "hours_since_prev",
+  "gps_km_since_prev",
+  "odometer_km_since_prev"
+ ],
+ "fields": [
+  {
+   "fieldname": "fuel_import",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Fuel Report",
+   "options": "App Apis Fuel Import",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "fill_time",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Fill Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "plate",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Plate",
+   "read_only": 1
+  },
+  {
+   "fieldname": "plate_key",
+   "fieldtype": "Data",
+   "label": "Plate Key",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "col_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "brand",
+   "fieldtype": "Data",
+   "label": "Brand",
+   "read_only": 1
+  },
+  {
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "label": "Model",
+   "read_only": 1
+  },
+  {
+   "fieldname": "branch",
+   "fieldtype": "Data",
+   "label": "Branch",
+   "read_only": 1
+  },
+  {
+   "fieldname": "driver",
+   "fieldtype": "Data",
+   "label": "Driver",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_b",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "severity",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Severity",
+   "options": "OK\nSuspicious\nTheft likely",
+   "read_only": 1
+  },
+  {
+   "fieldname": "flags",
+   "fieldtype": "Small Text",
+   "label": "Flags",
+   "read_only": 1
+  },
+  {
+   "fieldname": "liters_at_risk",
+   "fieldtype": "Float",
+   "label": "Liters at Risk",
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_fill",
+   "fieldtype": "Section Break",
+   "label": "Fill (from the fuel card)"
+  },
+  {
+   "fieldname": "invoice_no",
+   "fieldtype": "Data",
+   "label": "Invoice No",
+   "read_only": 1
+  },
+  {
+   "fieldname": "liters",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Liters",
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "price",
+   "fieldtype": "Float",
+   "label": "Price per Liter",
+   "precision": "3",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cost",
+   "fieldtype": "Float",
+   "label": "Cost (SAR)",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_c",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "As typed by the driver at the pump.",
+   "fieldname": "odometer",
+   "fieldtype": "Int",
+   "label": "Odometer (card)",
+   "read_only": 1
+  },
+  {
+   "description": "The fuel-card provider's own figure, worked out from the typed odometer.",
+   "fieldname": "provider_kmpl",
+   "fieldtype": "Float",
+   "label": "Km/L (card)",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_d",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "station",
+   "fieldtype": "Data",
+   "label": "Station",
+   "read_only": 1
+  },
+  {
+   "fieldname": "station_branch",
+   "fieldtype": "Data",
+   "label": "Station Branch",
+   "read_only": 1
+  },
+  {
+   "fieldname": "station_area",
+   "fieldtype": "Data",
+   "label": "Area",
+   "read_only": 1
+  },
+  {
+   "fieldname": "station_lat",
+   "fieldtype": "Float",
+   "label": "Station Latitude",
+   "precision": "7",
+   "read_only": 1
+  },
+  {
+   "fieldname": "station_lng",
+   "fieldtype": "Float",
+   "label": "Station Longitude",
+   "precision": "7",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_gps",
+   "fieldtype": "Section Break",
+   "label": "GPS"
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Data",
+   "label": "Tracked On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "imei",
+   "fieldtype": "Data",
+   "label": "IMEI",
+   "read_only": 1
+  },
+  {
+   "fieldname": "gps_status",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "GPS at Fill Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_e",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Closest the truck came to the station within the window around the invoice time.",
+   "fieldname": "distance_to_station_m",
+   "fieldtype": "Int",
+   "label": "Truck to Station (m)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "nearest_point_min",
+   "fieldtype": "Float",
+   "label": "Nearest GPS Point (min)",
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "truck_lat",
+   "fieldtype": "Float",
+   "label": "Truck Latitude",
+   "precision": "7",
+   "read_only": 1
+  },
+  {
+   "fieldname": "truck_lng",
+   "fieldtype": "Float",
+   "label": "Truck Longitude",
+   "precision": "7",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_f",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "hours_since_prev",
+   "fieldtype": "Float",
+   "label": "Hours Since Previous Fill",
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "gps_km_since_prev",
+   "fieldtype": "Float",
+   "label": "GPS km Since Previous Fill",
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "odometer_km_since_prev",
+   "fieldtype": "Float",
+   "label": "Odometer km Since Previous Fill",
+   "precision": "1",
+   "read_only": 1
+  }
+ ],
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-13 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "App Apis Fuel Fill",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Technical"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Support Team"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "fill_time",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "plate",
+ "track_changes": 0
+}
