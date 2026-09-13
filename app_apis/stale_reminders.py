@@ -175,7 +175,8 @@ def _send_one(ticket: str, rule: dict):
 	frappe.set_user("Administrator")
 
 	body = cw._render(rule["message"], cw._context(doc, TEMPLATE))
-	result = cw.send_ticket_message(ticket, template=TEMPLATE, text=body) or {}
+	# Confirmed, so a nudge WhatsApp refused is logged Failed, not Sent.
+	result = cw._send_ticket_message(ticket, template=TEMPLATE, text=body, confirm=True) or {}
 
 	if result.get("ok"):
 		status = "Sent"

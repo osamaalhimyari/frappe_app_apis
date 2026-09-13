@@ -15,6 +15,7 @@
   "col_a",
   "status",
   "template",
+  "sent_as",
   "language",
   "sent_on",
   "sec_why",
@@ -90,6 +91,13 @@
    "in_standard_filter": 1,
    "label": "Template",
    "read_only": 1
+  },
+  {
+   "fieldname": "sent_as",
+   "fieldtype": "Data",
+   "label": "Sent As",
+   "read_only": 1,
+   "description": "Text, or the WhatsApp template it went out as because the 24-hour window was closed."
   },
   {
    "fieldname": "language",

@@ -521,10 +521,12 @@ def _fail(code: int, msg: str, meta: dict | None = None) -> dict:
 
 	NEGATIVE codes only, so they can never collide with an HTTP status:
 
-	    -400 not configured / bad argument   -404 contact or inbox not found
-	    -401 token rejected                  -408 timed out
-	    -403 token lacks access to account   -502 could not connect
-	                                         -500 unexpected response
+	    -400 not configured / bad argument   -409 declined on purpose: the
+	    -401 token rejected                       WhatsApp window is closed and
+	    -403 token lacks access to account       there is no usable template;
+	    -404 contact or inbox not found           nothing was posted
+	    -408 timed out                       -422 WhatsApp refused the message
+	    -500 unexpected response             -502 could not connect
 	"""
 	return {"ok": False, "code": code, "msg": msg, "_chatwoot": meta or {}}
 
@@ -681,13 +683,14 @@ def _create_contact(phone: str, name: str, settings: dict):
 	return contact.get("contact", contact), meta
 
 
-def _source_id(contact: dict, settings: dict):
-	"""The contact's source_id for the target inbox, minting one if needed.
+def _source_id(contact: dict, settings: dict, inbox_id=None):
+	"""The contact's source_id for an inbox -- the configured one unless
+	`inbox_id` says otherwise -- minting one if needed.
 
 	A contact that exists but has never been messaged on this inbox has no
 	source_id for it, and creating a conversation without one fails.
 	"""
-	inbox_id = cint(settings["inbox_id"])
+	inbox_id = cint(inbox_id or settings["inbox_id"])
 
 	for ci in contact.get("contact_inboxes") or []:
 		if cint((ci.get("inbox") or {}).get("id") or ci.get("inbox_id")) == inbox_id:
@@ -753,6 +756,85 @@ def _search_inbox_ids(settings: dict) -> set:
 	return _whatsapp_inbox_ids(settings)
 
 
+def _contact_conversations(contact_id, settings: dict):
+	"""The contact's conversations, flattened to what routing needs.
+
+	Returns (list, meta), or (None, meta) on error. `can_reply` is Chatwoot's
+	own answer to "is this channel's reply window open" -- for WhatsApp,
+	whether the contact wrote into this conversation in the last 24 hours.
+	Anything but an explicit True counts as closed: guessing "open" is how a
+	message gets created in Chatwoot and then refused by WhatsApp.
+	"""
+	data, meta = _request("GET", f"/contacts/{contact_id}/conversations", settings)
+	if data is None:
+		return None, meta
+	return [
+		{
+			"id": conv.get("id"),
+			"inbox_id": cint(conv.get("inbox_id")),
+			"open": str(conv.get("status") or "").lower() == "open",
+			"last": conv.get("last_activity_at") or conv.get("timestamp") or 0,
+			"can_reply": conv.get("can_reply") is True,
+		}
+		for conv in (_payload(data) or [])
+	], meta
+
+
+def _best(conversations: list, keep) -> dict | None:
+	"""The preferred conversation among those `keep` accepts: an open one over
+	a resolved one (posting into a resolved one reopens it), then the most
+	recently active."""
+	best_key, best = None, None
+	for conv in conversations:
+		if not keep(conv):
+			continue
+		key = (1 if conv["open"] else 0, conv["last"], cint(conv["id"]))
+		if best_key is None or key > best_key:
+			best_key, best = key, conv
+	return best
+
+
+def _find_or_create_contact(phone: str, name: str, settings: dict):
+	"""(contact, None), or (None, a _fail()). A number Chatwoot has never seen
+	becomes a contact on the configured inbox."""
+	contact, meta = _find_contact(phone, settings)
+	if contact is None and meta.get("error"):
+		return None, _fail(*meta["error"], meta)
+
+	if not contact:
+		contact, meta = _create_contact(phone, name, settings)
+		if contact is None:
+			return None, _fail(*meta.get("error", (-500, _("Could not create the Chatwoot contact."))), meta)
+
+	if not contact.get("id"):
+		return None, _fail(-500, _("Chatwoot returned a contact with no id."), meta)
+	return contact, None
+
+
+def _new_conversation(contact: dict, settings: dict, inbox_id=None) -> dict:
+	"""Open a conversation for the contact on an inbox -- the configured one
+	unless `inbox_id` says otherwise. Returns the _resolve_conversation shape."""
+	inbox_id = cint(inbox_id or settings["inbox_id"])
+	source_id, sid_meta = _source_id(contact, settings, inbox_id)
+	if not source_id:
+		err = (sid_meta or {}).get("error") or (-500, _("Could not obtain a Chatwoot source id for this inbox."))
+		return _fail(*err, sid_meta or {})
+
+	data, meta = _request("POST", "/conversations", settings, body={
+		"source_id": source_id,
+		"inbox_id": inbox_id,
+		"contact_id": contact["id"],
+	})
+	if data is None:
+		return _fail(*meta.get("error", (-500, _("Could not open a Chatwoot conversation."))), meta)
+
+	conversation_id = (_payload(data) or {}).get("id")
+	if not conversation_id:
+		return _fail(-500, _("Chatwoot opened a conversation with no id."), meta)
+
+	return {"ok": True, "conversation_id": conversation_id, "contact_id": contact["id"], "created": True}
+
+
 def _open_conversation(contact_id, settings: dict):
 	"""The best existing conversation to post into, across ALL WhatsApp inboxes.
 
@@ -767,24 +849,15 @@ def _open_conversation(contact_id, settings: dict):
 	Reused rather than replaced so a follow-up lands in the thread the agent is
 	already reading. Returns (conversation_id, meta) or (None, meta).
 	"""
-	data, meta = _request("GET", f"/contacts/{contact_id}/conversations", settings)
-	if data is None:
+	conversations, meta = _contact_conversations(contact_id, settings)
+	if conversations is None:
 		return None, meta
 
 	allowed = _search_inbox_ids(settings)
-	best_key, best_id = None, None
-	for conv in _payload(data) or []:
-		# When the inbox set is known, stay inside it; if discovery failed and
-		# the set is empty, consider any conversation rather than none.
-		if allowed and cint(conv.get("inbox_id")) not in allowed:
-			continue
-		is_open = str(conv.get("status") or "").lower() == "open"
-		last = conv.get("last_activity_at") or conv.get("timestamp") or 0
-		key = (1 if is_open else 0, last, cint(conv.get("id")))
-		if best_key is None or key > best_key:
-			best_key, best_id = key, conv.get("id")
-
-	return best_id, meta
+	# When the inbox set is known, stay inside it; if discovery failed and the
+	# set is empty, consider any conversation rather than none.
+	best = _best(conversations, lambda c: not allowed or c["inbox_id"] in allowed)
+	return (best["id"] if best else None), meta
 
 
 def _resolve_conversation(phone: str, name: str, settings: dict) -> dict:
@@ -792,40 +865,112 @@ def _resolve_conversation(phone: str, name: str, settings: dict) -> dict:
 
 	Returns {"ok": True, "conversation_id": .., "contact_id": ..} or a _fail().
 	"""
-	contact, meta = _find_contact(phone, settings)
-	if contact is None and meta.get("error"):
-		return _fail(*meta["error"], meta)
+	contact, failed = _find_or_create_contact(phone, name, settings)
+	if failed:
+		return failed
 
-	if not contact:
-		contact, meta = _create_contact(phone, name, settings)
-		if contact is None:
-			return _fail(*meta.get("error", (-500, _("Could not create the Chatwoot contact."))), meta)
-
-	if not contact.get("id"):
-		return _fail(-500, _("Chatwoot returned a contact with no id."), meta)
-
-	conversation_id, meta = _open_conversation(contact["id"], settings)
+	conversation_id, _meta = _open_conversation(contact["id"], settings)
 	if conversation_id:
 		return {"ok": True, "conversation_id": conversation_id, "contact_id": contact["id"], "created": False}
 
-	source_id, sid_meta = _source_id(contact, settings)
-	if not source_id:
-		err = (sid_meta or {}).get("error") or (-500, _("Could not obtain a Chatwoot source id for this inbox."))
-		return _fail(*err, sid_meta or {})
+	return _new_conversation(contact, settings)
 
-	data, meta = _request("POST", "/conversations", settings, body={
-		"source_id": source_id,
-		"inbox_id": cint(settings["inbox_id"]),
-		"contact_id": contact["id"],
-	})
-	if data is None:
-		return _fail(*meta.get("error", (-500, _("Could not open a Chatwoot conversation."))), meta)
 
-	conversation_id = (_payload(data) or {}).get("id")
-	if not conversation_id:
-		return _fail(-500, _("Chatwoot opened a conversation with no id."), meta)
+def _route_window(phone: str, name: str, settings: dict, template_fallback: dict) -> dict:
+	"""Where a window-aware send goes, and as what.
 
-	return {"ok": True, "conversation_id": conversation_id, "contact_id": contact["id"], "created": True}
+	WhatsApp delivers free text only inside the 24-hour customer service
+	window; outside it, only an approved template. So:
+
+	  1. If any of the contact's conversations on the inboxes this site sends
+	     from still has its window open, the message goes there as ordinary
+	     text -- the normal case for someone who wrote in today.
+	  2. Otherwise it goes as the rule's WhatsApp Template, on the inbox that
+	     owns the template: Meta approves templates per phone number and
+	     refuses one sent from a number that does not own it. An existing
+	     conversation on that inbox is reused, else one is opened.
+	  3. Window closed and no template: refused here (-409) instead of posted,
+	     because Chatwoot would accept it and WhatsApp would then drop it.
+
+	`template_fallback` is {"template": an App Apis WhatsApp Template name or
+	"", "variables": the row's Template Variables, "ctx": placeholder values,
+	"force": skip step 1 (the test button)}. Returns {"ok", "conversation_id",
+	"via": "text" | "template", "wa": the whatsapp_templates.build() result
+	or None}, or a _fail().
+	"""
+	contact, failed = _find_or_create_contact(phone, name, settings)
+	if failed:
+		return failed
+
+	conversations, meta = _contact_conversations(contact["id"], settings)
+	if conversations is None:
+		return _fail(*meta["error"], meta)
+
+	if not template_fallback.get("force"):
+		allowed = _search_inbox_ids(settings)
+		window = _best(conversations, lambda c: c["can_reply"] and (not allowed or c["inbox_id"] in allowed))
+		if window:
+			return {"ok": True, "conversation_id": window["id"], "via": "text", "wa": None}
+
+	template = str(template_fallback.get("template") or "").strip()
+	if not template:
+		return _fail(-409, _(
+			"WhatsApp's 24-hour window is closed for this number and this rule has no WhatsApp "
+			"Template, so WhatsApp would refuse the message. Pick a template on the Status Rules row."
+		))
+
+	from app_apis import whatsapp_templates
+
+	wa = whatsapp_templates.build(
+		template, template_fallback.get("variables") or "", template_fallback.get("ctx") or {}, settings
+	)
+	if not wa.get("ok"):
+		return wa
+
+	target = _best(conversations, lambda c: c["inbox_id"] == wa["inbox_id"])
+	if target:
+		conversation_id = target["id"]
+	else:
+		opened = _new_conversation(contact, settings, wa["inbox_id"])
+		if not opened.get("ok"):
+			return opened
+		conversation_id = opened["conversation_id"]
+
+	return {"ok": True, "conversation_id": conversation_id, "via": "template", "wa": wa}
+
+
+# How long a window-aware send waits to hear whether WhatsApp took the message,
+# in seconds between looks. Chatwoot hands it to WhatsApp in its own background
+# job after answering the POST, so the POST's 200 says nothing about delivery.
+CONFIRM_WAITS = (2, 3, 5)
+
+
+def _confirm(conversation_id, message_id, settings: dict) -> tuple[str, str]:
+	"""("accepted" | "failed" | "pending", reason) for a message just posted.
+
+	Failed: Chatwoot marked it failed, and content_attributes.external_error
+	carries WhatsApp's reason (or Chatwoot's own, e.g. the closed window).
+	Accepted: it has a source_id -- the message id WhatsApp returns only when
+	it takes a message -- or is already delivered/read. Neither within ~10s:
+	pending, meaning Chatwoot's queue is busy. That is reported as sent but
+	unconfirmed, not as a failure.
+	"""
+	if not message_id:
+		return "pending", ""
+
+	for wait in CONFIRM_WAITS:
+		time.sleep(wait)
+		data, _meta = _request("GET", f"/conversations/{conversation_id}/messages", settings)
+		for msg in (_payload(data) or []) if data is not None else []:
+			if str(msg.get("id")) != str(message_id):
+				continue
+			status = str(msg.get("status") or "").lower()
+			if status == "failed":
+				return "failed", str((msg.get("content_attributes") or {}).get("external_error") or _("no reason given"))
+			if status in ("delivered", "read") or msg.get("source_id"):
+				return "accepted", ""
+
+	return "pending", ""
 
 
 # --------------------------------------------------------------------------
@@ -1425,7 +1570,8 @@ def _send_via_webhook(text: str, phone: str | None, name: str | None, private,
 
 
 def _send(text: str, phone: str | None = None, conversation_id=None,
-          name: str | None = None, private: int = 0, context: dict | None = None) -> dict:
+          name: str | None = None, private: int = 0, context: dict | None = None,
+          template_fallback: dict | None = None, confirm: bool = False) -> dict:
 	"""The actual send. Internal: callers decide who is allowed to reach it.
 
 	Reads through `active_settings()`, so the live connector -- and, for
@@ -1433,6 +1579,19 @@ def _send(text: str, phone: str | None = None, conversation_id=None,
 	`agent_bot` (connector 2) share the REST chain below unchanged; `webhook`
 	peels off to `_send_via_webhook`. `context` is optional ticket metadata that
 	only the webhook payload uses; the REST path ignores it.
+
+	`template_fallback` turns on WhatsApp's 24-hour rule (see `_route_window`):
+	the text goes out only while the contact's window is open, otherwise the
+	given template does, or nothing (-409). Either way the call then waits a
+	few seconds to report whether WhatsApp actually took it (`_confirm`),
+	because Chatwoot answers 200 before it has tried. Without it nothing
+	changes: the text goes to the best conversation, as it always has. The
+	webhook method ignores it -- there is no Chatwoot conversation to ask.
+
+	`confirm` asks for that same wait on its own, without the window rule:
+	background senders pass it so their log never says Sent for a message
+	WhatsApp refused. Interactive callers leave it off rather than hold a
+	button for up to ten seconds.
 	"""
 	settings = active_settings()
 	ready, why = _ready(settings)
@@ -1449,6 +1608,7 @@ def _send(text: str, phone: str | None = None, conversation_id=None,
 			conversation_id=conversation_id, settings=settings, context=context,
 		)
 
+	via, wa = "text", None
 	if not conversation_id:
 		if not phone:
 			return _fail(-400, _("Either a phone number or a conversation id is required."))
@@ -1459,31 +1619,58 @@ def _send(text: str, phone: str | None = None, conversation_id=None,
 		if not destination:
 			return _fail(-400, _("{0} is not a usable phone number.").format(phone))
 
-		resolved = _resolve_conversation(destination, name or "", settings)
-		if not resolved.get("ok"):
-			return resolved
-		conversation_id = resolved["conversation_id"]
+		if template_fallback is not None:
+			routed = _route_window(destination, name or "", settings, template_fallback)
+			if not routed.get("ok"):
+				return routed
+			conversation_id, via, wa = routed["conversation_id"], routed["via"], routed["wa"]
+		else:
+			resolved = _resolve_conversation(destination, name or "", settings)
+			if not resolved.get("ok"):
+				return resolved
+			conversation_id = resolved["conversation_id"]
 
-	data, meta = _request("POST", f"/conversations/{conversation_id}/messages", settings, body={
-		"content": body_text,
-		"message_type": "outgoing",
-		"private": bool(cint(private)),
-	})
+	if via == "template":
+		sent_text = wa["content"]
+		body = {
+			"content": sent_text,
+			"message_type": "outgoing",
+			"private": False,
+			"template_params": wa["template_params"],
+		}
+	else:
+		sent_text = body_text
+		body = {"content": sent_text, "message_type": "outgoing", "private": bool(cint(private))}
+
+	data, meta = _request("POST", f"/conversations/{conversation_id}/messages", settings, body=body)
 	if data is None:
 		return _fail(*meta["error"], meta)
 
+	message_id = (_payload(data) or {}).get("id")
 	frappe.logger(LOGGER).warning(
-		f"chatwoot: sent to conversation {conversation_id} ({len(body_text)} chars)"
+		f"chatwoot: sent {via} to conversation {conversation_id} ({len(sent_text)} chars)"
 	)
 
-	return {
+	result = {
 		"ok": True,
 		"connector": settings.get("connector"),
 		"method": settings.get("method"),
 		"conversation_id": conversation_id,
-		"message_id": (_payload(data) or {}).get("id"),
-		"message": body_text,
+		"message_id": message_id,
+		"message": sent_text,
+		"via": via,
+		"whatsapp_template": wa["label"] if wa else "",
 	}
+
+	if confirm or template_fallback is not None:
+		outcome, reason = _confirm(conversation_id, message_id, settings)
+		result["delivery"] = outcome
+		if outcome == "failed":
+			refused = _fail(-422, _("WhatsApp did not accept the message: {0}").format(reason), meta)
+			refused.update({key: result[key] for key in ("conversation_id", "message_id", "message", "via", "whatsapp_template")})
+			return refused
+
+	return result
 
 
 @frappe.whitelist()
@@ -1500,6 +1687,18 @@ def send_ticket_message(ticket: str, template: str = "valuation", lang: str | No
 	of this function is that the agent working a ticket can message its
 	customer. The destination still comes off the ticket, so read access is the
 	honest permission -- whoever may see the customer's number may write to it.
+	"""
+	return _send_ticket_message(ticket, template=template, phone=phone, text=text)
+
+
+def _send_ticket_message(ticket: str, template: str = "valuation", phone: str | None = None,
+                         text: str | None = None, template_fallback: dict | None = None,
+                         confirm: bool = False) -> dict:
+	"""send_ticket_message, plus `template_fallback` and `confirm` (see `_send`).
+
+	Off the whitelisted signature on purpose: an HTTP caller may choose the
+	text, but which WhatsApp template goes out, with which variables, is the
+	settings' decision -- reached only through app_apis.auto_messages.
 	"""
 	if template not in TEMPLATES:
 		return _fail(-400, _("Unknown message template: {0}").format(template))
@@ -1549,7 +1748,10 @@ def send_ticket_message(ticket: str, template: str = "valuation", lang: str | No
 		"recipient": to,
 		"customer": doc.get("translated_customer_name") or doc.get("customer") or "",
 	}
-	result = _send(body_text, phone=destination, name=recipient_name(doc, template), context=context)
+	result = _send(
+		body_text, phone=destination, name=recipient_name(doc, template), context=context,
+		template_fallback=template_fallback, confirm=confirm,
+	)
 	result["ticket"] = doc.name
 	result["template"] = template
 	result["recipient"] = to

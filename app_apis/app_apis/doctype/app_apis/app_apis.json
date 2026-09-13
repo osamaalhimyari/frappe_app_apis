@@ -84,6 +84,8 @@
   "show_vehicle_customer_types",
   "technician_message_enabled",
   "auto_message_rules",
+  "chatwoot_use_templates",
+  "sync_whatsapp_templates",
   "contact_numbers",
   "sec_subscription_reminders",
   "subscription_reminder_enabled",
@@ -543,6 +545,19 @@
    "fieldtype": "Table",
    "label": "Status Rules",
    "options": "App Apis Auto Message"
+  },
+  {
+   "default": "0",
+   "fieldname": "chatwoot_use_templates",
+   "fieldtype": "Check",
+   "label": "Use WhatsApp Templates Outside the 24-Hour Window",
+   "description": "WhatsApp delivers free text only within 24 hours of the person’s last message to you. When on, a status message outside that window goes as the row’s WhatsApp Template instead, and a row without one is skipped instead of being sent to fail."
+  },
+  {
+   "fieldname": "sync_whatsapp_templates",
+   "fieldtype": "Button",
+   "label": "Sync Templates from Chatwoot",
+   "description": "Reads the approved templates of every WhatsApp inbox from Chatwoot into the WhatsApp Template picker."
   },
   {
    "collapsible": 1,

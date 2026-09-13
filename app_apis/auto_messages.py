@@ -43,6 +43,12 @@ decision here is made in favour of the transition.
 Nothing here writes to the ticket. It reads the ticket, and it writes rows to
 App Apis Message Log, which is its own table.
 
+WhatsApp adds one rule of its own: free text is delivered only inside the
+24-hour window after the person last wrote in. With "Use WhatsApp Templates"
+on, a row's WhatsApp Template goes out instead once that window is closed, and
+a row without one is skipped rather than posted to fail. The routing lives in
+chatwoot_connector._route_window, the templates in app_apis.whatsapp_templates.
+
 Replaces the earlier `auto_valuation` module, which did this for one message
 only. Renamed rather than extended in place because "auto_valuation" stopped
 being true the moment it learned to send three different things -- and later
@@ -156,6 +162,8 @@ def _rules(settings) -> list[dict]:
 			"to": to,
 			"message": message,
 			"send_once": cint(row.get("send_once")),
+			"whatsapp_template": str(row.get("whatsapp_template") or "").strip(),
+			"template_variables": str(row.get("template_variables") or ""),
 		})
 	return rows or [dict(r) for r in DEFAULT_RULES]
 
@@ -329,10 +337,14 @@ def _customer_allowed(doc, settings) -> bool:
 
 
 def run(ticket: str, state: str, to: str, field: str | None = None,
-        notify_user: str | None = None):
-	"""Background entry point. Never raises -- there is nobody to raise to."""
+        notify_user: str | None = None, force: int = 0):
+	"""Background entry point. Never raises -- there is nobody to raise to.
+
+	`force` comes only from send_now and skips the once-per-ticket check;
+	every other gate still applies.
+	"""
 	try:
-		_run(ticket, state, to, field, notify_user)
+		_run(ticket, state, to, field, notify_user, force)
 	except Exception:
 		# Here Error Log is the right home: a separate process, its own
 		# transaction, and a failure nobody can see is a failure nobody fixes.
@@ -348,7 +360,7 @@ def run(ticket: str, state: str, to: str, field: str | None = None,
 
 
 def _run(ticket: str, state: str, to: str, field: str | None,
-         notify_user: str | None = None):
+         notify_user: str | None = None, force: int = 0):
 	from app_apis import chatwoot_connector as cw
 
 	settings = _settings()
@@ -416,7 +428,7 @@ def _run(ticket: str, state: str, to: str, field: str | None,
 			})
 			return
 
-	if cint((rule or {}).get("send_once", 1)) and _already_sent(ticket, identity):
+	if not cint(force) and cint((rule or {}).get("send_once", 1)) and _already_sent(ticket, identity):
 		# Silent: the point of "once" is that the second attempt is a non-event,
 		# and a row for every non-event would bury the rows that matter.
 		return
@@ -445,9 +457,33 @@ def _run(ticket: str, state: str, to: str, field: str | None,
 	# between the transition and the worker (deleted, or the table cleared)
 	# falls back to a plain built-in line rather than sending nothing silently.
 	message_text = (rule or {}).get("message") or cw.TEMPLATES[cw_template]["text"]
-	body = cw._render(message_text, cw._context(doc, cw_template))
-	result = cw.send_ticket_message(ticket, template=cw_template, text=body) or {}
-	status = "Sent" if result.get("ok") else "Failed"
+	ctx = cw._context(doc, cw_template)
+	body = cw._render(message_text, ctx)
+
+	# Outside WhatsApp's 24-hour window only a template is delivered; with
+	# templates switched on, the row's template goes then, or nothing does. One
+	# ctx for both, so the text and the template carry the same feedback link.
+	fallback = None
+	if cint(settings.get("chatwoot_use_templates")):
+		fallback = {
+			"template": (rule or {}).get("whatsapp_template") or "",
+			"variables": (rule or {}).get("template_variables") or "",
+			"ctx": ctx,
+		}
+
+	# Always confirmed: this row says Sent only once WhatsApp has taken the
+	# message, never on Chatwoot's word alone.
+	result = cw._send_ticket_message(
+		ticket, template=cw_template, text=body, template_fallback=fallback, confirm=True
+	) or {}
+	if result.get("ok"):
+		status = "Sent"
+	elif result.get("code") == -409:
+		# Declined on purpose: the window is closed and there is no usable
+		# template. Nothing was posted to Chatwoot, so nothing "failed".
+		status = "Skipped"
+	else:
+		status = "Failed"
 
 	_log(
 		doc,
@@ -530,6 +566,11 @@ def _log(doc, identity: str, status: str, to: str, trigger: str = "", reason: st
 		entry.recipient = "Technician" if to == cw.TO_TECHNICIAN else "Customer"
 		entry.engineer = str(technicians.name(doc) or "")[:140] if to == cw.TO_TECHNICIAN else ""
 		entry.template = identity
+		via = result.get("via")
+		if via == "template":
+			entry.sent_as = f"WhatsApp template: {result.get('whatsapp_template') or ''}"
+		elif via == "text":
+			entry.sent_as = "Text"
 		entry.status = status
 		entry.trigger_source = trigger
 		entry.reason = reason
@@ -603,6 +644,7 @@ def send_now(ticket: str, state: str, to: str, force: int = 0) -> dict:
 		to=to,
 		field="send_now",
 		notify_user=frappe.session.user,
+		force=cint(force),
 	)
 	return {"ok": True, "msg": f"Queued '{identity}' for {doc.name}."}
 
@@ -659,6 +701,7 @@ def preview(ticket: str) -> dict:
 			"state": rule["state"],
 			"to": rule["to"],
 			"identity": identity,
+			"whatsapp_template": rule.get("whatsapp_template") or "",
 			"recipient": cw.TO_TECHNICIAN if is_tech else cw.TO_CUSTOMER,
 			"matches_now": rule["state"].lower() in current,
 			"already_sent": _already_sent(ticket, identity),

@@ -10,6 +10,8 @@
   "state",
   "to",
   "message",
+  "whatsapp_template",
+  "template_variables",
   "send_once"
  ],
  "fields": [
@@ -22,7 +24,7 @@
    "label": "On"
   },
   {
-   "columns": 3,
+   "columns": 2,
    "description": "Ticket status that fires this message. Must match the Status option exactly, apostrophe included.",
    "fieldname": "state",
    "fieldtype": "Data",
@@ -42,13 +44,29 @@
    "reqd": 1
   },
   {
-   "columns": 4,
+   "columns": 3,
    "description": "The exact text to send.",
    "fieldname": "message",
    "fieldtype": "Small Text",
    "in_list_view": 1,
    "label": "Message",
    "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "whatsapp_template",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "WhatsApp Template",
+   "options": "App Apis WhatsApp Template",
+   "description": "Sent instead of Message when WhatsApp’s 24-hour window is closed. Needs Use WhatsApp Templates on; fill the list with Sync Templates from Chatwoot."
+  },
+  {
+   "depends_on": "whatsapp_template",
+   "fieldname": "template_variables",
+   "fieldtype": "Small Text",
+   "label": "Template Variables",
+   "description": "One line per variable in the template, e.g. {{1}} = {plate}. Placeholders: {customer} {ticket} {plate} {engineer} {state} {link}."
   },
   {
    "columns": 2,
