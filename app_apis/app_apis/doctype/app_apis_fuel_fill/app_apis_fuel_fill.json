@@ -3,7 +3,7 @@
  "allow_rename": 0,
  "autoname": "hash",
  "creation": "2026-09-13 00:00:00.000000",
- "description": "One fill from an uploaded fuel-card report, with what the truck's GPS says about it.",
+ "description": "One fill from an uploaded fuel-card report. Fills have no status of their own: the truck's status comes from its fuel against its distance.",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -17,10 +17,8 @@
   "branch",
   "driver",
   "col_b",
-  "severity",
   "flags",
   "flag_data",
-  "liters_at_risk",
   "sec_fill",
   "invoice_no",
   "liters",
@@ -39,11 +37,6 @@
   "source",
   "imei",
   "gps_status",
-  "col_e",
-  "distance_to_station_m",
-  "nearest_point_min",
-  "truck_lat",
-  "truck_lng",
   "col_f",
   "hours_since_prev",
   "gps_km_since_prev",
@@ -114,33 +107,18 @@
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "severity",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Severity",
-   "options": "OK\nSuspicious\nTheft likely",
-   "read_only": 1
-  },
-  {
+   "description": "For reference only; they never change the truck's status.",
    "fieldname": "flags",
    "fieldtype": "Small Text",
-   "label": "Flags",
+   "label": "Notes",
    "read_only": 1
   },
   {
-   "description": "The flags as codes and numbers, put into the reader's language on the dashboard.",
+   "description": "The notes as codes and numbers, put into the reader's language on the dashboard.",
    "fieldname": "flag_data",
    "fieldtype": "Small Text",
    "hidden": 1,
-   "label": "Flags (data)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "liters_at_risk",
-   "fieldtype": "Float",
-   "label": "Liters at Risk",
-   "precision": "1",
+   "label": "Notes (data)",
    "read_only": 1
   },
   {
@@ -234,7 +212,7 @@
   {
    "fieldname": "sec_gps",
    "fieldtype": "Section Break",
-   "label": "GPS"
+   "label": "GPS Distance"
   },
   {
    "fieldname": "source",
@@ -249,41 +227,10 @@
    "read_only": 1
   },
   {
+   "description": "Whether the tracker was sending around the fill -- only to know if the truck's GPS distance is complete.",
    "fieldname": "gps_status",
    "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "GPS at Fill Time",
-   "read_only": 1
-  },
-  {
-   "fieldname": "col_e",
-   "fieldtype": "Column Break"
-  },
-  {
-   "description": "Closest the truck came to the station within the window around the invoice time.",
-   "fieldname": "distance_to_station_m",
-   "fieldtype": "Data",
-   "label": "Truck to Station (m)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "nearest_point_min",
-   "fieldtype": "Data",
-   "label": "Nearest GPS Point (min)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "truck_lat",
-   "fieldtype": "Float",
-   "label": "Truck Latitude",
-   "precision": "7",
-   "read_only": 1
-  },
-  {
-   "fieldname": "truck_lng",
-   "fieldtype": "Float",
-   "label": "Truck Longitude",
-   "precision": "7",
+   "label": "Tracker at Fill Time",
    "read_only": 1
   },
   {
@@ -312,7 +259,7 @@
  "in_create": 1,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-09-14 12:00:00.000000",
+ "modified": "2026-09-14 16:30:00.000000",
  "modified_by": "Administrator",
  "module": "App Apis",
  "name": "App Apis Fuel Fill",

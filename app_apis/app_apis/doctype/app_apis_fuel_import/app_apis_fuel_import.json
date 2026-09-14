@@ -55,7 +55,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Queued\nRunning\nDone\nFailed",
+   "options": "Queued\nRunning\nDone\nFailed\nCancelled",
    "read_only": 1
   },
   {

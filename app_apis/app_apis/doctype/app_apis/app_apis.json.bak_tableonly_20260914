@@ -60,6 +60,9 @@
   "chatwoot_account_id",
   "stale_ticket_reminder_enabled",
   "stale_ticket_reminder_hour",
+  "stale_digest_message",
+  "stale_digest_template",
+  "stale_digest_template_variables",
   "stale_ticket_rules",
   "col_chatwoot_a",
   "chatwoot_api_token",
@@ -371,7 +374,7 @@
   },
   {
    "default": "0",
-   "description": "Once a day, tell each technician how many of their tickets have sat in the statuses below without an update -- one message per row, never one per ticket. Off by default.",
+   "description": "Once a day, send each technician ONE message counting their tickets that have sat in the statuses below without an update. Off by default.",
    "fieldname": "stale_ticket_reminder_enabled",
    "fieldtype": "Check",
    "label": "Nudge Stuck Tickets"
@@ -384,7 +387,26 @@
    "label": "Run At Hour"
   },
   {
-   "description": "Status \u2192 hours \u2192 message mapping for the nudge above.",
+   "description": "One message per technician. {engineer} {total} {lines} {summary} are filled in; {lines} is one line per status from the table below. Blank uses the built-in wording.",
+   "fieldname": "stale_digest_message",
+   "fieldtype": "Small Text",
+   "label": "Daily Summary Message"
+  },
+  {
+   "description": "Sent instead of the message when WhatsApp\u2019s 24-hour window is closed, which is the usual case for an engineer. Needs Use WhatsApp Templates on.",
+   "fieldname": "stale_digest_template",
+   "fieldtype": "Link",
+   "label": "Summary WhatsApp Template",
+   "options": "App Apis WhatsApp Template"
+  },
+  {
+   "description": "One line per variable, e.g. {{1}} = {engineer}. Placeholders: {engineer} {total} {summary} (one line, e.g. \u201cOpen 3 \u00b7 On Hold 12\u201d).",
+   "fieldname": "stale_digest_template_variables",
+   "fieldtype": "Small Text",
+   "label": "Summary Template Variables"
+  },
+  {
+   "description": "Status \u2192 hours \u2192 that status's line in the daily summary.",
    "fieldname": "stale_ticket_rules",
    "fieldtype": "Table",
    "label": "Stale Ticket Rules",
@@ -723,7 +745,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-09-14 15:00:17.040158",
+ "modified": "2026-09-14 14:51:50.038147",
  "modified_by": "Administrator",
  "module": "App Apis",
  "name": "app_apis",

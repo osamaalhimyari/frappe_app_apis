@@ -373,7 +373,7 @@ frappe.ui.form.on("app_apis", {
 							indicator: d.ok && d.ran ? "green" : d.ok ? "orange" : "red",
 							message: d.ran
 								? `<div style="font-size:13px">
-										<div><b>${__("{0} stuck ticket(s); queued {1} message(s), one per technician per status.", [esc(d.checked), esc(d.queued)])}</b></div>
+										<div><b>${__("Checked {0} ticket(s), queued {1} reminder(s).", [esc(d.checked), esc(d.queued)])}</b></div>
 										<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">
 											${__("Rules checked")}: ${esc(d.rules)}
 										</div>

@@ -13,24 +13,21 @@ the tickets currently sitting in that row's status, untouched (their `modified`
 timestamp) for at least that row's hours, grouped by the engineer they are
 assigned to.
 
-ONE MESSAGE PER TECHNICIAN PER ROW, NOT PER TICKET
---------------------------------------------------
-The first version sent a row's Message once for every stuck ticket: 487
-messages on the first run on this site, 181 of them to one engineer. Now each
-row's Message goes once to each technician who has anything stuck in that row's
-status, with {count} saying how many ("⏸️ On hold for a while: 70"). They open
-their tickets and check them themselves. Everything is configured on the table
--- Message, WhatsApp Template, Template Variables and Send Once per row; there
-is no other setting.
+ONE MESSAGE PER TECHNICIAN, NOT PER TICKET
+------------------------------------------
+The first version sent a message per stuck ticket. On this site that meant 487
+messages on the first run, 181 of them to one engineer. A count is the message
+a person can act on -- "you have 12 tickets on hold" sends them to their list;
+the same sentence twelve times is noise they learn to mute. So each engineer
+gets a single summary: the Daily Summary Message, with {lines} filled from each
+rule's own Message, one line per status they have anything stuck in ("⏸️ 12
+on hold"). They open their tickets and check them themselves.
 
-SEND ONCE
----------
-Per row. Ticked: a technician is not sent the same row again while their count
-for it is unchanged -- the same "70 on hold" every morning is noise people learn
-to mute. It goes again as soon as the number moves, either way. Unticked: every
-day. Never twice in one day either way, so a manual "Check now" after the
-scheduled run does not message anybody twice. Both are read off App Apis Message
-Log, whose Trigger Source records the status and the count of every message.
+The count is the full current count every day -- there is deliberately no
+per-ticket "already told you" memory. A ticket still stuck tomorrow is still in
+tomorrow's number; that is the point of a daily summary. What is guarded is the
+engineer: one Sent summary per phone per day, so a manual "Check now" after the
+scheduled run does not message anybody twice.
 
 WHICH STATUS A TICKET IS IN
 ---------------------------
@@ -39,14 +36,15 @@ site's `status` column still says "Open" on ~23,500 tickets the workflow closed
 long ago; matching either field (the first version did) queued 23,552 jobs a
 day for the Open rule alone.
 
-Sending happens in a background job per technician and row on the `long`
-queue, so the scheduler tick -- or the "Check now" button -- never sits on
-outbound HTTP calls to Chatwoot.
+Sending happens in a background job per engineer on the `long` queue, so the
+scheduler tick -- or the "Check now" button -- never sits on outbound HTTP calls
+to Chatwoot. Every attempt is logged into App Apis Message Log under template
+`stale_reminder`, next to the transition-triggered messages.
 """
 
 import frappe
 from frappe import _
-from frappe.utils import add_to_date, cint, getdate, now_datetime, today
+from frappe.utils import add_to_date, cint, now_datetime, today
 
 LOGGER = "app_apis"
 TEMPLATE = "stale_reminder"
@@ -54,6 +52,17 @@ TICKET_DOCTYPE = "xticket"
 
 # A ticket's status as this module reads it -- see WHICH STATUS A TICKET IS IN.
 EFFECTIVE_STATE = "coalesce(nullif(workflow_state, ''), status)"
+
+# What a site that never filled in Daily Summary Message sends. Same shape as the
+# technician templates in chatwoot_connector: a greeting, the facts under emoji,
+# one Arabic line and one English line.
+DEFAULT_DIGEST = (
+	"👋 يعطيك العافية {engineer}\n\n"
+	"📋 طلبات واقفة بدون تحديث: {total} / Tickets with no update: {total}\n"
+	"{lines}\n\n"
+	"🔎 افتح طلباتك وحدّث حالتها أول ما تقدر 🙏\n"
+	"🔎 Please open your tickets and update them when you can 🙏"
+)
 
 
 def _settings():
@@ -64,24 +73,17 @@ def _settings():
 def _rules(settings) -> list[dict]:
 	"""Enabled, fully-filled-in rows, in table order, as plain dicts.
 
-	A row missing a status or a message cannot do anything useful, so it is
-	dropped here rather than failing loudly on every tick -- half-filled-in rows
-	are a normal thing to have while an operator is still typing.
+	A row missing a status or a line cannot do anything useful, so it is dropped
+	here rather than failing loudly on every tick -- half-filled-in rows are a
+	normal thing to have while an operator is still typing.
 	"""
 	rows = []
 	for row in settings.get("stale_ticket_rules") or []:
 		state = str(row.get("state") or "").strip()
-		message = str(row.get("message") or "").strip()
-		if not cint(row.get("enabled")) or not state or not message:
+		line = str(row.get("message") or "").strip()
+		if not cint(row.get("enabled")) or not state or not line:
 			continue
-		rows.append({
-			"state": state,
-			"hours": cint(row.get("hours")) or 24,
-			"message": message,
-			"send_once": cint(row.get("send_once")),
-			"whatsapp_template": str(row.get("whatsapp_template") or "").strip(),
-			"template_variables": str(row.get("template_variables") or ""),
-		})
+		rows.append({"state": state, "hours": cint(row.get("hours")) or 24, "line": line})
 	return rows
 
 
@@ -100,14 +102,14 @@ def due_now(settings, when=None) -> tuple[bool, str]:
 
 
 def counts(rules: list[dict]) -> dict:
-	"""{assigned user: {row position: stuck tickets}}. The "" key is nobody assigned.
+	"""{assigned user: {status: stuck tickets}}. The "" key is nobody assigned.
 
-	One grouped COUNT per row, so the scan costs the same however many tickets
+	One grouped COUNT per rule, so the scan costs the same however many tickets
 	are stuck.
 	"""
 	out = {}
 	now = now_datetime()
-	for position, rule in enumerate(rules):
+	for rule in rules:
 		cutoff = add_to_date(now, hours=-rule["hours"])
 		rows = frappe.db.sql(
 			f"""select ifnull(assigned_to, '') as user, count(*) as n
@@ -118,7 +120,7 @@ def counts(rules: list[dict]) -> dict:
 			as_dict=True,
 		)
 		for row in rows:
-			out.setdefault(row.user, {})[position] = cint(row.n)
+			out.setdefault(row.user, {})[rule["state"]] = cint(row.n)
 	return out
 
 
@@ -136,76 +138,67 @@ def _engineer(user: str) -> dict:
 	}
 
 
-def context(engineer: dict, rule: dict, count: int) -> dict:
-	"""Placeholder values for one row's message to one technician."""
+def context(engineer: dict, rules: list[dict], per_state: dict) -> dict:
+	"""Placeholder values for one engineer's summary. Flat and string-only."""
+	from app_apis import chatwoot_connector as cw
+
+	lines, parts = [], []
+	for rule in rules:
+		n = cint(per_state.get(rule["state"]))
+		if not n:
+			continue
+		lines.append(cw._render(rule["line"], {"count": str(n), "state": rule["state"], "hours": str(rule["hours"])}))
+		parts.append(f"{rule['state']} {n}")
 	return {
 		"engineer": engineer["name"],
-		"count": str(count),
-		"state": rule["state"],
-		"hours": str(rule["hours"]),
+		"total": str(sum(cint(v) for v in per_state.values())),
+		"lines": "\n".join(lines),
+		# One line, for a WhatsApp template variable -- Meta refuses newlines there.
+		"summary": " · ".join(parts),
 	}
 
 
-def message_for(rule: dict, ctx: dict) -> str:
+def message_for(settings, ctx: dict) -> str:
+	"""The exact text an engineer would receive."""
 	from app_apis import chatwoot_connector as cw
 
-	return cw._render(rule["message"], ctx)
-
-
-def _trigger(rule: dict, count: int) -> str:
-	"""What the log's Trigger Source says -- and what Send Once compares."""
-	return f"{rule['state']} · {count} stuck ≥{rule['hours']}h"
-
-
-def _last_sent(phone: str, rule: dict):
-	"""The last message of this row that reached this number, or None."""
-	rows = frappe.db.sql(
-		"""select trigger_source, sent_on from `tabApp Apis Message Log`
-		   where template = %s and phone = %s and status = 'Sent' and trigger_source like %s
-		   order by sent_on desc limit 1""",
-		(TEMPLATE, phone, f"{rule['state']} · %"),
-		as_dict=True,
-	)
-	return rows[0] if rows else None
-
-
-def _skip_reason(engineer: dict, rule: dict, count: int) -> str:
-	"""Why this message would not go out now, or "" if it would."""
-	if not engineer["phone"]:
-		return _("No phone number on file for {0}. Add one to their User or Employee record.").format(engineer["name"])
-	last = _last_sent(engineer["phone"], rule)
-	if last:
-		if getdate(last.sent_on) == getdate(today()):
-			return _("Already sent today.")
-		if rule["send_once"] and last.trigger_source == _trigger(rule, count):
-			return _("Same count as the last message; Send Once is on.")
-	return ""
+	body = str(settings.get("stale_digest_message") or "").strip() or DEFAULT_DIGEST
+	return cw._render(body, ctx)
 
 
 def plan(settings=None) -> dict:
-	"""Every (technician, row) message this run would produce, with the exact
-	text and whether it would go. Writes nothing, so the desk preview and the
-	live run agree."""
+	"""Who would get a summary this run, with the exact text. Writes nothing, so
+	the desk preview and the live run are guaranteed to agree."""
 	settings = settings or _settings()
 	rules = _rules(settings)
 	per_user = counts(rules) if rules else {}
 	unassigned = sum(per_user.pop("", {}).values())
 
 	entries = []
-	for user, per_row in per_user.items():
+	for user, per_state in per_user.items():
 		engineer = _engineer(user)
-		for position, count in sorted(per_row.items()):
-			rule = rules[position]
-			entries.append({
-				**engineer,
-				"position": position,
-				"rule": rule,
-				"count": count,
-				"message": message_for(rule, context(engineer, rule, count)),
-				"skip": _skip_reason(engineer, rule, count),
-			})
-	entries.sort(key=lambda e: (e["name"], e["position"]))
+		entries.append({
+			**engineer,
+			"per_state": per_state,
+			"total": sum(per_state.values()),
+			"message": message_for(settings, context(engineer, rules, per_state)),
+		})
+	# Biggest backlog first.
+	entries.sort(key=lambda e: (-e["total"], e["name"]))
 	return {"rules": rules, "entries": entries, "unassigned": unassigned}
+
+
+def _sent_today(phone: str) -> bool:
+	"""Has this number already had today's summary? Sent rows only: a Failed or
+	Skipped attempt reached nobody and must not hold the next one off."""
+	return bool(
+		frappe.db.sql(
+			"""select name from `tabApp Apis Message Log`
+			   where template = %s and phone = %s and status = 'Sent' and sent_on >= %s
+			   limit 1""",
+			(TEMPLATE, phone, today()),
+		)
+	)
 
 
 def _log(engineer: dict, status: str, reason: str = "", message: str = "",
@@ -233,7 +226,7 @@ def _log(engineer: dict, status: str, reason: str = "", message: str = "",
 		entry.insert(ignore_permissions=True)
 		frappe.db.commit()
 	except Exception:
-		frappe.log_error(frappe.get_traceback(), f"stale-reminder log failed: {engineer.get('user')}")
+		frappe.log_error(frappe.get_traceback(), f"stale-summary log failed: {engineer.get('user')}")
 
 
 # --------------------------------------------------------------------------
@@ -241,15 +234,15 @@ def _log(engineer: dict, status: str, reason: str = "", message: str = "",
 # --------------------------------------------------------------------------
 
 
-def send_one(user: str, rule: dict, count: int):
+def send_digest(user: str, per_state: dict):
 	"""Background entry point. Never raises -- there is nobody to raise to."""
 	try:
-		_send_one(user, rule, count)
+		_send_digest(user, per_state)
 	except Exception:
-		frappe.log_error(frappe.get_traceback(), f"stale-reminder send failed: {user}")
+		frappe.log_error(frappe.get_traceback(), f"stale-summary send failed: {user}")
 
 
-def _send_one(user: str, rule: dict, count: int):
+def _send_digest(user: str, per_state: dict):
 	from app_apis import chatwoot_connector as cw
 
 	settings = _settings()
@@ -259,26 +252,24 @@ def _send_one(user: str, rule: dict, count: int):
 	if not cint(settings.get("stale_ticket_reminder_enabled")) or not cint(settings.get("technician_message_enabled")):
 		return
 
-	count = cint(count)
-	if count <= 0:
+	rules = _rules(settings)
+	per_state = {k: cint(v) for k, v in (per_state or {}).items() if cint(v)}
+	if not rules or not per_state:
 		return
 
 	engineer = _engineer(user)
-	ctx = context(engineer, rule, count)
-	body = message_for(rule, ctx)
-	trigger = _trigger(rule, count)
+	ctx = context(engineer, rules, per_state)
+	body = message_for(settings, ctx)
+	trigger = f"Daily summary: {ctx['summary']}"
 
-	reason = _skip_reason(engineer, rule, count)
-	if reason:
-		# A missing number is worth one log row per count, so the operator sees
-		# who needs one; "already sent" and "unchanged" are the guard working,
-		# and logging them every day would bury the rows that matter.
-		if not engineer["phone"] and not frappe.db.exists(
-			"App Apis Message Log",
-			{"template": TEMPLATE, "engineer": engineer["name"][:140], "trigger_source": trigger, "status": "Skipped"},
-		):
-			_log(engineer, "Skipped", reason=reason, message=body, trigger=trigger)
+	if not engineer["phone"]:
+		_log(engineer, "Skipped", message=body, trigger=trigger, reason=_(
+			"No phone number on file for {0}. Add one to their User or Employee record."
+		).format(engineer["name"]))
 		return
+
+	if _sent_today(engineer["phone"]):
+		return  # already had today's summary -- a manual run after the scheduled one
 
 	# Outside WhatsApp's 24-hour window only a template is delivered (see
 	# chatwoot_connector._route_window) -- and an engineer rarely writes to the
@@ -286,13 +277,13 @@ def _send_one(user: str, rule: dict, count: int):
 	fallback = None
 	if cint(settings.get("chatwoot_use_templates")):
 		fallback = {
-			"template": rule.get("whatsapp_template") or "",
-			"variables": rule.get("template_variables") or "",
+			"template": str(settings.get("stale_digest_template") or "").strip(),
+			"variables": str(settings.get("stale_digest_template_variables") or ""),
 			"ctx": ctx,
 		}
 
 	frappe.set_user("Administrator")
-	# Confirmed, so a message WhatsApp refused is logged Failed, not Sent.
+	# Confirmed, so a summary WhatsApp refused is logged Failed, not Sent.
 	result = cw._send(
 		body,
 		phone=engineer["phone"],
@@ -309,9 +300,9 @@ def _send_one(user: str, rule: dict, count: int):
 		# No usable number, or the window is closed and there is no template:
 		# nothing was attempted, and nothing is broken.
 		status = "Skipped"
-		if result.get("code") == -409 and not rule.get("whatsapp_template"):
-			reason = _("WhatsApp's 24-hour window is closed for this number and this row has no WhatsApp "
-			           "Template, so nothing was sent.")
+		if result.get("code") == -409 and not (fallback or {}).get("template"):
+			reason = _("WhatsApp's 24-hour window is closed for this number and no Summary WhatsApp "
+			           "Template is set, so nothing was sent.")
 	else:
 		status = "Failed"
 
@@ -325,7 +316,7 @@ def _send_one(user: str, rule: dict, count: int):
 
 
 def run(force: bool = False) -> dict:
-	"""One pass: count every row, queue one message per technician per row.
+	"""One pass: count every rule, queue one summary per engineer.
 
 	`force` skips the hour gate for a manual run from the desk; it does NOT
 	skip the enabled switch. That switch is the safety of this feature, and a
@@ -343,49 +334,28 @@ def run(force: bool = False) -> dict:
 
 	p = plan(settings)
 	if not p["rules"]:
-		return {"ok": True, "ran": True, "checked": 0, "queued": 0, "reason": "No enabled rules."}
+		return {"ok": True, "ran": True, "checked": 0, "technicians": 0, "queued": 0, "reason": "No enabled rules."}
 
-	queued = 0
 	for entry in p["entries"]:
-		if entry["skip"]:
-			continue
 		frappe.enqueue(
-			"app_apis.stale_reminders.send_one",
+			"app_apis.stale_reminders.send_digest",
 			queue="long",
 			timeout=300,
 			enqueue_after_commit=True,
-			job_id=f"stale-reminder::{entry['user']}::{entry['position']}",
+			job_id=f"stale-summary::{entry['user']}",
 			deduplicate=True,
 			user=entry["user"],
-			rule=entry["rule"],
-			count=entry["count"],
+			per_state=entry["per_state"],
 		)
-		queued += 1
-
-	# Technicians with no number still get their one Skipped row each, from the
-	# worker -- queued here so the scan itself stays read-only.
-	for entry in p["entries"]:
-		if entry["skip"] and not entry["phone"]:
-			frappe.enqueue(
-				"app_apis.stale_reminders.send_one",
-				queue="long",
-				timeout=120,
-				enqueue_after_commit=True,
-				job_id=f"stale-reminder::{entry['user']}::{entry['position']}",
-				deduplicate=True,
-				user=entry["user"],
-				rule=entry["rule"],
-				count=entry["count"],
-			)
 
 	frappe.db.commit()
 	return {
 		"ok": True,
 		"ran": True,
 		"rules": len(p["rules"]),
-		"checked": sum(e["count"] for e in p["entries"]),
-		"technicians": len({e["user"] for e in p["entries"]}),
-		"queued": queued,
+		"checked": sum(e["total"] for e in p["entries"]),
+		"technicians": len(p["entries"]),
+		"queued": len(p["entries"]),
 		"unassigned": p["unassigned"],
 	}
 
@@ -410,15 +380,15 @@ def hourly():
 def check_now() -> dict:
 	"""Manual trigger for the button on the settings form.
 
-	Ignores the hour gate; still obeys the enabled switch, Send Once and the
-	once-a-day guard -- see `run`.
+	Ignores the hour gate; still obeys the enabled switch and the once-a-day
+	guard `send_digest` applies -- see `run`.
 	"""
 	frappe.only_for("System Manager")
 	return run(force=True)
 
 
 @frappe.whitelist()
-def preview(limit: int = 60) -> dict:
+def preview(limit: int = 30) -> dict:
 	"""What the next run would send, to whom, without sending any of it.
 
 	System Manager only: it lists staff names and phone numbers.
@@ -428,27 +398,24 @@ def preview(limit: int = 60) -> dict:
 	settings = _settings()
 	p = plan(settings)
 	due, why = due_now(settings)
-	going = [e for e in p["entries"] if not e["skip"]]
 	return {
 		"ok": True,
 		"enabled": bool(cint(settings.get("stale_ticket_reminder_enabled"))),
 		"due_now": due,
 		"not_due_reason": why,
-		"messages": len(p["entries"]),
-		"would_send": len(going),
-		"technicians": len({e["user"] for e in p["entries"]}),
-		"stuck_tickets": sum(e["count"] for e in p["entries"]),
+		"technicians": len(p["entries"]),
+		"reachable": len([e for e in p["entries"] if e["phone"]]),
+		"stuck_tickets": sum(e["total"] for e in p["entries"]),
 		"unassigned": p["unassigned"],
 		"rows": [
 			{
 				"user": e["user"],
 				"name": e["name"],
 				"phone": e["phone"] or "",
-				"state": e["rule"]["state"],
-				"count": e["count"],
-				"skip": e["skip"],
+				"total": e["total"],
+				"per_state": e["per_state"],
 				"message": e["message"],
 			}
-			for e in p["entries"][: cint(limit) or 60]
+			for e in p["entries"][: cint(limit) or 30]
 		],
 	}

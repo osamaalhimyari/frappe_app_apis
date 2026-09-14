@@ -63,7 +63,6 @@
   "start_level",
   "last_level",
   "sec_flags",
-  "away_fills",
   "no_gps_fills",
   "no_move_fills",
   "quick_refills",
@@ -428,12 +427,6 @@
    "fieldname": "sec_flags",
    "fieldtype": "Section Break",
    "label": "Findings"
-  },
-  {
-   "fieldname": "away_fills",
-   "fieldtype": "Int",
-   "label": "Fills Away From Station",
-   "read_only": 1
   },
   {
    "fieldname": "no_gps_fills",

@@ -35,7 +35,7 @@
   {
    "columns": 2,
    "default": "24",
-   "description": "A ticket counts once it has sat in this status, untouched, for at least this many hours.",
+   "description": "Nudge the technician once a ticket has sat in this status, untouched, for at least this many hours.",
    "fieldname": "hours",
    "fieldtype": "Int",
    "in_list_view": 1,
@@ -45,7 +45,7 @@
   },
   {
    "columns": 3,
-   "description": "Sent ONCE to each technician who has tickets stuck in this status -- not once per ticket. {count} = how many of their tickets; {engineer} {state} {hours} are filled in too.",
+   "description": "Sent to the technician assigned to the ticket. {ticket} {customer} {vehicle} {engineer} {location} {phone} are filled in automatically.",
    "fieldname": "message",
    "fieldtype": "Small Text",
    "in_list_view": 1,
@@ -54,24 +54,24 @@
   },
   {
    "columns": 2,
-   "description": "Sent instead of Message when WhatsApp\u2019s 24-hour window is closed, which is the usual case for an engineer. Needs Use WhatsApp Templates on.",
    "fieldname": "whatsapp_template",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "WhatsApp Template",
-   "options": "App Apis WhatsApp Template"
+   "options": "App Apis WhatsApp Template",
+   "description": "Sent instead of Message when WhatsApp’s 24-hour window is closed, which is the usual case for an engineer. Needs Use WhatsApp Templates on."
   },
   {
    "depends_on": "whatsapp_template",
-   "description": "One line per variable in the template, e.g. {{1}} = {count}. Placeholders: {engineer} {count} {state} {hours}.",
    "fieldname": "template_variables",
    "fieldtype": "Small Text",
-   "label": "Template Variables"
+   "label": "Template Variables",
+   "description": "One line per variable in the template, e.g. {{1}} = {ticket}. Placeholders: {ticket} {customer} {plate} {engineer} {state}."
   },
   {
    "columns": 2,
    "default": "1",
-   "description": "Don't send it again while the technician's count for this status is unchanged. Turn off to send it every day.",
+   "description": "Don't nudge again for the same ticket until it's actually updated. Turn off to nudge every day it stays stuck.",
    "fieldname": "send_once",
    "fieldtype": "Check",
    "in_list_view": 1,
@@ -82,7 +82,7 @@
  "index_web_pages_for_search": 0,
  "istable": 1,
  "links": [],
- "modified": "2026-09-14 15:00:17.040158",
+ "modified": "2026-09-12 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "App Apis",
  "name": "App Apis Stale Ticket Rule",

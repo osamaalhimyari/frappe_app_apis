@@ -122,6 +122,7 @@ frappe.ui.form.on("app_apis", {
 		frm.set_query("whatsapp_template", "auto_message_rules", WA_SENDABLE);
 		frm.set_query("whatsapp_template", "stale_ticket_rules", WA_SENDABLE);
 		frm.set_query("whatsapp_template", "subscription_messages", WA_SENDABLE);
+		frm.set_query("stale_digest_template", WA_SENDABLE);
 	},
 
 	sync_whatsapp_templates() {
@@ -373,7 +374,7 @@ frappe.ui.form.on("app_apis", {
 							indicator: d.ok && d.ran ? "green" : d.ok ? "orange" : "red",
 							message: d.ran
 								? `<div style="font-size:13px">
-										<div><b>${__("{0} stuck ticket(s); queued {1} message(s), one per technician per status.", [esc(d.checked), esc(d.queued)])}</b></div>
+										<div><b>${__("{0} stuck ticket(s); queued one summary each for {1} technician(s).", [esc(d.checked), esc(d.queued)])}</b></div>
 										<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">
 											${__("Rules checked")}: ${esc(d.rules)}
 										</div>
