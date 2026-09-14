@@ -19,6 +19,7 @@
   "col_b",
   "severity",
   "flags",
+  "flag_data",
   "liters_at_risk",
   "sec_fill",
   "invoice_no",
@@ -125,6 +126,14 @@
    "fieldname": "flags",
    "fieldtype": "Small Text",
    "label": "Flags",
+   "read_only": 1
+  },
+  {
+   "description": "The flags as codes and numbers, put into the reader's language on the dashboard.",
+   "fieldname": "flag_data",
+   "fieldtype": "Small Text",
+   "hidden": 1,
+   "label": "Flags (data)",
    "read_only": 1
   },
   {
@@ -303,7 +312,7 @@
  "in_create": 1,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-09-13 00:00:00.000000",
+ "modified": "2026-09-14 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "App Apis",
  "name": "App Apis Fuel Fill",

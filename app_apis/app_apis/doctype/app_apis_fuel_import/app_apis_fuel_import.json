@@ -3,7 +3,7 @@
  "allow_rename": 0,
  "autoname": "format:FUEL-{#####}",
  "creation": "2026-09-13 00:00:00.000000",
- "description": "One uploaded fuel-card report and the result of checking it against GPS. Created from the Fuel Efficiency dashboard.",
+ "description": "One uploaded fuel report -- the fuel-card export, plus IM's Fill-Drain and Fuel Consumption reports when given -- and the result of checking it against IM. Created from the Fuel Efficiency dashboard.",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -17,10 +17,20 @@
   "col_b",
   "source_file",
   "file_name",
+  "sec_im",
+  "fill_drain_file",
+  "fill_drain_period",
+  "col_im",
+  "consumption_file",
+  "consumption_period",
+  "sec_notes",
+  "notes",
+  "note_data",
   "sec_totals",
   "fills",
   "vehicles",
   "tracked_vehicles",
+  "sensor_vehicles",
   "col_c",
   "liters",
   "cost",
@@ -85,13 +95,65 @@
   {
    "fieldname": "source_file",
    "fieldtype": "Attach",
-   "label": "Fuel Report File",
+   "label": "Fuel-Card File",
    "read_only": 1
   },
   {
    "fieldname": "file_name",
    "fieldtype": "Data",
    "label": "File Name",
+   "read_only": 1
+  },
+  {
+   "description": "Totals per truck over the report's own dates; compared only with the fuel-card fills inside those dates.",
+   "fieldname": "sec_im",
+   "fieldtype": "Section Break",
+   "label": "IM Reports"
+  },
+  {
+   "fieldname": "fill_drain_file",
+   "fieldtype": "Attach",
+   "label": "IM Fill-Drain Report",
+   "read_only": 1
+  },
+  {
+   "fieldname": "fill_drain_period",
+   "fieldtype": "Data",
+   "label": "Fill-Drain Dates",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_im",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "consumption_file",
+   "fieldtype": "Attach",
+   "label": "IM Fuel Consumption Report",
+   "read_only": 1
+  },
+  {
+   "fieldname": "consumption_period",
+   "fieldtype": "Data",
+   "label": "Fuel Consumption Dates",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_notes",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes",
+   "read_only": 1
+  },
+  {
+   "description": "The notes as codes and values, put into the reader's language on the dashboard.",
+   "fieldname": "note_data",
+   "fieldtype": "Small Text",
+   "hidden": 1,
+   "label": "Notes (data)",
    "read_only": 1
   },
   {
@@ -115,6 +177,12 @@
    "fieldname": "tracked_vehicles",
    "fieldtype": "Int",
    "label": "Tracked by GPS",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sensor_vehicles",
+   "fieldtype": "Int",
+   "label": "With Fuel Sensor",
    "read_only": 1
   },
   {
@@ -169,7 +237,7 @@
  "in_create": 1,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-09-13 00:00:00.000000",
+ "modified": "2026-09-14 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "App Apis",
  "name": "App Apis Fuel Import",
