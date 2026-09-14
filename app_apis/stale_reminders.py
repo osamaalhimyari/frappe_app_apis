@@ -60,6 +60,8 @@ def _rules(settings) -> list[dict]:
 			"hours": cint(row.get("hours")) or 24,
 			"message": message,
 			"send_once": cint(row.get("send_once")),
+			"whatsapp_template": str(row.get("whatsapp_template") or "").strip(),
+			"template_variables": str(row.get("template_variables") or ""),
 		})
 	return rows
 
@@ -117,6 +119,10 @@ def _log(doc, status: str, reason: str = "", result: dict | None = None, trigger
 		entry.recipient = "Technician"
 		entry.engineer = str(technicians.name(doc) or "")[:140]
 		entry.template = TEMPLATE
+		if result.get("via") == "template":
+			entry.sent_as = f"WhatsApp template: {result.get('whatsapp_template') or ''}"
+		elif result.get("via") == "text":
+			entry.sent_as = "Text"
 		entry.status = status
 		entry.trigger_source = trigger
 		entry.reason = reason
@@ -174,14 +180,30 @@ def _send_one(ticket: str, rule: dict):
 
 	frappe.set_user("Administrator")
 
-	body = cw._render(rule["message"], cw._context(doc, TEMPLATE))
+	ctx = cw._context(doc, TEMPLATE)
+	body = cw._render(rule["message"], ctx)
+
+	# Outside WhatsApp's 24-hour window only a template is delivered (see
+	# chatwoot_connector._route_window) -- and an engineer rarely writes to the
+	# business number, so for this message a closed window is the usual case.
+	fallback = None
+	if cint(settings.get("chatwoot_use_templates")):
+		fallback = {
+			"template": rule.get("whatsapp_template") or "",
+			"variables": rule.get("template_variables") or "",
+			"ctx": ctx,
+		}
+
 	# Confirmed, so a nudge WhatsApp refused is logged Failed, not Sent.
-	result = cw._send_ticket_message(ticket, template=TEMPLATE, text=body, confirm=True) or {}
+	result = cw._send_ticket_message(
+		ticket, template=TEMPLATE, text=body, template_fallback=fallback, confirm=True
+	) or {}
 
 	if result.get("ok"):
 		status = "Sent"
-	elif result.get("code") == -404:
-		# No phone on file: nothing was attempted, and nothing is broken.
+	elif result.get("code") in (-404, -409):
+		# No phone on file, or the window is closed and there is no template:
+		# nothing was attempted, and nothing is broken.
 		status = "Skipped"
 	else:
 		status = "Failed"

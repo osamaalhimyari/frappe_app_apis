@@ -253,15 +253,14 @@
   {
    "description": "Closest the truck came to the station within the window around the invoice time.",
    "fieldname": "distance_to_station_m",
-   "fieldtype": "Int",
+   "fieldtype": "Data",
    "label": "Truck to Station (m)",
    "read_only": 1
   },
   {
    "fieldname": "nearest_point_min",
-   "fieldtype": "Float",
+   "fieldtype": "Data",
    "label": "Nearest GPS Point (min)",
-   "precision": "1",
    "read_only": 1
   },
   {
@@ -284,23 +283,20 @@
   },
   {
    "fieldname": "hours_since_prev",
-   "fieldtype": "Float",
+   "fieldtype": "Data",
    "label": "Hours Since Previous Fill",
-   "precision": "1",
    "read_only": 1
   },
   {
    "fieldname": "gps_km_since_prev",
-   "fieldtype": "Float",
+   "fieldtype": "Data",
    "label": "GPS km Since Previous Fill",
-   "precision": "1",
    "read_only": 1
   },
   {
    "fieldname": "odometer_km_since_prev",
-   "fieldtype": "Float",
+   "fieldtype": "Data",
    "label": "Odometer km Since Previous Fill",
-   "precision": "1",
    "read_only": 1
   }
  ],

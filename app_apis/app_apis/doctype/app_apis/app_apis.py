@@ -174,45 +174,51 @@ class app_apis(Document):
 			)
 
 	def _validate_whatsapp_templates(self):
-		"""A Status Rules row that names a WhatsApp template must be able to send it.
+		"""A row that names a WhatsApp template must be able to send it.
 
-		Checked at save, while the operator is looking at the row, rather than
-		when the first ticket moves at night: the template must be one Chatwoot
-		still has approved and one this app can fill, and each of its variables
-		needs a value. Only while templates are switched on -- until then
-		nothing reads the column.
+		Status Rules, Stale Ticket Rules and Reminder Messages alike. Checked at
+		save, while the operator is looking at the row, rather than when the
+		first message is due at night: the template must be one Chatwoot still
+		has approved and one this app can fill, and each of its variables needs
+		a value. Only while templates are switched on -- until then nothing
+		reads the column.
 		"""
 		if not frappe.utils.cint(self.chatwoot_use_templates):
 			return
 
 		from app_apis import whatsapp_templates as wt
 
+		tables = (
+			("auto_message_rules", _("Status Rules"), lambda r: f"{r.state or '?'} → {r.to or '?'}"),
+			("stale_ticket_rules", _("Stale Ticket Rules"), lambda r: f"{r.state or '?'}, {r.hours or '?'} h"),
+			("subscription_messages", _("Reminder Messages"), lambda r: r.kind or "?"),
+		)
+
 		problems = []
-		for row in self.get("auto_message_rules") or []:
-			name = (row.get("whatsapp_template") or "").strip()
-			if not name or not frappe.utils.cint(row.get("enabled")):
-				continue
+		for table, label, describe in tables:
+			for row in self.get(table) or []:
+				name = (row.get("whatsapp_template") or "").strip()
+				if not name or not frappe.utils.cint(row.get("enabled")):
+					continue
 
-			where = _("Row {0} ({1} → {2})").format(
-				row.idx, frappe.utils.escape_html(row.state or "?"), row.to or "?"
-			)
-			tpl = frappe.db.get_value(
-				wt.DOCTYPE, name, ["title", "supported", "unsupported_reason", "params"], as_dict=True
-			)
-			if not tpl:
-				problems.append(_("{0}: template {1} is not in the synced list. Press Sync Templates from Chatwoot.").format(
-					where, frappe.utils.escape_html(name)))
-				continue
-			if not frappe.utils.cint(tpl.supported):
-				problems.append(_("{0}: {1} cannot be sent ({2}).").format(
-					where, tpl.title, tpl.unsupported_reason or _("not approved")))
-				continue
+				where = _("{0} row {1} ({2})").format(label, row.idx, frappe.utils.escape_html(describe(row)))
+				tpl = frappe.db.get_value(
+					wt.DOCTYPE, name, ["title", "supported", "unsupported_reason", "params"], as_dict=True
+				)
+				if not tpl:
+					problems.append(_("{0}: template {1} is not in the synced list. Press Sync Templates from Chatwoot.").format(
+						where, frappe.utils.escape_html(name)))
+					continue
+				if not frappe.utils.cint(tpl.supported):
+					problems.append(_("{0}: {1} cannot be sent ({2}).").format(
+						where, tpl.title, tpl.unsupported_reason or _("not approved")))
+					continue
 
-			params = wt.params_list(tpl.params)
-			gaps = wt.missing(params, wt.variables(row.get("template_variables"), params))
-			if gaps:
-				problems.append(_("{0}: {1} needs a value for {2} in Template Variables.").format(
-					where, tpl.title, ", ".join("{{%s}}" % gap for gap in gaps)))
+				params = wt.params_list(tpl.params)
+				gaps = wt.missing(params, wt.variables(row.get("template_variables"), params))
+				if gaps:
+					problems.append(_("{0}: {1} needs a value for {2} in Template Variables.").format(
+						where, tpl.title, ", ".join("{{%s}}" % gap for gap in gaps)))
 
 		if problems:
 			frappe.throw("<br>".join(problems), title=_("WhatsApp Templates"))

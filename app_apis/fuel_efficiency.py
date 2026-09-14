@@ -63,7 +63,7 @@ THEFT_EXCESS = 60
 ODOMETER_GAP = 25         # % between the typed odometer and GPS
 MIN_STEP_M = 30           # GPS jitter below this is not movement
 MAX_SPEED_KMH = 150       # faster than this between two points is a GPS jump
-CHUNK_DAYS = 16           # track logs are read this many days at a time
+CHUNK_DAYS = 31           # track logs are read this many days at a time (a month is one ~4s call)
 
 VERDICTS = ("Theft likely", "Suspicious", "OK", "No GPS data", "Not tracked")
 
@@ -671,6 +671,32 @@ def _run(fuel_import: str, user: str | None) -> None:
 	_progress(fuel_import, _("Done: {0} flagged fills").format(flagged), stage="done", user=user)
 
 
+# Numbers that can honestly be unknown -- no previous fill, no GPS, too few km
+# to judge. Frappe keeps Int/Float columns NOT NULL (default 0), and a 0 here
+# would read as a measurement ("0 km since the last fill"), so these are text
+# columns holding the number or nothing.
+MAYBE_UNKNOWN = {
+	"distance_to_station_m", "nearest_point_min", "hours_since_prev", "gps_km_since_prev",
+	"odometer_km_since_prev", "gps_km", "lp100", "peer_lp100", "excess_pct", "odometer_km", "odometer_gap_pct",
+}
+NUMBERS = {
+	"liters_at_risk", "liters", "price", "cost", "odometer", "provider_kmpl", "station_lat", "station_lng",
+	"truck_lat", "truck_lng", "score", "fills", "gps_points", "away_fills", "no_gps_fills", "no_move_fills",
+	"quick_refills", "big_fills", "cost_at_risk",
+}
+
+
+def _cell(field: str, value):
+	if field in MAYBE_UNKNOWN:
+		if value is None or value == "":
+			return ""
+		v = round(float(value), 1)
+		return str(int(v)) if v.is_integer() else f"{v:.1f}"
+	if field in NUMBERS:
+		return value or 0
+	return value
+
+
 def _store(fuel_import: str, fills: list, trucks: list) -> None:
 	frappe.db.delete(FILL_DT, {"fuel_import": fuel_import})
 	frappe.db.delete(VEHICLE_DT, {"fuel_import": fuel_import})
@@ -680,7 +706,7 @@ def _store(fuel_import: str, fills: list, trucks: list) -> None:
 	def rows(items, fields):
 		for i, item in enumerate(items):
 			item["fuel_import"] = fuel_import
-			yield [frappe.generate_hash(length=12), now, now, user, user, 0, i] + [item.get(f) for f in fields]
+			yield [frappe.generate_hash(length=12), now, now, user, user, 0, i] + [_cell(f, item.get(f)) for f in fields]
 
 	frappe.db.bulk_insert(FILL_DT, fields=meta_cols + FILL_FIELDS, values=list(rows(fills, FILL_FIELDS)), chunk_size=2000)
 	frappe.db.bulk_insert(VEHICLE_DT, fields=meta_cols + VEHICLE_FIELDS, values=list(rows(trucks, VEHICLE_FIELDS)), chunk_size=2000)

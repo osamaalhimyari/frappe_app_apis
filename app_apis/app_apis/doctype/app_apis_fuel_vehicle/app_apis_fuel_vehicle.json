@@ -192,33 +192,29 @@
   {
    "description": "Driven between the first and the last fill, from GPS.",
    "fieldname": "gps_km",
-   "fieldtype": "Float",
+   "fieldtype": "Data",
    "label": "GPS km",
-   "precision": "1",
    "read_only": 1
   },
   {
    "description": "Liters bought after the first fill, per 100 GPS km.",
    "fieldname": "lp100",
-   "fieldtype": "Float",
+   "fieldtype": "Data",
    "in_list_view": 1,
    "label": "L/100 km",
-   "precision": "1",
    "read_only": 1
   },
   {
    "description": "Median L/100 km of trucks of the same brand and model in this report.",
    "fieldname": "peer_lp100",
-   "fieldtype": "Float",
+   "fieldtype": "Data",
    "label": "Peer L/100 km",
-   "precision": "1",
    "read_only": 1
   },
   {
    "fieldname": "excess_pct",
-   "fieldtype": "Float",
+   "fieldtype": "Data",
    "label": "Above Peers (%)",
-   "precision": "0",
    "read_only": 1
   },
   {
@@ -228,17 +224,15 @@
   {
    "description": "Last minus first odometer typed at the pump.",
    "fieldname": "odometer_km",
-   "fieldtype": "Float",
+   "fieldtype": "Data",
    "label": "Odometer km (card)",
-   "precision": "0",
    "read_only": 1
   },
   {
    "description": "How far the typed odometer is from the GPS distance.",
    "fieldname": "odometer_gap_pct",
-   "fieldtype": "Float",
+   "fieldtype": "Data",
    "label": "Odometer vs GPS (%)",
-   "precision": "0",
    "read_only": 1
   },
   {

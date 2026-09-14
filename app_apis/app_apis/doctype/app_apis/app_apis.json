@@ -99,8 +99,7 @@
   "subscription_reminder_days_after",
   "subscription_reminder_customer_types",
   "subscription_reminder_phone_source",
-  "subscription_expiring_message",
-  "subscription_reminder_message",
+  "subscription_messages",
   "sec_excluded",
   "excluded_customers"
  ],
@@ -561,7 +560,7 @@
   },
   {
    "collapsible": 1,
-   "description": "Warns before subscriptions expire. Read-only. Message placeholders: {customer} {vehicles} {count} {expiry} etc.",
+   "description": "Warns before subscriptions expire. Read-only. Message placeholders: {customer} {vehicles} {count} {plate} {expiry} {days} {contacts}.",
    "fieldname": "sec_subscription_reminders",
    "fieldtype": "Section Break",
    "label": "Subscription Reminders"
@@ -628,11 +627,11 @@
    "options": "Customer, then vehicle\nCustomer only\nVehicle only"
   },
   {
-   "default": "👋 أهلاً {customer}\n\n⏰ انتهى اشتراك التتبع للمركبات التالية ({count}):\n⏰ Tracking has expired for these ({count}):\n{vehicles}\n\n🔄 نجدده لك بخطوتين بس، وترجع تتابع مركباتك على طول 🚗💨\n🔄 A quick renewal and you're back to tracking — two steps 🚗💨\n\nتواصل معنا وإحنا في خدمتك / Reach out any time, we're here to help 🤝\n{contacts}",
-   "description": "Sent once expired.",
-   "fieldname": "subscription_reminder_message",
-   "fieldtype": "Small Text",
-   "label": "Already Expired Message"
+   "fieldname": "subscription_messages",
+   "fieldtype": "Table",
+   "label": "Reminder Messages",
+   "options": "App Apis Subscription Message",
+   "description": "One row per kind; untick Send to stop that kind (e.g. send Expiring soon only). With Use WhatsApp Templates on, a customer outside the 24-hour window gets the row’s WhatsApp Template instead of its Message."
   },
   {
    "default": "50",
@@ -647,13 +646,6 @@
    "fieldname": "subscription_reminder_days_after",
    "fieldtype": "Int",
    "label": "Keep Chasing After (days)"
-  },
-  {
-   "default": "👋 أهلاً {customer}\n\n⏰ اشتراك التتبع للمركبات التالية ({count}) قارب على الانتهاء:\n⏰ Tracking for these ({count}) is about to run out:\n{vehicles}\n\n🔄 جدّده من الحين وما ينقطع عنك التتبع ولا يوم 🚗💨\n🔄 Renew now and you won't lose a single day of tracking 🚗💨\n\nتواصل معنا وإحنا في خدمتك / Reach out any time, we're here to help 🤝\n{contacts}",
-   "description": "Sent before expiry.",
-   "fieldname": "subscription_expiring_message",
-   "fieldtype": "Small Text",
-   "label": "Expiring Soon Message"
   },
   {
    "collapsible": 1,

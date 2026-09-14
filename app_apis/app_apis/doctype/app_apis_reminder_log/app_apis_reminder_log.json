@@ -14,6 +14,7 @@
   "col_a",
   "status",
   "reminder_type",
+  "sent_as",
   "dry_run",
   "sent_on",
   "code",
@@ -195,6 +196,13 @@
    "label": "Reminder",
    "options": "\nExpiring soon\nExpired",
    "read_only": 1
+  },
+  {
+   "fieldname": "sent_as",
+   "fieldtype": "Data",
+   "label": "Sent As",
+   "read_only": 1,
+   "description": "Text, or the WhatsApp template it went out as because the 24-hour window was closed."
   }
  ],
  "grid_page_length": 50,

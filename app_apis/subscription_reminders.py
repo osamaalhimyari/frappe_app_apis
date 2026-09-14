@@ -21,12 +21,17 @@ That is why there are TWO messages and not one. A reminder sent 50 days early
 that says "انتهى اشتراكك" is simply false, and a customer who checks their
 dashboard and finds it working will learn to ignore the next one. So:
 
-    subscription_expiring_message  -- "it runs out soon, renew and lose nothing"
-    subscription_reminder_message  -- "it has run out, let's get you back on"
+    Expiring soon    -- "it runs out soon, renew and lose nothing"
+    Already expired  -- "it has run out, let's get you back on"
 
-Which one a customer gets is decided by their MOST URGENT vehicle: if the
-soonest date has already passed, they hear the expired wording, because that is
-the one that needs acting on today.
+Both live in the Reminder Messages table on the settings form, one row per
+kind, each with its own Send tick. A kind that is not ticked is never
+mentioned at all: untick "Already expired" and a customer's expired vehicles
+drop out of the plan before anything is counted or listed.
+
+Which one a customer gets is decided by their MOST URGENT vehicle among the
+kinds being sent: if the soonest date has already passed, they hear the
+expired wording, because that is the one that needs acting on today.
 
 ONE MESSAGE PER CUSTOMER, NOT PER VEHICLE
 -----------------------------------------
@@ -72,13 +77,12 @@ live run wakes up customers who left in 2023.
 
 THE 24-HOUR WINDOW
 ------------------
-WhatsApp only delivers a free-form message to somebody whose conversation has
-had activity in the last 24 hours. Most of these customers have no open
-conversation, so Chatwoot will accept the message, return success, and WhatsApp
-will drop it silently. That is a property of the channel, not a bug here -- the
-log records what was accepted, which is the most this side can honestly claim.
-Delivering to a cold contact needs an approved WhatsApp template, which this
-site does not have yet.
+WhatsApp only delivers free text to somebody who wrote to the business in the
+last 24 hours -- almost nobody, for a renewal reminder. With Use WhatsApp
+Templates on, the row's WhatsApp Template goes instead whenever that window is
+closed (see chatwoot_connector._route_window), and a row without one is logged
+Skipped rather than posted to fail. Every live send then waits for WhatsApp's
+answer, so a Sent row means WhatsApp took the message, not just Chatwoot.
 """
 
 import frappe
@@ -115,6 +119,9 @@ LIVE_STATUS = "Installed"
 EXPIRING = "Expiring soon"
 EXPIRED = "Expired"
 
+# The same two kinds as the Reminder Messages table spells them.
+KIND_LABEL = {EXPIRING: "Expiring soon", EXPIRED: "Already expired"}
+
 # How many plates a message lists before it stops and says "and N more". The
 # largest fleet here holds 146; a WhatsApp bubble with 146 lines in it is not a
 # reminder, it is a denial of service on somebody's phone.
@@ -147,7 +154,10 @@ DEFAULT_EXPIRED_MESSAGE = (
 	"{contacts}"
 )
 
-# Which settings field holds the wording for each kind.
+# The two retired settings fields that held the wording before the Reminder
+# Messages table. Nothing here reads them any more; they stay because the older
+# patches seed_subscription_reminders and warm_message_wording import them, and
+# a site that has not run those yet must still be able to migrate.
 MESSAGE_FIELD = {
 	EXPIRING: "subscription_expiring_message",
 	EXPIRED: "subscription_reminder_message",
@@ -171,8 +181,6 @@ DEFAULTS = {
 	"subscription_reminder_batch_size": 50,
 	"subscription_reminder_customer_types": "",
 	"subscription_reminder_phone_source": "Customer, then vehicle",
-	"subscription_expiring_message": "",
-	"subscription_reminder_message": "",
 }
 
 WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
@@ -198,6 +206,27 @@ def settings() -> dict:
 			out[field] = str(value or "").strip() or fallback
 	out["doc"] = s
 	return out
+
+
+def message_rows(cfg: dict) -> dict:
+	"""{EXPIRING/EXPIRED: row} for every kind the Reminder Messages table sends.
+
+	A kind with no ticked row is a kind nobody is messaged about -- unticking
+	"Already expired" is how "warn before, never chase after" is spelled. The
+	first ticked row of a kind wins.
+	"""
+	kind_of = {label: kind for kind, label in KIND_LABEL.items()}
+	rows = {}
+	for row in cfg["doc"].get("subscription_messages") or []:
+		kind = kind_of.get(str(row.get("kind") or "").strip())
+		message = str(row.get("message") or "").strip()
+		if kind and kind not in rows and cint(row.get("enabled")) and message:
+			rows[kind] = {
+				"message": message,
+				"whatsapp_template": str(row.get("whatsapp_template") or "").strip(),
+				"template_variables": str(row.get("template_variables") or ""),
+			}
+	return rows
 
 
 def due_now(cfg: dict, when=None) -> tuple[bool, str]:
@@ -358,7 +387,15 @@ def plan(cfg: dict | None = None) -> list[dict]:
 	"""
 	cfg = cfg or settings()
 
-	vehicles = vehicles_in_window(cfg)
+	# A vehicle whose kind is not ticked never enters the plan -- not in the
+	# count, not in the plate list, not as the "most urgent" one -- so with only
+	# Expiring soon ticked, a fleet with one truck already dark and ten
+	# expiring next month hears about the ten and nothing else.
+	sending = message_rows(cfg)
+	vehicles = [
+		v for v in vehicles_in_window(cfg)
+		if (EXPIRED if _days_to_expiry(v) < 0 else EXPIRING) in sending
+	]
 
 	# Group first, decide second: the per-customer rules (phone, repeat window,
 	# customer type) cannot be answered while still walking rows.
@@ -479,11 +516,10 @@ def context(entry: dict) -> dict:
 def message_for(entry: dict, cfg: dict | None = None) -> str:
 	"""The exact text this customer would receive, for their kind of reminder."""
 	cfg = cfg or settings()
-	kind = entry.get("kind") or EXPIRED
-	template = cfg.get(MESSAGE_FIELD[kind]) or MESSAGE_FALLBACK[kind]
+	row = message_rows(cfg).get(entry.get("kind") or EXPIRED)
 	# Reuses the connector's renderer, so a whole-line placeholder that comes
 	# out empty drops its line here exactly as it does in a ticket message.
-	return cw._render(template, context(entry))
+	return cw._render(row["message"], context(entry)) if row else ""
 
 
 # --------------------------------------------------------------------------
@@ -509,6 +545,10 @@ def _log(entry: dict, status: str, cfg: dict, reason: str = "",
 		row.phone_source = entry.get("phone_source") or ""
 		row.status = status
 		row.reminder_type = entry.get("kind") or ""
+		if result.get("via") == "template":
+			row.sent_as = f"WhatsApp template: {result.get('whatsapp_template') or ''}"
+		elif result.get("via") == "text":
+			row.sent_as = "Text"
 		row.dry_run = cint(cfg["subscription_reminder_dry_run"])
 		row.vehicle_count = entry["count"]
 		row.plates = ", ".join(entry["plates"][:50])
@@ -549,6 +589,11 @@ def run(force: bool = False, limit: int | None = None) -> dict:
 		if not due:
 			return {"ok": True, "ran": False, "reason": why}
 
+	rows = message_rows(cfg)
+	if not rows:
+		return {"ok": True, "ran": False, "reason": "No ticked row in Reminder Messages -- nothing to send."}
+	use_templates = cint(cfg["doc"].get("chatwoot_use_templates"))
+
 	ready, why = cw._ready(cw.active_settings())
 	dry_run = cint(cfg["subscription_reminder_dry_run"])
 	if not ready and not dry_run:
@@ -565,24 +610,42 @@ def run(force: bool = False, limit: int | None = None) -> dict:
 	else:
 		held_back = 0
 
-	sent = failed = 0
+	sent = failed = no_template = 0
 	for entry in due_entries:
-		body = message_for(entry, cfg)
+		row = rows[entry["kind"]]
+		ctx = context(entry)
+		body = cw._render(row["message"], ctx)
 
 		if dry_run:
-			_log(entry, "Dry run", cfg, reason=_("Dry run: nothing was sent."), message=body)
+			note = _("Dry run: nothing was sent.")
+			if use_templates and row["whatsapp_template"]:
+				title = frappe.db.get_value("App Apis WhatsApp Template", row["whatsapp_template"], "title")
+				note += " " + _("Outside the 24-hour window it would go as WhatsApp template {0}.").format(
+					title or row["whatsapp_template"])
+			_log(entry, "Dry run", cfg, reason=note, message=body)
 			continue
 
+		# Outside the 24-hour window only a template is delivered -- see the
+		# module docstring. Confirmed either way, so Sent means WhatsApp took it.
+		fallback = None
+		if use_templates:
+			fallback = {"template": row["whatsapp_template"], "variables": row["template_variables"], "ctx": ctx}
 		result = cw._send(
 			body,
 			phone=entry["phone"],
 			name=entry["customer_name"],
 			context={"customer": entry["customer_name"], "template": "subscription_reminder"},
+			template_fallback=fallback,
+			confirm=True,
 		) or {}
 
 		if result.get("ok"):
 			sent += 1
-			_log(entry, "Sent", cfg, message=body, result=result)
+			_log(entry, "Sent", cfg, message=result.get("message") or body, result=result)
+		elif result.get("code") == -409:
+			# Window closed and no usable template: declined, nothing posted.
+			no_template += 1
+			_log(entry, "Skipped", cfg, reason=str(result.get("msg") or "")[:500], message=body, result=result)
 		else:
 			failed += 1
 			_log(entry, "Failed", cfg, reason=str(result.get("msg") or "")[:500],
@@ -612,6 +675,7 @@ def run(force: bool = False, limit: int | None = None) -> dict:
 		"attempted": len(due_entries),
 		"sent": sent,
 		"failed": failed,
+		"skipped_no_template": no_template,
 		"held_back_by_batch_size": held_back,
 		"chatwoot_ready": ready,
 	}
@@ -670,6 +734,7 @@ def preview(limit: int = 20) -> dict:
 		"ok": True,
 		"enabled": bool(cint(cfg["subscription_reminder_enabled"])),
 		"dry_run": bool(cint(cfg["subscription_reminder_dry_run"])),
+		"kinds_sent": [KIND_LABEL[k] for k in message_rows(cfg)],
 		"due_now": is_due,
 		"not_due_reason": not_due_why,
 		"chatwoot_ready": ready,

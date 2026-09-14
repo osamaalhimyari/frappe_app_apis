@@ -52,3 +52,6 @@ app_apis.patches.warm_message_wording
 # It now opens 50 days BEFORE the expiry date, so the customer can renew without
 # losing tracking. Moves the two old day-count settings across.
 app_apis.patches.subscription_reminder_lead_time
+# Subscription reminder wording moves from two fixed fields into the Reminder
+# Messages table (one row per kind), so each kind can carry a WhatsApp template.
+app_apis.patches.subscription_messages_to_table

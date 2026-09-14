@@ -120,6 +120,8 @@ function wa_send_test() {
 frappe.ui.form.on("app_apis", {
 	setup(frm) {
 		frm.set_query("whatsapp_template", "auto_message_rules", WA_SENDABLE);
+		frm.set_query("whatsapp_template", "stale_ticket_rules", WA_SENDABLE);
+		frm.set_query("whatsapp_template", "subscription_messages", WA_SENDABLE);
 	},
 
 	sync_whatsapp_templates() {
@@ -386,31 +388,41 @@ frappe.ui.form.on("app_apis", {
 	},
 });
 
-frappe.ui.form.on("App Apis Auto Message", {
-	whatsapp_template(frm, cdt, cdn) {
-		const row = locals[cdt][cdn];
-		if (!row.whatsapp_template) return;
-		wa_fetch(row.whatsapp_template).then((t) => {
-			const params = wa_params(t.params);
-			// One "{{n}} = " line per variable, so what is left to fill is
-			// visible -- never over something already typed.
-			if (params.length && !String(row.template_variables || "").trim()) {
-				frappe.model.set_value(cdt, cdn, "template_variables", wa_prefill(params));
-			}
-			frappe.msgprint({
-				title: t.title || row.whatsapp_template,
-				indicator: "blue",
-				message:
-					wa_preview(t) +
-					`<hr><div style="font-size:12px">${
-						params.length
-							? __("Open the row and complete Template Variables, one line per variable, e.g. {0}. Placeholders: {1}.", [
-									"<code>{{1}} = {plate}</code>",
-									"<code>{customer} {ticket} {plate} {engineer} {state} {link}</code>",
-							  ])
-							: __("No variables: it is sent exactly as shown.")
-					}</div>`,
+// Every table whose rows can name a WhatsApp template gets the same picker
+// behaviour; only the placeholders on offer differ.
+const WA_PLACEHOLDERS = {
+	"App Apis Auto Message": "{customer} {ticket} {plate} {engineer} {state} {link}",
+	"App Apis Stale Ticket Rule": "{ticket} {customer} {plate} {engineer} {state}",
+	"App Apis Subscription Message": "{customer} {plate} {vehicles} {count} {expiry} {days}",
+};
+
+Object.keys(WA_PLACEHOLDERS).forEach((doctype) => {
+	frappe.ui.form.on(doctype, {
+		whatsapp_template(frm, cdt, cdn) {
+			const row = locals[cdt][cdn];
+			if (!row.whatsapp_template) return;
+			wa_fetch(row.whatsapp_template).then((t) => {
+				const params = wa_params(t.params);
+				// One "{{n}} = " line per variable, so what is left to fill is
+				// visible -- never over something already typed.
+				if (params.length && !String(row.template_variables || "").trim()) {
+					frappe.model.set_value(cdt, cdn, "template_variables", wa_prefill(params));
+				}
+				frappe.msgprint({
+					title: t.title || row.whatsapp_template,
+					indicator: "blue",
+					message:
+						wa_preview(t) +
+						`<hr><div style="font-size:12px">${
+							params.length
+								? __("Open the row and complete Template Variables, one line per variable, e.g. {0}. Placeholders: {1}.", [
+										"<code>{{1}} = {plate}</code>",
+										`<code>${WA_PLACEHOLDERS[doctype]}</code>`,
+								  ])
+								: __("No variables: it is sent exactly as shown.")
+						}</div>`,
+				});
 			});
-		});
-	},
+		},
+	});
 });
