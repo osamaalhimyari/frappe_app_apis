@@ -1226,7 +1226,6 @@ def _trip_check(t: dict, fills: list, info: dict) -> None:
 	t["_trip"] = [n, f"{fills[best['first']]['fill_time']:%d-%m-%Y}", f"{fills[best['last']]['fill_time']:%d-%m-%Y}",
 	              round(best["liters"]), round(best["km"]), "GPS km" if gps else "the typed odometer", t["vehicle_class"],
 	              round(best["burn"]), cls["tank"], round(excess)]
-	t["_trip_l"] = round(excess, 1)
 	for f in fills[best["first"]:best["last"] + 1]:
 		flags = _load(f.get("flag_data")) + [["trip_fill", n]]
 		f["flag_data"] = json.dumps(flags)
@@ -1273,16 +1272,13 @@ def _sensor_findings(t: dict, add, lp: float | None) -> None:
 		else:
 			big = missing >= MISSING_THEFT[0] and pct >= MISSING_THEFT[1] and high
 			add(THEFT if big else SUSPICIOUS, 40 if big else 15, "missing", round(card), round(seen), round(missing))
-			t["_missing_flag"] = True
 	elif card >= SENSOR_MIN_CARD_L and -missing >= MISSING_SUSPICIOUS[0] and -pct >= MISSING_SUSPICIOUS[1]:
 		add(NOTE, 0, "sensor_more", round(seen), round(card))
 	drained = flt(t["drain_l"])
 	if drained >= DRAIN_THEFT_L:
 		add(THEFT if high else SUSPICIOUS, 40 if high else 15, "drain", round(drained), t["drains"])
-		t["_drain_flag"] = True
 	elif drained > 0:
 		add(SUSPICIOUS if high else NOTE, 10 if high else 0, "small_drain", round(drained, 1))
-		t["_drain_flag"] = high
 	if flt(t["slow_drain_l"]) >= SLOW_DRAIN_L:
 		add(NOTE, 0, "slow_drain", round(flt(t["slow_drain_l"])))
 
@@ -1309,10 +1305,8 @@ def _verdict(t: dict) -> None:
 				add(NOTE, 0, "burn_high", lp, by, name, cls["normal"])
 		elif lp > cls["theft"]:
 			add(THEFT, 30, "burn_theft", lp, by, name, cls["theft"])
-			t["_excess_flag"] = True
 		elif lp > cls["normal"]:
 			add(SUSPICIOUS, 12, "burn_high", lp, by, name, cls["normal"])
-			t["_excess_flag"] = True
 	if t.get("has_sensor"):
 		_sensor_findings(t, add, lp if judged else None)
 
@@ -1335,7 +1329,6 @@ def _verdict(t: dict) -> None:
 	if t.get("_trip"):
 		gps_based = t["_trip"][5] == "GPS km"
 		add(THEFT if gps_based else SUSPICIOUS, 35 if gps_based else 12, "trip_over", *t["_trip"])
-		t["_trip_flag"] = gps_based
 	# Notes: shown with the reasons, never the status.
 	if c["no_move"]:
 		add(NOTE, 0, "no_move", c["no_move"])
@@ -1360,18 +1353,12 @@ def _verdict(t: dict) -> None:
 	t["issues"] = "; ".join(_say(item, translate=False) for _level, _weight, item in found)
 	t["score"] = min(100, sum(x[1] for x in found))
 
-	# Liters at risk: the biggest single estimate, never a sum -- drained fuel
-	# is also part of the excess consumption.
-	risk = [0.0]
-	if t.get("_missing_flag"):
-		risk.append(flt(t["missing_l"]))
-	if t.get("_drain_flag"):
-		risk.append(flt(t["drain_l"]))
-	if t.get("_excess_flag"):
-		risk.append(t["_excess_l"])
-	if t.get("_trip_flag"):
-		risk.append(t["_trip_l"])
-	t["liters_at_risk"] = round(max(risk), 1)
+	# Stolen fuel (the owner's rule, Sep 2026): whatever the truck burned above
+	# its fuel limit, by the distance its consumption was judged on -- any basis,
+	# the typed odometer too. The tank sensor's missing and drained liters, and
+	# a run of fills beyond the tanks, stay reasons for the status; they are not
+	# counted as liters here.
+	t["liters_at_risk"] = round(t.get("_excess_l", 0.0), 1) if judged and lp > cls["normal"] else 0.0
 	t["cost_at_risk"] = round(t["liters_at_risk"] * (t["cost"] / t["liters"] if t["liters"] else 0), 2)
 
 
@@ -1391,7 +1378,7 @@ def _views(t: dict) -> None:
 		if w.get("lp") is None:
 			continue
 		km, liters, allowance = w["_raw"]
-		v = {key: val for key, val in t.items() if key not in ("_excess_flag", "_drain_flag", "_missing_flag", "_trip_flag")}
+		v = dict(t)
 		v.update({"lp100": w["lp"], "lp100_basis": VIEW_BASIS[src], "_judged": km >= MIN_KM_FOR_RATE,
 		          "_excess_l": max(0.0, liters - allowance - km * cls["normal"] / 100)})
 		_verdict(v)
@@ -1744,6 +1731,19 @@ def reanalyse(fuel_import: str) -> dict:
 	frappe.db.set_value(IMPORT_DT, fuel_import, {"status": "Queued", "progress": "Queued", "error": ""})
 	_enqueue(fuel_import)
 	return {"queued": True}
+
+
+@frappe.whitelist()
+def set_limits(fuel_import: str, normal_limit=None, theft_limit=None) -> dict:
+	"""The report's own limits for heavy trucks, changed on their own: saved,
+	and the report analysed again on the files it already has."""
+	frappe.only_for(RUN_ROLES)
+	limits = _limits_from(normal_limit, theft_limit)
+	if not limits:
+		frappe.throw(_("The theft limit must be above the normal limit."), title=_(TITLE))
+	frappe.db.set_value(IMPORT_DT, fuel_import, {**limits, "status": "Queued", "progress": "Queued", "error": ""})
+	_enqueue(fuel_import)
+	return {"queued": True, **limits}
 
 
 @frappe.whitelist()
