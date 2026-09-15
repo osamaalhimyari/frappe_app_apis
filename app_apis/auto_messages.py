@@ -234,10 +234,18 @@ def _consider(doc):
 	settings = _settings()
 
 	entered = _entered_states(doc)
-	if not entered:
+	# A ticket handed to a different engineer owes them the technician message
+	# for the status it is already in -- the last engineer may have had it, but
+	# the new one has had nothing.
+	handed_over = _handed_over(doc)
+	if not entered and not handed_over:
 		return
 
-	rules = [rule for rule in _rules(settings) if rule["state"].lower() in entered]
+	rules = [
+		rule for rule in _rules(settings)
+		if rule["state"].lower() in entered
+		or (rule["to"] == "Technician" and rule["state"].lower() in handed_over)
+	]
 	if not rules:
 		return
 
@@ -260,7 +268,7 @@ def _consider(doc):
 			if not customer_ok:
 				continue
 
-		field, state = entered[rule["state"].lower()]
+		field, state = entered.get(rule["state"].lower()) or handed_over[rule["state"].lower()]
 		frappe.enqueue(
 			"app_apis.auto_messages.run",
 			queue="long",
@@ -308,6 +316,33 @@ def _entered_states(doc) -> dict:
 		entered.setdefault(current.lower(), (field, current))
 
 	return entered
+
+
+def _handed_over(doc) -> dict:
+	"""The states the ticket is in, shaped like _entered_states, when this save
+	gave it a different engineer; empty otherwise.
+
+	Only on a ticket that already existed: an insert is a first entry into its
+	status, which _entered_states covers already. Clearing the engineer is not a
+	handover -- there is nobody to tell.
+	"""
+	from app_apis import technicians
+
+	before = doc.get_doc_before_save()
+	if not before:
+		return {}
+	now = str(doc.get(technicians.USER_FIELD) or "").strip()
+	if not now or now.lower() == str(before.get(technicians.USER_FIELD) or "").strip().lower():
+		return {}
+
+	states = {}
+	for field in STATE_FIELDS:
+		current = str(doc.get(field) or "").strip()
+		if current:
+			# Travels to the worker as the trigger, so the log reads
+			# "reassigned = In Hand".
+			states.setdefault(current.lower(), ("reassigned", current))
+	return states
 
 
 def _customer_allowed(doc, settings) -> bool:
@@ -446,7 +481,12 @@ def _run(ticket: str, state: str, to: str, field: str | None,
 			})
 			return
 
-	if not cint(force) and cint((rule or {}).get("send_once", 1)) and _already_sent(ticket, identity):
+	# An engineer's "once" is once per engineer: a ticket handed to somebody new
+	# still owes them the message the last one already had. Their number is what
+	# the log records, so it is what identifies them here.
+	tech_phone = cw.recipient_phone(doc, cw_template) if to_const == cw.TO_TECHNICIAN else None
+	if (not cint(force) and cint((rule or {}).get("send_once", 1))
+			and (to_const != cw.TO_TECHNICIAN or tech_phone) and _already_sent(ticket, identity, tech_phone)):
 		# Silent: the point of "once" is that the second attempt is a non-event,
 		# and a row for every non-event would bury the rows that matter.
 		return
@@ -456,7 +496,7 @@ def _run(ticket: str, state: str, to: str, field: str | None,
 	# type a number into a User or Employee record, and saying so plainly is
 	# the difference between a fixable gap and a mystery. See
 	# app_apis.technicians.missing_numbers for the full list.
-	if to_const == cw.TO_TECHNICIAN and not cw.recipient_phone(doc, cw_template):
+	if to_const == cw.TO_TECHNICIAN and not tech_phone:
 		from app_apis import technicians
 
 		who = technicians.name(doc) or doc.get("assigned_to") or "the engineer"
@@ -553,14 +593,13 @@ def _notify(user: str | None, payload: dict):
 		frappe.logger("app_apis").warning(f"auto-message: could not notify {user}")
 
 
-def _already_sent(ticket: str, identity: str) -> bool:
-	"""Has this exact message already gone out for this ticket?"""
-	return bool(
-		frappe.db.exists(
-			"App Apis Message Log",
-			{"ticket": ticket, "template": identity, "status": "Sent"},
-		)
-	)
+def _already_sent(ticket: str, identity: str, phone: str | None = None) -> bool:
+	"""Has this exact message already gone out for this ticket -- to `phone`,
+	when one is given?"""
+	filters = {"ticket": ticket, "template": identity, "status": "Sent"}
+	if phone:
+		filters["phone"] = phone
+	return bool(frappe.db.exists("App Apis Message Log", filters))
 
 
 def _log(doc, identity: str, status: str, to: str, trigger: str = "", reason: str = "",
@@ -643,19 +682,19 @@ def send_now(ticket: str, state: str, to: str, force: int = 0) -> dict:
 		if technicians.excluded(doc.get(technicians.USER_FIELD), technicians.EXCLUDE_STATUS, settings):
 			who = technicians.name(doc) or doc.get(technicians.USER_FIELD)
 			return {"ok": False, "msg": f"{who} is on the Excluded Technicians table."}
-		if not cw.recipient_phone(doc, cw_template):
-			from app_apis import technicians
-
+		tech_phone = cw.recipient_phone(doc, cw_template)
+		if not tech_phone:
 			who = technicians.name(doc) or doc.get("assigned_to") or "the engineer"
 			return {"ok": False, "msg": f"No phone number on file for {who}."}
 	else:
+		tech_phone = None
 		if not cint(settings.get("auto_message_enabled")):
 			return {"ok": False, "msg": "Automatic messages are switched off in App APIs settings."}
 		if not _customer_allowed(doc, settings):
 			customer_type = frappe.get_cached_value("Customer", doc.get("customer"), "customer_type")
 			return {"ok": False, "msg": f"Customer type '{customer_type or '-'}' is not in the allowed list."}
 
-	if not cint(force) and _already_sent(ticket, identity):
+	if not cint(force) and _already_sent(ticket, identity, tech_phone):
 		return {"ok": False, "msg": f"'{identity}' has already been sent for this ticket. Pass force=1 to repeat it."}
 
 	frappe.enqueue(
@@ -722,6 +761,11 @@ def preview(ticket: str) -> dict:
 				blocked.append("no usable phone on the ticket")
 		if not ready:
 			blocked.append(why)
+		# Once per engineer on the technician side, as in _run.
+		if is_tech:
+			already = bool(engineer["phone"]) and _already_sent(ticket, identity, engineer["phone"])
+		else:
+			already = _already_sent(ticket, identity)
 
 		rules.append({
 			"state": rule["state"],
@@ -730,7 +774,7 @@ def preview(ticket: str) -> dict:
 			"whatsapp_template": rule.get("whatsapp_template") or "",
 			"recipient": cw.TO_TECHNICIAN if is_tech else cw.TO_CUSTOMER,
 			"matches_now": rule["state"].lower() in current,
-			"already_sent": _already_sent(ticket, identity),
+			"already_sent": already,
 			"send_once": bool(cint(rule["send_once"])),
 			"blocked_by": blocked,
 			"would_send": not blocked,
