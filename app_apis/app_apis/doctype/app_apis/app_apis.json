@@ -84,6 +84,7 @@
   "show_vehicle_customer_types",
   "technician_message_enabled",
   "auto_message_rules",
+  "excluded_technicians",
   "chatwoot_use_templates",
   "sync_whatsapp_templates",
   "contact_numbers",
@@ -546,6 +547,13 @@
    "options": "App Apis Auto Message"
   },
   {
+   "description": "Technicians who get no messages of the kind picked in Stop, whatever happens to their tickets.",
+   "fieldname": "excluded_technicians",
+   "fieldtype": "Table",
+   "label": "Excluded Technicians",
+   "options": "App Apis Excluded Technician"
+  },
+  {
    "default": "0",
    "description": "WhatsApp delivers free text only within 24 hours of the person\u2019s last message to you. When on, a status message outside that window goes as the row\u2019s WhatsApp Template instead, and a row without one is skipped instead of being sent to fail.",
    "fieldname": "chatwoot_use_templates",
@@ -723,7 +731,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-09-14 15:00:17.040158",
+ "modified": "2026-09-15 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "App Apis",
  "name": "app_apis",

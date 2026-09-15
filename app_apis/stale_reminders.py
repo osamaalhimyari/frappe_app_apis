@@ -191,9 +191,14 @@ def plan(settings=None) -> dict:
 	per_user = counts(rules) if rules else {}
 	unassigned = sum(per_user.pop("", {}).values())
 
+	from app_apis import technicians
+
 	entries = []
 	for user, per_row in per_user.items():
 		engineer = _engineer(user)
+		# On the Excluded Technicians table for scheduled reminders: counted and
+		# shown in the preview, never sent.
+		excluded = technicians.excluded(user, technicians.EXCLUDE_SCHEDULED, settings)
 		for position, count in sorted(per_row.items()):
 			rule = rules[position]
 			entries.append({
@@ -202,7 +207,9 @@ def plan(settings=None) -> dict:
 				"rule": rule,
 				"count": count,
 				"message": message_for(rule, context(engineer, rule, count)),
-				"skip": _skip_reason(engineer, rule, count),
+				"excluded": excluded,
+				"skip": (_("{0} is on the Excluded Technicians table.").format(engineer["name"]) if excluded
+				         else _skip_reason(engineer, rule, count)),
 			})
 	entries.sort(key=lambda e: (e["name"], e["position"]))
 	return {"rules": rules, "entries": entries, "unassigned": unassigned}
@@ -261,6 +268,12 @@ def _send_one(user: str, rule: dict, count: int):
 
 	count = cint(count)
 	if count <= 0:
+		return
+
+	from app_apis import technicians
+
+	# Re-checked here too: the table can change between the scan and the worker.
+	if technicians.excluded(user, technicians.EXCLUDE_SCHEDULED, settings):
 		return
 
 	engineer = _engineer(user)
@@ -365,7 +378,7 @@ def run(force: bool = False) -> dict:
 	# Technicians with no number still get their one Skipped row each, from the
 	# worker -- queued here so the scan itself stays read-only.
 	for entry in p["entries"]:
-		if entry["skip"] and not entry["phone"]:
+		if entry["skip"] and not entry["phone"] and not entry["excluded"]:
 			frappe.enqueue(
 				"app_apis.stale_reminders.send_one",
 				queue="long",

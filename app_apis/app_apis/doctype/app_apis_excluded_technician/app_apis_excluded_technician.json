@@ -1,0 +1,50 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-09-15 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "technician",
+  "scope"
+ ],
+ "fields": [
+  {
+   "columns": 5,
+   "description": "The engineer's user, as assigned on tickets.",
+   "fieldname": "technician",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Technician",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "columns": 5,
+   "default": "All messages",
+   "description": "Status messages: sent when a ticket changes status (the Status Rules above). Scheduled reminders: the daily stuck-ticket nudge. All messages: both.",
+   "fieldname": "scope",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Stop",
+   "options": "All messages\nStatus messages\nScheduled reminders",
+   "reqd": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "App Apis Excluded Technician",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "states": [],
+ "track_changes": 1
+}

@@ -406,6 +406,24 @@ def _run(ticket: str, state: str, to: str, field: str | None,
 			})
 			return
 
+	# A technician on the Excluded Technicians table (Status messages, or All
+	# messages) is not told about any ticket, whatever it does.
+	if to_const == cw.TO_TECHNICIAN:
+		from app_apis import technicians
+
+		if technicians.excluded(doc.get(technicians.USER_FIELD), technicians.EXCLUDE_STATUS, settings):
+			who = technicians.name(doc) or doc.get(technicians.USER_FIELD)
+			reason = f"{who} is on the Excluded Technicians table."
+			_log(doc, identity, "Skipped", to_const, trigger=trigger, reason=reason)
+			_notify(notify_user, {
+				"ticket": doc.name,
+				"template": identity,
+				"recipient": to_const,
+				"status": "Skipped",
+				"reason": reason,
+			})
+			return
+
 	# Has this customer asked to be left alone? Checked on the customer side
 	# only: a technician message is internal, and an engineer is not a customer
 	# who can opt out of being told where their next job is.
@@ -620,6 +638,11 @@ def send_now(ticket: str, state: str, to: str, force: int = 0) -> dict:
 	if to_const == cw.TO_TECHNICIAN:
 		if not cint(settings.get("technician_message_enabled")):
 			return {"ok": False, "msg": "Technician messages are switched off in App APIs settings."}
+		from app_apis import technicians
+
+		if technicians.excluded(doc.get(technicians.USER_FIELD), technicians.EXCLUDE_STATUS, settings):
+			who = technicians.name(doc) or doc.get(technicians.USER_FIELD)
+			return {"ok": False, "msg": f"{who} is on the Excluded Technicians table."}
 		if not cw.recipient_phone(doc, cw_template):
 			from app_apis import technicians
 
@@ -669,6 +692,7 @@ def preview(ticket: str) -> dict:
 	from app_apis import technicians
 
 	engineer = technicians.engineer(doc)
+	tech_excluded = technicians.excluded(engineer["user"], technicians.EXCLUDE_STATUS, settings)
 	customer_on = bool(cint(settings.get("auto_message_enabled")))
 	technician_on = bool(cint(settings.get("technician_message_enabled")))
 	customer_ok = _customer_allowed(doc, settings)
@@ -687,6 +711,8 @@ def preview(ticket: str) -> dict:
 				blocked.append("technician messages are off")
 			if not engineer["phone"]:
 				blocked.append("no phone on file for the engineer")
+			if tech_excluded:
+				blocked.append("the engineer is on the Excluded Technicians table")
 		else:
 			if not customer_on:
 				blocked.append("customer messages are off")

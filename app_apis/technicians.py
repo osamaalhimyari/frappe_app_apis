@@ -40,6 +40,24 @@ NAME_FIELDS = ("assigned_full_name", "assigned_to_name")
 # in six months is not the reason today's message did not go out.
 ACTIVE_DAYS = 180
 
+# The Excluded Technicians table on the settings form: a technician on it gets
+# no message of the kind the row names, whatever happens to their tickets.
+EXCLUDE_ALL = "All messages"
+EXCLUDE_STATUS = "Status messages"          # auto_messages: a ticket changes status
+EXCLUDE_SCHEDULED = "Scheduled reminders"   # stale_reminders: the daily stuck-ticket nudge
+
+
+def excluded(user: str, kind: str, settings=None) -> bool:
+	"""Is `user` on the Excluded Technicians table for this kind of message?"""
+	user = str(user or "").strip().lower()
+	if not user:
+		return False
+	settings = settings or frappe.get_cached_doc("app_apis")
+	return any(
+		str(row.get("technician") or "").strip().lower() == user and row.get("scope") in (EXCLUDE_ALL, kind)
+		for row in settings.get("excluded_technicians") or []
+	)
+
 
 def name(doc) -> str:
 	"""Best available human name for whoever worked the ticket.
