@@ -72,7 +72,8 @@
   "liters_at_risk",
   "cost_at_risk",
   "issues",
-  "finding_data"
+  "finding_data",
+  "by_report"
  ],
  "fields": [
   {
@@ -490,12 +491,20 @@
    "hidden": 1,
    "label": "Findings (data)",
    "read_only": 1
+  },
+  {
+   "description": "Each source's own L/100 km -- typed odometer, GPS, each IM report -- for the truck's page.",
+   "fieldname": "by_report",
+   "fieldtype": "Long Text",
+   "hidden": 1,
+   "label": "By Report (data)",
+   "read_only": 1
   }
  ],
  "in_create": 1,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-09-14 12:00:00.000000",
+ "modified": "2026-09-15 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "App Apis",
  "name": "App Apis Fuel Vehicle",

@@ -24,6 +24,8 @@ clock is too often wrong for a fill's location to decide anything).
 
   Theft likely
     * burns more per GPS or IM km than a truck of its class can;
+    * a run of its fills bought more than it could burn over the GPS km between
+      them at that limit, plus all its tanks hold (by the typed odometer: Suspicious);
     * above its class's normal consumption, and the tank sensor saw much less
       fuel arrive than the card paid for, or saw fuel drained out.
   Suspicious
@@ -42,6 +44,13 @@ would mean a consumption too low for the class (one of two tanks measured, or
 a wrong calibration). With the tracker off for large parts of the period, its
 GPS distance is not used, nor IM's (the same tracker) unless the typed
 odometer backs it up.
+
+Each truck's page also shows every source worked out on its own -- the typed
+odometer, the GPS track and each IM report -- each taking what it lacks from
+the other files: IM's reports carry no real fuel figures, so they take the
+card's liters inside their own dates, and every source takes IM's idle hours.
+The most exact one that holds up decides the status: GPS, then an IM report,
+then the typed odometer.
 
 Notes are shown with the reasons but never change the status: refuelling
 after almost no driving or twice within hours, fills larger than usual or than
@@ -74,6 +83,7 @@ take `lang`, and get_translations hands it the page's own words.
 
 import bisect
 import csv
+import inspect
 import json
 import os
 import math
@@ -86,7 +96,8 @@ from zoneinfo import ZoneInfo
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, get_system_timezone, now_datetime
+from frappe.rate_limiter import rate_limit
+from frappe.utils import cint, flt, get_system_timezone, get_url, now_datetime
 
 IMPORT_DT = "App Apis Fuel Import"
 FILL_DT = "App Apis Fuel Fill"
@@ -181,6 +192,7 @@ MESSAGES = {
 	"over_tank_fill": "{0} L in one fill is more than the tanks hold ({1}: up to {2} L)",
 	"big_fill": "{0} L is {1}x this truck's usual fill",
 	"no_move_fill": "Refuelled after only {0} km",
+	"trip_fill": "One of {0} fills that bought more than the truck could burn and hold",
 	# one truck
 	"over_tank": "{0} fill(s) bigger than the tanks ({1}: up to {2} L)",
 	"missing": "Paid for {0} L, the tank sensor saw {1} L arrive: {2} L missing",
@@ -202,6 +214,24 @@ MESSAGES = {
 	"gps_failed": "GPS read failed: {0}",
 	"im_km_bad": "IM's distance for this truck is impossible ({0} km in {1} days), so it was not used",
 	"gps_doubt": "The tracker looks faulty (IM's own distance for it is impossible): its GPS reads {0} km but the typed odometer reads {1} km, so the odometer was used",
+	"trip_over": "{0} fills from {1} to {2} bought {3} L over {4} km by {5}: a {6} burns at most {7} L on that and its tanks hold {8} L, so at least {9} L did not go into it",
+	# one source's own L/100 km on the truck's page: why it did not decide the status
+	"src_one": "Only one fill, so no distance between fills",
+	"src_no_odo": "No odometer typed at the pump",
+	"src_back": "The odometer went backwards {0} time(s), so it was not used",
+	"src_short": "Under {0} km: too short to judge",
+	"src_no_gps": "No GPS data for these dates",
+	"src_gaps": "The tracker was off at {0} of {1} fills, so this distance misses trips",
+	"src_doubt": "The tracker looks faulty and the typed odometer disagrees with it",
+	"src_gaps_im": "The tracker was off at {0} of {1} fills and the typed odometer does not back this distance",
+	"src_bad": "IM's distance ({0} km) is impossible, so it was set aside",
+	"src_missing": "This truck is not in this report",
+	"src_zero": "This report shows no distance for this truck",
+	"src_none_im": "Not on IM",
+	"src_none_report": "This report was not uploaded",
+	"src_stale": "Re-analyse the report to see this",
+	"src_few": "Fewer than two card fills in its dates",
+	"src_days": "Covers under {0} days, too short to use on its own",
 	# the report
 	"fleet_failed": "IM fleet could not be read: {0}",
 	"report_unused": "{0} covers {1}, but the fuel card has no fills in those dates, so it was not used. Export it for {2}.",
@@ -264,7 +294,7 @@ VEHICLE_FIELDS = [
 	"has_sensor", "sensor_card_l", "sensor_fill_l", "sensor_fills", "missing_l", "drain_l", "drains",
 	"slow_drain_l", "sensor_consumed_l", "sensor_lp100", "start_level", "last_level",
 	"no_gps_fills", "no_move_fills", "quick_refills", "big_fills", "over_tank_fills",
-	"liters_at_risk", "cost_at_risk", "issues", "finding_data",
+	"liters_at_risk", "cost_at_risk", "issues", "finding_data", "by_report",
 ]
 
 
@@ -919,6 +949,7 @@ def _check_truck(fills: list, track: "Track | None", tz, cls: str) -> dict:
 				km = track.km_between(prev["_t"], t)
 				f["gps_km_since_prev"] = round(km, 1)
 				covered = track.points_between(prev["_t"], t) > 0
+				f["_gps_leg_ok"] = covered
 				if covered and km < NO_MOVE_KM and f["liters"] >= limits["min_l"]:
 					flags.append(["no_move_fill", round(km, 1)])
 					counts["no_move"] += 1
@@ -933,9 +964,15 @@ def _check_truck(fills: list, track: "Track | None", tz, cls: str) -> dict:
 	                     and counts["no_gps"] / len(fills) >= GPS_GAP_SHARE}
 	if track is not None and len(fills) >= 2:
 		truck["gps_km"] = round(track.km_between(fills[0]["_t"], fills[-1]["_t"]), 1)
-	odos = [f["odometer"] for f in fills if f["odometer"]]
-	if len(odos) >= 2 and odos[-1] > odos[0]:
-		truck["odometer_km"] = odos[-1] - odos[0]
+	# The typed odometer, from the first fill with a reading to the last, and
+	# the liters bought after the first of them.
+	typed = [i for i, f in enumerate(fills) if f["odometer"]]
+	if len(typed) >= 2 and fills[typed[-1]]["odometer"] > fills[typed[0]]["odometer"]:
+		a, b = fills[typed[0]], fills[typed[-1]]
+		truck["odometer_km"] = b["odometer"] - a["odometer"]
+		truck["odo"] = {"from": a["odometer"], "to": b["odometer"], "first": a["fill_time"], "last": b["fill_time"],
+		                "liters": sum(f["liters"] for f in fills[typed[0] + 1:typed[-1] + 1]),
+		                "fills": typed[-1] - typed[0]}
 	return truck
 
 
@@ -955,7 +992,10 @@ def _apply_reports(t: dict, fills: list, reports: dict, rows: dict) -> None:
 		t["im_km"] = round(row["km"], 1)
 		t["idle_hours"] = round(row["idle_h"], 1)
 		t["window_liters"] = round(sum(f["liters"] for f in inside), 1)
-		t["_im"] = {"report": report, "row": row, "inside": inside}
+		t["_im"] = {"kind": kind, "report": report, "row": row, "inside": inside}
+	# Each report on its own as well, for the truck's page.
+	t["_reports"] = {k: {"kind": k, "report": reports[k], "row": rows.get(k), "inside": _inside(fills, reports[k])}
+	                 for k in (FILL_DRAIN, CONSUMPTION) if k in reports}
 
 	fd = rows.get(FILL_DRAIN)
 	if fd and fd["has_sensor"]:
@@ -987,69 +1027,210 @@ def _agree(typed_km: float, km: float) -> bool:
 	return bool(typed_km and km) and abs(typed_km - km) / km * 100 < ODOMETER_GAP
 
 
-def _consumption(t: dict, info: dict) -> None:
-	"""L/100 km from the best distance there is, net of an idling allowance,
-	and the typed odometer against IM's distance."""
+def _own_limits(doc) -> dict | None:
+	"""A report's own normal and theft limits for heavy trucks, when it has them."""
+	normal, theft = flt(doc.get("normal_limit")), flt(doc.get("theft_limit"))
+	return {"normal": normal, "theft": theft} if 0 < normal < theft else None
+
+
+def _limits_from(normal, theft) -> dict:
+	"""The limits typed in the upload dialog, checked; {} when none were given."""
+	if normal in (None, "") and theft in (None, ""):
+		return {}
+	normal, theft = flt(normal), flt(theft)
+	if not 0 < normal < theft:
+		frappe.throw(_("The theft limit must be above the normal limit."), title=_(TITLE))
+	return {"normal_limit": normal, "theft_limit": theft}
+
+
+def _cls(t: dict) -> dict:
+	"""The truck's class limits -- with the report's own normal and theft limits
+	for heavy trucks, when it was given them."""
 	cls = CLASSES[t["vehicle_class"]]
+	own = t.get("_limits")
+	return {**cls, **own} if own and t["vehicle_class"] == DEFAULT_CLASS else cls
+
+
+def _idle_l(im: dict | None, cls: dict, a: datetime | None = None, b: datetime | None = None) -> float:
+	"""Liters allowed for idling out of an IM report's idle hours: all of them,
+	or the share of the report's dates that falls between a and b."""
+	if not im or not im.get("row"):
+		return 0.0
+	report, row = im["report"], im["row"]
+	if a is None:
+		return row["idle_h"] * cls["idle"]
+	whole = (report["end"] - report["start"]).total_seconds()
+	shared = (min(report["end"], b) - max(report["start"], a)).total_seconds()
+	return row["idle_h"] * shared / whole * cls["idle"] if whole > 0 and shared > 0 else 0.0
+
+
+def _consumption(t: dict, info: dict) -> None:
+	"""Every source's own L/100 km -- the typed odometer, the GPS track and each
+	IM report, each taking what it lacks from the other files -- for the
+	truck's page; the status's from the most exact one that holds up. Also the
+	typed odometer against IM's distance."""
+	cls = _cls(t)
+	c = info["counts"]
 	im = t.get("_im")
+	if im and "kind" not in im:
+		im = {**im, "kind": CONSUMPTION}
+	reports = t.get("_reports") or ({im["kind"]: im} if im else {})
+	on_im = bool(t.get("imei") or t.get("source"))
+	fills = cint(t.get("fills"))
+	odo = info.get("odo") or {}
 	odo_km = info["odometer_km"] or 0
+	gaps = bool(info.get("gps_gaps"))
 	# A track with the tracker off around many fills is missing whole trips.
-	gps_km = 0 if info.get("gps_gaps") else (info["gps_km"] or 0)
+	gps_km = 0 if gaps else (info["gps_km"] or 0)
 	# A tracker whose own distance is impossible can have its GPS wrong too, so
 	# its GPS km stands only where the typed odometer does not contradict it.
-	if (gps_km >= MIN_KM_FOR_RATE and t.get("_im_km_bad") and odo_km and not info["counts"]["odo_back"]
+	if (gps_km >= MIN_KM_FOR_RATE and t.get("_im_km_bad") and odo_km and not c["odo_back"]
 	        and not _agree(odo_km, gps_km)):
 		t["_gps_doubt"] = [round(gps_km), round(odo_km)]
 		gps_km = 0
-	# IM's distance comes from the same tracker: with the tracker off for whole
-	# trips it is short too, unless the typed odometer backs it up.
-	if im and info.get("gps_gaps") and not _agree(_typed_km(im["inside"]), im["row"]["km"]):
-		im = None
-	basis = km = liters = None
-	allowance = 0.0
 
-	def report_idle(share_from=None, share_to=None) -> float:
-		report, row = im["report"], im["row"]
-		if share_from is None:
-			return row["idle_h"] * cls["idle"]
-		whole = (report["end"] - report["start"]).total_seconds()
-		shared = (min(report["end"], share_to) - max(report["start"], share_from)).total_seconds()
-		return row["idle_h"] * shared / whole * cls["idle"] if whole > 0 and shared > 0 else 0.0
+	def misses_trips(entry) -> bool:
+		# IM's distance comes from the same tracker: with the tracker off for
+		# whole trips it is short too, unless the typed odometer backs it up.
+		return gaps and not _agree(_typed_km(entry["inside"]), entry["row"]["km"])
 
+	ways = {}
+
+	def way(src, a, b, km, liters, counted, allowance, why=None) -> dict:
+		"""One source: the liters bought after its first fill, less idling, per 100 of its km."""
+		allowance = min(allowance, liters)
+		ways[src] = {
+			"src": src, "dates": _period_text(a, b, dates_only=True) if a and b else "",
+			"km": round(km, 1) if km else None, "liters": round(liters, 1), "fills": counted,
+			"idle_l": round(allowance), "idle_h": round(allowance / cls["idle"], 1),
+			"lp": round((liters - allowance) / km * 100, 1) if km and km >= SHOW_KM_FOR_RATE and counted else None,
+			"used": 0, "why": why, "_raw": (km, liters, allowance),
+		}
+		return ways[src]
+
+	# The typed odometer, over its own span, with IM's idle hours for it.
+	a, b = odo.get("first", info["first"]), odo.get("last", info["last"])
+	w = way("card", a, b, odo_km, odo.get("liters", info["consumed"]) if odo_km else 0,
+	        odo.get("fills", max(fills - 1, 0)) if odo_km else 0, _idle_l(im, cls, a, b))
+	if odo:
+		w["odo"] = [odo["from"], odo["to"]]
+	w["why"] = (["src_one"] if fills < 2 else ["src_back", c["odo_back"]] if c["odo_back"] else ["src_no_odo"] if not odo_km
+	            else ["src_short", MIN_KM_FOR_RATE] if odo_km < MIN_KM_FOR_RATE else None)
+
+	# The GPS track between the first fill and the last, with the card's liters.
+	if info["gps_km"] is not None or on_im:
+		w = way("gps", info["first"], info["last"], info["gps_km"] or 0, info["consumed"], max(fills - 1, 0),
+		        _idle_l(im, cls, info["first"], info["last"]))
+		w["why"] = (["src_one"] if fills < 2 else ["src_no_gps"] if info["gps_km"] is None
+		            else ["src_gaps", c["no_gps"], fills] if gaps else ["src_doubt"] if t.get("_gps_doubt")
+		            else ["src_short", MIN_KM_FOR_RATE] if info["gps_km"] < MIN_KM_FOR_RATE else None)
+
+	# Each IM report over its own dates: its distance and idle hours, and the
+	# card's liters inside those dates (its own fuel figures are not real).
+	for kind in (FILL_DRAIN, CONSUMPTION):
+		entry = reports.get(kind)
+		if not entry or not (entry.get("row") or on_im):
+			continue
+		report, row, inside = entry["report"], entry.get("row"), entry["inside"]
+		if not row:
+			way(kind, report["start"], report["end"], None, 0, 0, 0, ["src_missing"])
+			continue
+		km = 0 if row.get("km_bad") else row["km"]
+		w = way(kind, report["start"], report["end"], km, sum(f["liters"] for f in inside[1:]), max(len(inside) - 1, 0),
+		        _idle_l(entry, cls))
+		typed = [f["odometer"] for f in inside if f.get("odometer")]
+		if len(typed) >= 2 and typed[-1] > typed[0]:
+			w["odo"] = [typed[0], typed[-1]]
+		if kind == FILL_DRAIN and row.get("has_sensor"):
+			w["sensor_l"] = round(row["consumed_l"], 1)
+			w["sensor_lp"] = round(row["sensor_lp100"], 1) if row["sensor_lp100"] and km >= SHOW_KM_FOR_RATE else None
+		w["why"] = (["src_bad", row["km_bad"]] if row.get("km_bad") else ["src_zero"] if not km else ["src_few"] if len(inside) < 2
+		            else ["src_gaps_im", c["no_gps"], fills] if misses_trips(entry)
+		            else ["src_short", MIN_KM_FOR_RATE] if km < MIN_KM_FOR_RATE
+		            else ["src_days", LONG_REPORT_DAYS] if (report["end"] - report["start"]).days < LONG_REPORT_DAYS else None)
+
+	# The status: GPS, else the IM report, else the typed odometer.
+	im_ok = im if im and not misses_trips(im) else None
+	chosen, basis = None, ""
 	if gps_km >= MIN_KM_FOR_RATE:
-		basis, km, liters = "GPS", gps_km, info["consumed"]
-		allowance = report_idle(info["first"], info["last"]) if im else 0.0
-	elif (im and im["row"]["km"] >= MIN_KM_FOR_RATE and len(im["inside"]) >= 2
-	      and (im["report"]["end"] - im["report"]["start"]).days >= LONG_REPORT_DAYS):
+		chosen, basis = ways["gps"], "GPS"
+	elif (im_ok and im_ok["row"]["km"] >= MIN_KM_FOR_RATE and len(im_ok["inside"]) >= 2
+	      and (im_ok["report"]["end"] - im_ok["report"]["start"]).days >= LONG_REPORT_DAYS):
 		# Liters after the first fill inside the report, over all of IM's km in
 		# it: never more than the truck burned, so a flag here is earned.
-		basis, km = "IM report", im["row"]["km"]
-		liters = sum(f["liters"] for f in im["inside"][1:])
-		allowance = report_idle()
-	elif odo_km >= MIN_KM_FOR_RATE and not info["counts"]["odo_back"]:
-		basis, km, liters = "Odometer (card)", odo_km, info["consumed"]
+		chosen, basis = ways[im_ok["kind"]], "IM report"
+	elif odo_km >= MIN_KM_FOR_RATE and not c["odo_back"]:
+		chosen, basis = ways["card"], "Odometer (card)"
 	elif gps_km >= SHOW_KM_FOR_RATE:
-		basis, km, liters = "GPS", gps_km, info["consumed"]
+		chosen, basis = ways["gps"], "GPS"
 
 	t["normal_lp100"], t["theft_lp100"] = cls["normal"], cls["theft"]
-	t["lp100_basis"] = basis or ""
-	t["_judged"] = bool(basis) and km >= MIN_KM_FOR_RATE
-	if basis:
-		allowance = min(allowance, liters)
-		t["lp100"] = round((liters - allowance) / km * 100, 1)
+	t["lp100_basis"] = basis
+	t["_judged"] = bool(chosen) and chosen["_raw"][0] >= MIN_KM_FOR_RATE
+	if chosen:
+		km, liters, allowance = chosen["_raw"]
+		t["lp100"] = chosen["lp"]
 		t["idle_allowance_l"] = round(allowance) if allowance else None
 		t["_excess_l"] = max(0.0, liters - allowance - km * cls["normal"] / 100)
+		chosen["used"] = int(t["_judged"])
 
 	gap = None
 	if odo_km and gps_km >= MIN_KM_FOR_RATE:
 		gap = (odo_km - gps_km) / gps_km * 100
-	elif im and im["row"]["km"] >= MIN_KM_FOR_RATE:
-		typed = _typed_km(im["inside"])
+	elif im_ok and im_ok["row"]["km"] >= MIN_KM_FOR_RATE:
+		typed = _typed_km(im_ok["inside"])
 		# The typed span lies inside the report's dates, so it can only be
 		# shorter than IM's distance; longer is the finding.
-		if typed > im["row"]["km"]:
-			gap = (typed - im["row"]["km"]) / im["row"]["km"] * 100
+		if typed > im_ok["row"]["km"]:
+			gap = (typed - im_ok["row"]["km"]) / im_ok["row"]["km"] * 100
 	t["odometer_gap_pct"] = round(gap) if gap is not None else None
+	# The typed odometer's row says so when it is far off the distance used.
+	card = ways["card"]
+	if gap is not None and abs(gap) >= ODOMETER_GAP and not card["used"] and not card["why"]:
+		card["why"] = ["odo_gap", f"+{round(gap)}" if gap > 0 else str(round(gap))]
+	order = ("card", "gps", FILL_DRAIN, CONSUMPTION)
+	t["by_report"] = json.dumps([{k: v for k, v in ways[s].items() if k != "_raw"} for s in order if s in ways])
+	t["_ways"] = ways  # each source's own verdict is added once the status is known (_views)
+
+
+def _trip_check(t: dict, fills: list, info: dict) -> None:
+	"""The run of fills that bought more than the truck could burn over the
+	distance between them -- even at its class's theft limit -- plus all its
+	tanks hold: that much cannot all have gone into it, full fills or partial.
+	One trip's own L/100 km is not judged: a partial fill before it makes it
+	look high (June 2026: 26% of healthy trucks' trips looked like theft alone)."""
+	cls = _cls(t)
+	gps = info.get("gps_km") is not None and not info.get("gps_gaps") and not t.get("_gps_doubt")
+	best = run = None
+	for i in range(1, len(fills)):
+		f, prev = fills[i], fills[i - 1]
+		if gps:
+			km = f.get("gps_km_since_prev") if f.get("_gps_leg_ok", True) else None
+		else:
+			km = f.get("odometer_km_since_prev")
+		if km is None or km < 0:
+			run = None  # distance unknown here: a run cannot span it
+			continue
+		burn = km * cls["theft"] / 100 + _idle_l(t.get("_im"), cls, prev["fill_time"], f["fill_time"])
+		gain = f["liters"] - burn
+		if run is None or run["over"] <= 0:
+			run = {"over": gain, "first": i, "liters": f["liters"], "km": km, "burn": burn}
+		else:
+			run = {"over": run["over"] + gain, "first": run["first"], "liters": run["liters"] + f["liters"],
+			       "km": run["km"] + km, "burn": run["burn"] + burn}
+		if best is None or run["over"] > best["over"]:
+			best = {**run, "last": i}
+	if not best or best["over"] <= cls["tank"]:
+		return
+	n, excess = best["last"] - best["first"] + 1, best["over"] - cls["tank"]
+	t["_trip"] = [n, f"{fills[best['first']]['fill_time']:%d-%m-%Y}", f"{fills[best['last']]['fill_time']:%d-%m-%Y}",
+	              round(best["liters"]), round(best["km"]), "GPS km" if gps else "the typed odometer", t["vehicle_class"],
+	              round(best["burn"]), cls["tank"], round(excess)]
+	t["_trip_l"] = round(excess, 1)
+	for f in fills[best["first"]:best["last"] + 1]:
+		flags = _load(f.get("flag_data")) + [["trip_fill", n]]
+		f["flag_data"] = json.dumps(flags)
+		f["flags"] = "; ".join(_say(x, translate=False) for x in flags)
 
 
 def _peer_rates(trucks: list) -> None:
@@ -1075,7 +1256,7 @@ def _sensor_findings(t: dict, add, lp: float | None) -> None:
 	rather than replacing it: with the consumption above normal its findings are
 	Theft likely, otherwise Suspicious, and a sensor that cannot see all the
 	fuel is set aside. `lp` is the judged L/100 km, None when not judged."""
-	cls, name = CLASSES[t["vehicle_class"]], t["vehicle_class"]
+	cls, name = _cls(t), t["vehicle_class"]
 	high = lp is not None and lp > cls["normal"]
 	card, seen, missing = flt(t["sensor_card_l"]), flt(t["sensor_fill_l"]), flt(t["missing_l"])
 	drove = max(flt(t.get("gps_km")), flt(t.get("im_km")), flt(t.get("odometer_km")))
@@ -1109,7 +1290,7 @@ def _sensor_findings(t: dict, add, lp: float | None) -> None:
 def _verdict(t: dict) -> None:
 	"""The truck's status is the worst of its findings; each finding also adds
 	to a 0-100 score used only for sorting."""
-	c, cls, name = t["counts"], CLASSES[t["vehicle_class"]], t["vehicle_class"]
+	c, cls, name = t["counts"], _cls(t), t["vehicle_class"]
 	found = []
 
 	def add(level: int, weight: int, *item) -> None:
@@ -1149,6 +1330,12 @@ def _verdict(t: dict) -> None:
 	# and worth a look.
 	if t.get("_gps_doubt"):
 		add(SUSPICIOUS, 10, "gps_doubt", *t["_gps_doubt"])
+	# Fills that bought more than the truck could burn and hold; the typed
+	# odometer alone never makes it Theft likely.
+	if t.get("_trip"):
+		gps_based = t["_trip"][5] == "GPS km"
+		add(THEFT if gps_based else SUSPICIOUS, 35 if gps_based else 12, "trip_over", *t["_trip"])
+		t["_trip_flag"] = gps_based
 	# Notes: shown with the reasons, never the status.
 	if c["no_move"]:
 		add(NOTE, 0, "no_move", c["no_move"])
@@ -1182,8 +1369,36 @@ def _verdict(t: dict) -> None:
 		risk.append(flt(t["drain_l"]))
 	if t.get("_excess_flag"):
 		risk.append(t["_excess_l"])
+	if t.get("_trip_flag"):
+		risk.append(t["_trip_l"])
 	t["liters_at_risk"] = round(max(risk), 1)
 	t["cost_at_risk"] = round(t["liters_at_risk"] * (t["cost"] / t["liters"] if t["liters"] else 0), 2)
+
+
+# The rules' name for each source, when the whole report is shown from it.
+VIEW_BASIS = {"card": "Odometer (card)", "gps": "GPS", FILL_DRAIN: "IM report", CONSUMPTION: "IM report"}
+VIEW_SOURCES = tuple(VIEW_BASIS)
+
+
+def _views(t: dict) -> None:
+	"""Each source's own verdict -- the same rules, with that source's distance
+	and liters as the basis -- kept with it in by_report, so the page can show
+	the whole report worked out from any one source without analysing again. A
+	source with no distance for the truck gets none (a dash on the page)."""
+	ways = t.get("_ways") or {}
+	cls = _cls(t)
+	for src, w in ways.items():
+		if w.get("lp") is None:
+			continue
+		km, liters, allowance = w["_raw"]
+		v = {key: val for key, val in t.items() if key not in ("_excess_flag", "_drain_flag", "_missing_flag", "_trip_flag")}
+		v.update({"lp100": w["lp"], "lp100_basis": VIEW_BASIS[src], "_judged": km >= MIN_KM_FOR_RATE,
+		          "_excess_l": max(0.0, liters - allowance - km * cls["normal"] / 100)})
+		_verdict(v)
+		w.update({"status": v["verdict"], "risk": v["liters_at_risk"], "sar": v["cost_at_risk"], "score": v["score"],
+		          "found": _load(v["finding_data"])})
+	order = ("card", "gps", FILL_DRAIN, CONSUMPTION)
+	t["by_report"] = json.dumps([{k: val for k, val in ways[s].items() if k != "_raw"} for s in order if s in ways])
 
 
 # --------------------------------------------------------------------------
@@ -1258,6 +1473,7 @@ def _report_note(kind: str, report: dict, fills: list, matched: int) -> list:
 
 def _run(fuel_import: str, user: str | None, run_id: str | None = None) -> None:
 	doc = frappe.get_doc(IMPORT_DT, fuel_import)
+	own = _own_limits(doc)
 	frappe.db.set_value(IMPORT_DT, fuel_import, {"status": "Running", "error": ""})
 	_progress(fuel_import, _("Reading the files…"), user=user)
 
@@ -1309,7 +1525,7 @@ def _run(fuel_import: str, user: str | None, run_id: str | None = None) -> None:
 			"cost": round(sum(f["cost"] for f in truck_fills), 2),
 			"first_fill": info["first"], "last_fill": info["last"], "gps_km": info["gps_km"],
 			"odometer_km": info["odometer_km"], "gps_points": points, "counts": info["counts"],
-			"_error": error, "_gps_gaps": info["gps_gaps"],
+			"_error": error, "_gps_gaps": info["gps_gaps"], "_limits": own,
 		}
 		rows = {kind: _report_row(index[kind], entry, key) for kind in reports}
 		for kind, row in rows.items():
@@ -1317,6 +1533,7 @@ def _run(fuel_import: str, user: str | None, run_id: str | None = None) -> None:
 				used[kind].add(id(row))
 		_apply_reports(t, truck_fills, reports, rows)
 		_consumption(t, info)
+		_trip_check(t, truck_fills, info)
 		c = info["counts"]
 		t.update({"no_gps_fills": c["no_gps"], "no_move_fills": c["no_move"],
 		          "quick_refills": c["quick"], "big_fills": c["big"], "over_tank_fills": c["over_tank"]})
@@ -1335,6 +1552,7 @@ def _run(fuel_import: str, user: str | None, run_id: str | None = None) -> None:
 	_peer_rates(results)
 	for t in results:
 		_verdict(t)
+		_views(t)
 
 	if not _wanted(fuel_import, run_id):
 		raise Cancelled()
@@ -1423,7 +1641,7 @@ def _enqueue(fuel_import: str) -> None:
 def get_translations(lang: str = "ar") -> dict:
 	"""The dashboard's own words in `lang` ({english or "english:context": text}),
 	so the page can switch language without changing the user's desk language."""
-	frappe.only_for(READ_ROLES)
+	_read_check()
 	path = os.path.join(frappe.get_app_path("app_apis"), "translations", f"{lang}.csv")
 	if lang not in LANGS or lang == "en" or not os.path.exists(path):
 		return {}
@@ -1436,18 +1654,21 @@ def get_translations(lang: str = "ar") -> dict:
 
 
 @frappe.whitelist()
-def upload_files(files, fuel_import: str = "", lang: str = "") -> dict:
+def upload_files(files, fuel_import: str = "", lang: str = "", normal_limit=None, theft_limit=None) -> dict:
 	"""Register uploaded .xlsx files (already saved by Frappe's uploader) and
 	queue the analysis. Each file is recognised by its content.
 
 	Without `fuel_import` this starts a new report, and the fuel-card export
 	is required. With it, the files are added to that report -- an IM report
-	replaces the one of its kind -- and the report is analysed again."""
+	replaces the one of its kind -- and the report is analysed again; with no
+	files it only takes the new limits. `normal_limit` and `theft_limit` are
+	the report's own L/100 km limits for heavy trucks."""
 	frappe.only_for(RUN_ROLES)
 	_use_lang(lang)
+	limits = _limits_from(normal_limit, theft_limit)
 	urls = frappe.parse_json(files) if isinstance(files, str) else files
 	urls = [str(u or "").strip() for u in (urls or []) if str(u or "").strip()]
-	if not urls:
+	if not urls and not (fuel_import and limits):
 		frappe.throw(_("Choose a file."), title=_(TITLE))
 
 	found = {}
@@ -1498,6 +1719,7 @@ def upload_files(files, fuel_import: str = "", lang: str = "") -> dict:
 			warnings.append(_say(["report_later", KIND_LABEL[kind], values[field + "_period"],
 			                      _period_text(first, last, dates_only=True)]))
 
+	values.update(limits)
 	values.update({"status": "Queued", "progress": "Queued", "error": ""})
 	if fuel_import:
 		frappe.db.set_value(IMPORT_DT, fuel_import, values)
@@ -1538,20 +1760,25 @@ def cancel_analysis(fuel_import: str) -> dict:
 
 @frappe.whitelist()
 def list_imports() -> list:
-	frappe.only_for(READ_ROLES)
-	return frappe.get_all(IMPORT_DT, fields=["name", "title", "status", "period_from", "period_to", "fills", "analysed_on"],
-	                      order_by="creation desc", limit_page_length=50)
+	_read_check()
+	fields = ["name", "title", "status", "period_from", "period_to", "fills", "analysed_on"]
+	shared = frappe.flags.get("fuel_shared")
+	if shared:  # a share link lists its own report only
+		return frappe.get_all(IMPORT_DT, filters={"name": shared}, fields=fields)
+	return frappe.get_all(IMPORT_DT, fields=fields, order_by="creation desc", limit_page_length=50)
 
 
 @frappe.whitelist()
 def get_progress(fuel_import: str) -> dict:
-	frappe.only_for(READ_ROLES)
+	_read_check(fuel_import)
 	return frappe.db.get_value(IMPORT_DT, fuel_import, ["status", "progress", "error"], as_dict=True) or {}
 
 
 @frappe.whitelist()
-def get_summary(fuel_import: str, lang: str = "") -> dict:
-	frappe.only_for(READ_ROLES)
+def get_summary(fuel_import: str, lang: str = "", by: str = "") -> dict:
+	"""The report's head and status cards; with `by`, the cards as that source
+	works the trucks out (see _views)."""
+	_read_check(fuel_import)
 	_use_lang(lang)
 	doc =frappe.get_doc(IMPORT_DT, fuel_import)
 	verdicts = dict(frappe.db.sql(f"select verdict, count(*) from `tab{VEHICLE_DT}` where fuel_import=%s group by verdict", fuel_import))
@@ -1566,8 +1793,8 @@ def get_summary(fuel_import: str, lang: str = "") -> dict:
 			f"select distinct {field} from `tab{VEHICLE_DT}` where fuel_import=%s and ifnull({field},'')!='' order by {field}",
 			fuel_import)]
 
-	return {
-		"import": doc.as_dict(no_default_fields=True) | {"name": doc.name},
+	out = {
+		"import": {k: v for k, v in doc.as_dict(no_default_fields=True).items() if k != "share_key"} | {"name": doc.name},
 		"notes": [{"warn": n[0] in WARN_NOTES, "text": _say(n)} for n in _load(doc.note_data) if n and n[0] in MESSAGES],
 		"verdicts": verdicts,
 		"sensor": {"trucks": cint(sensor[0]), "missing_l": flt(sensor[1], 1), "drained_l": flt(sensor[2], 1)},
@@ -1575,9 +1802,98 @@ def get_summary(fuel_import: str, lang: str = "") -> dict:
 		"branches": distinct("branch"),
 		"classes": distinct("vehicle_class"),
 		"limits": [{"class": k, "normal": v["normal"], "theft": v["theft"], "idle": v["idle"], "tank": v["tank"]}
-		           for k, v in CLASSES.items()],
+		           for k, v in ((k, _cls({"vehicle_class": k, "_limits": _own_limits(doc)})) for k in CLASSES)],
 		"can_run": bool(set(frappe.get_roles()) & set(RUN_ROLES)),
+		"shared": bool(doc.get("share_key")),
 	}
+	if by in VIEW_SOURCES:
+		out["view"] = _summary_by(fuel_import, by)
+	return out
+
+
+def _summary_by(fuel_import: str, src: str) -> dict:
+	"""The status cards when every truck is worked out from `src`; `missing`
+	counts the trucks it cannot work out (dashes on the page). `ready` is False
+	for a report analysed before the sources had verdicts of their own."""
+	counts, missing, liters, sar, ready = {}, 0, 0.0, 0.0, False
+	for (raw,) in frappe.db.sql(f"select by_report from `tab{VEHICLE_DT}` where fuel_import=%s", fuel_import):
+		ways = [x for x in _load(raw) if isinstance(x, dict)]
+		ready = ready or any("status" in x for x in ways)
+		w = next((x for x in ways if x.get("src") == src), None)
+		if w and w.get("status"):
+			counts[w["status"]] = counts.get(w["status"], 0) + 1
+			liters += flt(w.get("risk"))
+			sar += flt(w.get("sar"))
+		else:
+			missing += 1
+	return {"verdicts": counts, "missing": missing, "liters_at_risk": round(liters, 1), "cost_at_risk": round(sar, 2),
+	        "ready": ready}
+
+
+# --------------------------------------------------------------------------
+# The share link: one report, read-only, for someone without an account
+# --------------------------------------------------------------------------
+
+SHARE_KEY_LEN = 32
+# What a share link may call: the dashboard's reads, for its own report only.
+PUBLIC_READS = ("get_translations", "list_imports", "get_progress", "get_summary", "get_vehicles", "get_fills")
+
+
+def _read_check(fuel_import: str | None = None) -> None:
+	"""Staff with a reading role -- or a visitor on a report's share link, for
+	the one report that link opens (see public_call)."""
+	shared = frappe.flags.get("fuel_shared")
+	if shared and fuel_import in (None, shared):
+		return
+	frappe.only_for(READ_ROLES)
+
+
+def _shared_import(key) -> str:
+	"""The report a share key opens. One answer for a wrong key and a stopped
+	one, so keys cannot be probed."""
+	key = str(key or "")
+	name = (frappe.db.get_value(IMPORT_DT, {"share_key": key}, "name")
+	        if len(key) == SHARE_KEY_LEN and key.isalnum() else None)
+	if not name:
+		raise frappe.PermissionError(_("This link is not valid or was stopped."))
+	return name
+
+
+@frappe.whitelist()
+def share_link(fuel_import: str, stop: int = 0) -> dict:
+	"""The report's link for someone without an account -- made on first use,
+	the same link after that -- or, with `stop`, no link at all."""
+	frappe.only_for(RUN_ROLES)
+	if cint(stop):
+		frappe.db.set_value(IMPORT_DT, fuel_import, "share_key", "")
+		return {"url": ""}
+	key = frappe.db.get_value(IMPORT_DT, fuel_import, "share_key")
+	if not key:
+		key = frappe.generate_hash(length=SHARE_KEY_LEN)
+		frappe.db.set_value(IMPORT_DT, fuel_import, "share_key", key)
+	return {"url": get_url(f"/fuel_report?k={key}")}
+
+
+@frappe.whitelist(allow_guest=True)
+@rate_limit(key="k", limit=1200, seconds=60 * 60)
+def public_call(k: str, method: str, args=None):
+	"""The public report page's one door (www/fuel_report): the key opens its
+	report, and only the reads in PUBLIC_READS run -- with that report forced
+	in, whatever else was asked."""
+	name = _shared_import(k)
+	if method not in PUBLIC_READS:
+		raise frappe.PermissionError(_("This link is not valid or was stopped."))
+	fn = globals()[method]
+	kwargs = frappe.parse_json(args) if isinstance(args, str) else args
+	accepted = inspect.signature(fn).parameters
+	kwargs = {key: v for key, v in (kwargs if isinstance(kwargs, dict) else {}).items() if key in accepted}
+	if "fuel_import" in accepted:
+		kwargs["fuel_import"] = name
+	frappe.flags.fuel_shared = name
+	try:
+		return fn(**kwargs)
+	finally:
+		frappe.flags.fuel_shared = None
 
 
 def _like(value: str) -> str:
@@ -1589,12 +1905,52 @@ FINDING_GROUPS = {
 	"missing": ("missing",), "drain": ("drain", "small_drain", "slow_drain"),
 	"burn": ("burn_theft", "burn_high", "peers"), "odometer": ("odo_gap", "odo_back"), "no_move": ("no_move",),
 	"quick": ("quick",), "big": ("big", "over_tank"), "no_gps": ("no_gps", "gps_failed", "gps_off", "gps_doubt"),
-	"sensor": ("sensor_dead", "sensor_low"),
+	"sensor": ("sensor_dead", "sensor_low"), "trip": ("trip_over",),
 }
 FLAG_GROUPS = {
 	"no_move": ("no_move_fill",), "quick": ("quick_fill",), "big": ("big_fill",),
-	"over_tank": ("over_tank_fill",), "odometer": ("odo_back_fill",),
+	"over_tank": ("over_tank_fill",), "odometer": ("odo_back_fill",), "trip": ("trip_fill",),
 }
+
+
+# Sorting from the column headings: each key is its column's SQL, with the
+# direction applied or not (empty values always last). Anything else keeps the
+# default order, so no request text ever reaches the SQL.
+_KM_USED = ("(case lp100_basis when 'IM report' then im_km when 'Odometer (card)' then odometer_km "
+            "else (case when ifnull(gps_km, '') != '' then gps_km else im_km end) end)")
+# The source the status came from: GPS, an IM report, the typed odometer, none.
+USED_RANK = (f"(case when lp100_basis = 'GPS' and gps_km + 0 >= {MIN_KM_FOR_RATE} then 1 when lp100_basis = 'IM report' then 2 "
+             "when lp100_basis = 'Odometer (card)' then 3 else 4 end)")
+VEHICLE_SORT = {
+	"verdict": [("field(verdict, 'Theft likely', 'Suspicious', 'OK')", True)],
+	"plate": [("plate", True)],
+	"vehicle": [("vehicle_class", True), ("brand", True), ("model", True)],
+	"liters": [("liters", True)],
+	"km": [(f"ifnull({_KM_USED}, '') = ''", False), (f"{_KM_USED} + 0", True)],
+	"used": [(USED_RANK, True)],
+	"rate": [("ifnull(lp100, '') = ''", False), ("lp100 + 0", True)],
+	"finding": [("score", True)],
+	"risk": [("liters_at_risk", True)],
+}
+FILL_SORT = {
+	"fplate": [("plate", True)],
+	"time": [("fill_time", True)],
+	"station": [("station_branch", True), ("station", True)],
+	"liters": [("liters", True)],
+	"odometer": [("odometer = 0", False), ("odometer", True)],
+	"odo_km": [("ifnull(odometer_km_since_prev, '') = ''", False), ("odometer_km_since_prev + 0", True)],
+	"gps_km": [("ifnull(gps_km_since_prev, '') = ''", False), ("gps_km_since_prev + 0", True)],
+	"driver": [("driver", True)],
+	"flag": [("ifnull(flags, '') = ''", False), ("flags", True)],
+}
+
+
+def _order_by(sort: str, order: str, table: dict, default: str) -> str:
+	spec = table.get(sort)
+	if not spec:
+		return default
+	direction = "desc" if str(order).lower() == "desc" else "asc"
+	return ", ".join([f"{expr} {direction if flips else 'asc'}" for expr, flips in spec] + [default])
 
 
 def _has_code(field: str, codes: tuple, where: list, vals: list) -> None:
@@ -1608,15 +1964,18 @@ def _has_code(field: str, codes: tuple, where: list, vals: list) -> None:
 def get_vehicles(fuel_import: str, verdict: str = "", brand: str = "", branch: str = "", source: str = "",
                  search: str = "", start: int = 0, limit: int = 100, checked: str = "", vehicle_class: str = "",
                  plate: str = "", vehicle: str = "", rate: str = "", finding: str = "", risk: str = "",
-                 lang: str = "") -> dict:
+                 used: str = "", sort: str = "", order: str = "", by: str = "", lang: str = "") -> dict:
 	"""Trucks of one report. The filters are the dashboard's column headings:
 	`vehicle` is 'c:<class>', 'b:<brand>' or 'r:<branch>'; `rate` is
-	above_normal, above_theft or unjudged; `finding` a FINDING_GROUPS key."""
-	frappe.only_for(READ_ROLES)
+	above_normal, above_theft or unjudged; `finding` a FINDING_GROUPS key;
+	`used` the source the status came from (gps, im, card, none). `sort` is a
+	VEHICLE_SORT key and `order` asc or desc. `by` (a VIEW_SOURCES key) shows
+	every truck worked out from that one source, its status included."""
+	_read_check(fuel_import)
 	_use_lang(lang)
 	where, vals = ["fuel_import=%s"], [fuel_import]
 	kind, _sep, picked = str(vehicle or "").partition(":")
-	fields = {"verdict": verdict, "brand": brand, "branch": branch, "vehicle_class": vehicle_class}
+	fields = {"brand": brand, "branch": branch, "vehicle_class": vehicle_class}
 	if picked and kind in ("c", "b", "r"):
 		fields[{"c": "vehicle_class", "b": "brand", "r": "branch"}[kind]] = picked
 	for field, value in fields.items():
@@ -1634,6 +1993,11 @@ def get_vehicles(fuel_import: str, verdict: str = "", brand: str = "", branch: s
 	if text:
 		where.append("(plate like %s or plate_key like %s or drivers like %s or platform_name like %s)")
 		vals += [_like(text)] * 4
+	if by in VIEW_SOURCES:
+		return _vehicles_by(by, where, vals, verdict, rate, finding, risk, sort, order, start, limit)
+	if verdict:
+		where.append("verdict=%s")
+		vals.append(verdict)
 	# Judged the way the page colours it: GPS needs MIN_KM_FOR_RATE; the other
 	# two bases only exist above it, and the typed odometer never reaches theft.
 	judged = "(lp100_basis != 'GPS' or gps_km + 0 >= %s)"
@@ -1650,31 +2014,115 @@ def get_vehicles(fuel_import: str, verdict: str = "", brand: str = "", branch: s
 		_has_code("finding_data", FINDING_GROUPS[finding], where, vals)
 	if risk:
 		where.append("liters_at_risk > 0")
+	if used in ("gps", "im", "card", "none"):
+		where.append(f"{USED_RANK} = %s")
+		vals.append({"gps": 1, "im": 2, "card": 3, "none": 4}[used])
 	cond = " and ".join(where)
-	order = "field(verdict, 'Theft likely', 'Suspicious', 'OK'), liters_at_risk desc, score desc, liters desc"
+	order_by = _order_by(sort, order, VEHICLE_SORT,
+	                     "field(verdict, 'Theft likely', 'Suspicious', 'OK'), liters_at_risk desc, score desc, liters desc")
 	total = frappe.db.sql(f"select count(*) from `tab{VEHICLE_DT}` where {cond}", vals)[0][0]
 	rows = frappe.db.sql(
-		f"select {', '.join(VEHICLE_FIELDS)} from `tab{VEHICLE_DT}` where {cond} order by {order} limit %s offset %s",
+		f"select {', '.join(VEHICLE_FIELDS)} from `tab{VEHICLE_DT}` where {cond} order by {order_by} limit %s offset %s",
 		vals + [cint(limit) or 100, cint(start)], as_dict=True)
 	for r in rows:
-		items = _load(r.pop("finding_data", None))
-		# A code no longer in MESSAGES (a retired check, in an older run) is dropped.
-		r["findings"] = [{"level": item[0], "code": item[1], "text": _say(item[1:])} for item in items
-		                 if len(item) > 1 and item[1] in MESSAGES]
-		if items:
-			r["issues"] = "; ".join(x["text"] for x in r["findings"])
+		_dress(r)
 	return {"total": total, "rows": rows}
+
+
+def _words(items) -> list:
+	"""Stored findings as sentences with their level. A code no longer in
+	MESSAGES (a retired check, in an older run) is dropped."""
+	return [{"level": item[0], "code": item[1], "text": _say(item[1:])} for item in items or []
+	        if isinstance(item, list) and len(item) > 1 and item[1] in MESSAGES]
+
+
+def _dress(r: dict) -> dict:
+	"""A stored truck as the page reads it: its findings, and each source's
+	reason and findings, in words."""
+	items = _load(r.pop("finding_data", None))
+	r["findings"] = _words(items)
+	if items:
+		r["issues"] = "; ".join(x["text"] for x in r["findings"])
+	r["by_report"] = [w for w in _load(r.get("by_report")) if isinstance(w, dict)]
+	for w in r["by_report"]:
+		why = w.get("why")
+		w["why"] = _say(why) if isinstance(why, list) and why and why[0] in MESSAGES else ""
+		w["findings"] = _words(w.pop("found", None))
+	return r
+
+
+def _vehicles_by(src, where, vals, verdict, rate, finding, risk, sort, order, start, limit) -> dict:
+	"""Every truck as one source works it out (see _views): filtered and sorted
+	on that source's own numbers and status, with the trucks it cannot work out
+	last, as a dash and the reason."""
+	rows = frappe.db.sql(f"select {', '.join(VEHICLE_FIELDS)} from `tab{VEHICLE_DT}` where {' and '.join(where)}",
+	                     vals, as_dict=True)
+	rank = {"Theft likely": 0, "Suspicious": 1, "OK": 2}
+	for r in rows:
+		r["_w"] = next((x for x in _load(r.get("by_report")) if isinstance(x, dict) and x.get("src") == src), None)
+		r["_v"] = r["_w"] if r["_w"] and r["_w"].get("status") else None
+
+	def keep(r) -> bool:
+		v = r["_v"] or {}
+		judged, lp = bool(v) and flt(v.get("km")) >= MIN_KM_FOR_RATE, flt(v.get("lp"))
+		if verdict and v.get("status") != verdict:
+			return False
+		if rate == "above_normal" and not (judged and lp > flt(r["normal_lp100"])):
+			return False
+		if rate == "above_theft" and not (judged and src != "card" and lp > flt(r["theft_lp100"])):
+			return False
+		if rate == "unjudged" and judged:
+			return False
+		if finding in FINDING_GROUPS and not {f[1] for f in v.get("found") or [] if len(f) > 1} & set(FINDING_GROUPS[finding]):
+			return False
+		return not risk or flt(v.get("risk")) > 0
+
+	rows = [r for r in rows if keep(r)]
+	if sort in ("plate", "vehicle"):
+		rows.sort(key=(lambda r: r["plate"] or "") if sort == "plate"
+		          else (lambda r: (r["vehicle_class"] or "", r["brand"] or "", r["model"] or "")),
+		          reverse=str(order).lower() == "desc")
+	elif sort in ("verdict", "liters", "km", "rate", "finding", "risk"):
+		value = {"verdict": lambda v: rank.get(v.get("status"), 3), "liters": lambda v: flt(v.get("liters")),
+		         "km": lambda v: flt(v.get("km")), "rate": lambda v: flt(v.get("lp")),
+		         "finding": lambda v: cint(v.get("score")), "risk": lambda v: flt(v.get("risk"))}[sort]
+		rows = (sorted([r for r in rows if r["_v"]], key=lambda r: value(r["_v"]), reverse=str(order).lower() == "desc")
+		        + sorted([r for r in rows if not r["_v"]], key=lambda r: r["plate"] or ""))
+	else:
+		rows.sort(key=lambda r: (not r["_v"], rank.get((r["_v"] or {}).get("status"), 3), -flt((r["_v"] or {}).get("risk")),
+		                         -cint((r["_v"] or {}).get("score")), -flt(r["liters"])))
+	page = rows[cint(start):cint(start) + (cint(limit) or 100)]
+	for r in page:
+		w, v = r.pop("_w"), r.pop("_v")
+		_dress(r)
+		r["view"] = None
+		if v:
+			r["view"] = {key: v.get(key) for key in ("src", "status", "lp", "km", "liters", "fills", "idle_l", "idle_h", "odo",
+			                                          "dates", "risk", "sar")}
+			r["view"]["findings"] = _words(v.get("found"))
+			# Why the most exact view does not use this source for the truck -- a
+			# tracker that was off, an odometer typed wrong -- said beside it.
+			why = v.get("why")
+			r["view"]["why"] = _say(why) if isinstance(why, list) and why and why[0] in MESSAGES else ""
+		elif w and w.get("lp") is not None:
+			r["view_why"] = _say(["src_stale"])
+		else:
+			why = (w or {}).get("why")
+			r["view_why"] = (_say(why) if isinstance(why, list) and why and why[0] in MESSAGES
+			                 else _say(["src_none_report" if r.get("imei") or r.get("source") else "src_none_im"]))
+	return {"total": len(rows), "rows": page, "by": src}
 
 
 @frappe.whitelist()
 def get_fills(fuel_import: str, plate_key: str = "", plate: str = "", flagged: int = 0, severity: str = "",
               search: str = "", start: int = 0, limit: int = 500, plate_like: str = "", station: str = "",
-              driver: str = "", gps_status: str = "", flag: str = "", lang: str = "") -> dict:
+              driver: str = "", gps_status: str = "", flag: str = "", sort: str = "", order: str = "",
+              lang: str = "") -> dict:
 	"""Fills of one report: one truck's (`plate_key`/`plate`, for its dialog)
 	or all of them, filtered by the dashboard's column headings. `flagged`:
 	only fills with a note. (`severity` is kept for old callers; fills have
 	no status of their own.)"""
-	frappe.only_for(READ_ROLES)
+	_read_check(fuel_import)
 	_use_lang(lang)
 	where, vals = ["fuel_import=%s"], [fuel_import]
 	if plate_key:
@@ -1703,13 +2151,15 @@ def get_fills(fuel_import: str, plate_key: str = "", plate: str = "", flagged: i
 	if flag in FLAG_GROUPS:
 		_has_code("flag_data", FLAG_GROUPS[flag], where, vals)
 	cond = " and ".join(where)
-	order = "fill_time asc" if (plate_key or plate) else "fill_time desc"
+	order_by = _order_by(sort, order, FILL_SORT, "fill_time asc" if (plate_key or plate) else "fill_time desc")
 	total = frappe.db.sql(f"select count(*) from `tab{FILL_DT}` where {cond}", vals)[0][0]
 	rows = frappe.db.sql(
-		f"select name, {', '.join(FILL_FIELDS)} from `tab{FILL_DT}` where {cond} order by {order} limit %s offset %s",
+		f"select name, {', '.join(FILL_FIELDS)} from `tab{FILL_DT}` where {cond} order by {order_by} limit %s offset %s",
 		vals + [cint(limit) or 500, cint(start)], as_dict=True)
 	for r in rows:
 		items = _load(r.pop("flag_data", None))
 		if items:
 			r["flags"] = "; ".join(filter(None, (_say(item) for item in items)))
+		# Part of a run of fills that bought more than the truck could burn and hold.
+		r["trip"] = int(any(item and item[0] == "trip_fill" for item in items))
 	return {"total": total, "rows": rows}
