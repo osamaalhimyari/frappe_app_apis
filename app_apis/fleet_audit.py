@@ -71,6 +71,14 @@ from frappe.utils import cint, now_datetime, flt
 
 SNAPSHOT_DT = "app_apis_fleet_audit"
 SIM_DT = "app_apis_sim_import"
+COST_HISTORY_DT = "app_apis_cost_history"
+
+# Nobody has given us a SIM API, so the SIM columns are only ever as fresh as
+# the last spreadsheet somebody remembered to upload. A month is the point at
+# which "these are the current SIM statuses" stops being true enough to bill
+# decisions on, so past it the page says so rather than letting a stale figure
+# pass for a live one.
+STALE_SIM_DAYS = 30
 SUMMARY_KEY = "app_apis_fleet_audit_summary"
 PROGRESS_EVENT = "fleet_audit_progress"
 
@@ -717,6 +725,21 @@ def _build_rows(erp_by_imei, erp_without, im_by_imei, pilot_by_imei, audited_at,
 		im = im_by_imei.get(imei)
 		pilot = pilot_by_imei.get(imei)
 		verdict, issues = _verdict(erp, bool(pilot), bool(im), pilot_checked, im_checked, key=imei)
+
+		# An id a platform reports that is not a 15-digit IMEI -- a 10-digit
+		# registration number, a SIM-length id -- can never be matched against
+		# Customer Vehicle.device_serial, and these are devices already deleted
+		# on the platforms. They used to be listed under "Unmatchable ID" on
+		# the grounds that a snapshot should hide nothing; in practice that was
+		# ~476 rows nobody could ever act on, sitting between the findings that
+		# need attention. Dropped here rather than filtered in the browser, so
+		# they cost nothing to store, count or page through.
+		#
+		# `_verdict` still RETURNS the verdict -- that is the signal being
+		# tested -- so restoring them is deleting these three lines.
+		if verdict == "Unmatchable ID":
+			continue
+
 		tally[verdict] = tally.get(verdict, 0) + 1
 
 		if erp and erp.get("_duplicates"):
@@ -1085,6 +1108,14 @@ def run_audit(include_im: int = 1, include_pilot: int = 1, pilot_source: str = "
 			"on_no_platform": sum(1 for r in rows if not r["on_pilot"] and not r["on_im"]),
 		},
 	}
+	# One line in the ledger per run. Wrapped: a failure to record history is
+	# not a reason to throw away a reconciliation that took minutes to build.
+	try:
+		summary["cost_history"] = _record_cost_history(audited_at)
+	except Exception:
+		frappe.log_error(title="fleet_audit: cost history")
+		summary["cost_history"] = {"written": 0, "error": True}
+
 	frappe.db.set_default(SUMMARY_KEY, json.dumps(summary, default=str))
 	frappe.db.commit()
 
@@ -1189,43 +1220,84 @@ def import_sim_file(file_url: str) -> dict:
 
 # --------------------------------------------------------------------- money
 
-# What a SIM costs depends on its STATUS as much as on its plan, which is why
-# the suspended price is a flat constant and not a column on SIM Type:
+# What a SIM costs depends on three things, not one:
 #
-#   Active        the plan's own `estimated_price` -- Normal 5, Roming 24,
-#                 Data 10G 56, Data 30G 65
-#   Suspend       SUSPENDED_PRICE, whatever the plan is
-#   anything else (Deactivated, Temp Deactivated, Idle, no SIM) costs nothing
+#   status   Suspend bills a flat SUSPENDED_PRICE whatever else is true;
+#            Deactivated / Temp Deactivated / Idle bill nothing at all.
+#   plan     the SIM Type -- Normal, Roming, Data 10G, Data 30G.
+#   carrier  the same plan costs a different amount on each network, so
+#            SIM Type carries one price column per carrier.
 #
-# An Active SIM whose Serial No has no plan set is NOT silently counted as
-# free. It is counted separately as "unpriced", because thousands of SIMs
-# joined to a vehicle have no plan yet, and treating them as zero would make
-# every total on this page read lower than the real bill.
+# The carrier is the ERP Item behind the SIM (Customer Vehicle -> Serial No ->
+# Item), which is what `sim_item` holds on the snapshot.
 SUSPENDED_PRICE = 2.0
 SIM_TYPE_DT = "SIM Type"
 SIM_TYPE_FIELD = "custom_sim_type"
 
+# carrier key -> (price column on SIM Type, substrings that identify it)
+#
+# Matched on substrings, not on the exact Item name, because the three Items
+# are spelled three different ways -- "Lebara SIM"; item code "sim_stc" with
+# name "STC SIM"; and an Arabic name for Mobily -- and a fourth spelling of an
+# existing carrier should not silently drop out of pricing.
+CARRIERS = (
+	("lebara", "lebara_price", ("lebara",)),
+	("stc", "stc_price", ("stc",)),
+	("mobily", "mobily_price", ("mobily", "\u0645\u0648\u0628\u0627\u064a\u0644\u064a")),
+)
+
+
+def _carrier_key(sim_item: str):
+	"""Which carrier's price column applies to this SIM, or None if unknown."""
+	name = (sim_item or "").strip().lower()
+	if not name:
+		return None
+	for key, _col, needles in CARRIERS:
+		if any(n in name for n in needles):
+			return key
+	return None
+
 
 def _sim_prices() -> dict:
-	"""{plan name: estimated price}, read live from the SIM Type doctype.
+	"""{plan: {"default": x, "lebara": y, "stc": z, "mobily": w}}, read live.
 
 	Read on every summary and every page of rows rather than frozen into the
-	snapshot: a price is a setting somebody edits, not a fact about the night
-	the audit ran, and nobody expects to re-run a 25,000-row reconciliation to
+	snapshot: a price is a setting somebody edits, not a fact about the night the
+	audit ran, and nobody expects to re-run a 25,000-row reconciliation to
 	correct a typo in a tariff.
+
+	Each carrier column is checked for existence rather than assumed: SIM Type
+	belongs to the site, not to this app, and this app still has to install on a
+	site that has never heard of it.
 	"""
 	if not frappe.db.exists("DocType", SIM_TYPE_DT):
 		return {}
-	return {
-		r[0]: flt(r[1])
-		for r in frappe.db.sql("select name, estimated_price from `tab%s`" % SIM_TYPE_DT) or []
-	}
+	cols, have = ["name", "estimated_price"], {}
+	for key, col, _needles in CARRIERS:
+		if frappe.db.has_column(SIM_TYPE_DT, col):
+			have[key] = col
+			cols.append(col)
+	out = {}
+	for r in frappe.db.sql(
+		"select %s from `tab%s`" % (", ".join("`%s`" % c for c in cols), SIM_TYPE_DT),
+		as_dict=True,
+	) or []:
+		entry = {"default": flt(r.get("estimated_price"))}
+		for key, col in have.items():
+			entry[key] = flt(r.get(col))
+		out[r["name"]] = entry
+	return out
 
 
-def _sim_price(sim_type: str, sim_status: str, prices: dict):
+def _sim_price(sim_type: str, sim_item: str, sim_status: str, prices: dict):
 	"""One SIM's cost, or None when it cannot be known.
 
-	None is deliberate and distinct from 0.0: "this is billed, we do not know
+	A carrier price of zero means "nobody has filled this in yet", not "free", so
+	it falls back to Estimated Price. That fallback is what lets three empty
+	carrier columns be added to a live site without every total on the page
+	collapsing to zero before anyone has typed a number into them.
+
+	None is deliberate and distinct from 0.0: "this is billed and we do not know
 	how much" must never add up to the same thing as "this is not billed".
 	"""
 	status = (sim_status or "").strip()
@@ -1233,70 +1305,164 @@ def _sim_price(sim_type: str, sim_status: str, prices: dict):
 		return SUSPENDED_PRICE
 	if status != "Active":
 		return 0.0
-	return prices.get((sim_type or "").strip())
+	entry = prices.get((sim_type or "").strip())
+	if not entry:
+		return None
+	key = _carrier_key(sim_item)
+	if key and flt(entry.get(key)) > 0:
+		return flt(entry[key])
+	return flt(entry.get("default")) or None
+
+
+def _billed_groups():
+	"""(plan, carrier, status, count, wasted) for every SIM that costs money.
+
+	One grouped scan shared by the widgets and by the cost history, so the two
+	can never disagree about what a month cost. Only Active and Suspend are
+	billed, so only they are counted; `wasted` is how many of the group sit
+	behind a device the ERP has deleted or whose subscription has run out.
+	"""
+	return frappe.db.sql(
+		"""
+		select ifnull(sim_type, ''), ifnull(sim_item, ''), ifnull(sim_status, ''), count(*),
+		       sum(case when erp_status = 'Deleted'
+		                  or (subscription_expiry is not null and subscription_expiry < curdate())
+		                then 1 else 0 end)
+		from `tab%s`
+		where sim_status in ('Active', 'Suspend')
+		group by 1, 2, 3
+		"""
+		% SNAPSHOT_DT
+	) or []
 
 
 def _money_summary() -> dict:
 	"""One widget per SIM Type, plus one for Suspended. Each is self-contained:
 	how many, at what price, what that adds up to, and how much of it is waste.
 
+	Grouped by plan AND carrier, because the same plan bills a different amount
+	on each network: a widget's total is the sum of its carrier groups, not one
+	count times one price. `rates` carries that breakdown back to the browser so
+	a tile showing a single total can still say what it is made of.
+
 	Counted on ACTIVE SIMs for the plan tiles -- a Deactivated line is not a
-	bill, and counting it would inflate every figure here. The Suspended tile
-	is the exception and deliberately spans every plan, because a suspended SIM
-	bills the same flat SUSPENDED_PRICE whatever plan it is on.
+	bill. The Suspended tile is the exception and deliberately spans every plan
+	AND every carrier, because a suspended SIM bills the same flat
+	SUSPENDED_PRICE whatever it is on.
 
-	WASTE is a SIM that is still being paid for while the thing it was bought
-	for is gone:
-
-	    the ERP marks the device Deleted, OR its subscription has expired,
-	    AND the SIM is still Active or Suspend
-
-	Those are the only two SIM states that cost anything, so they are the only
-	two that can be wasted. An expired subscription counts even when the device
-	is still marked Installed -- 4,548 Normal SIMs are in exactly that state,
-	against 307 that are outright Deleted, so scoring only the deleted ones
-	would report a fraction of the real waste.
+	WASTE is a SIM still being paid for while the thing it was bought for is
+	gone: the ERP marks the device Deleted, OR its subscription has expired, AND
+	the SIM is still Active or Suspend. Those are the only two SIM states that
+	cost anything, so they are the only two that can be wasted.
 	"""
 	prices = _sim_prices()
 
-	# One grouped scan: billed rows only, already split by whether the device
-	# behind them is gone.
-	rows = frappe.db.sql(
-		"""
-		select ifnull(sim_type, ''), ifnull(sim_status, ''), count(*),
-		       sum(case when erp_status = 'Deleted'
-		                  or (subscription_expiry is not null and subscription_expiry < curdate())
-		                then 1 else 0 end)
-		from `tab%s`
-		where sim_status in ('Active', 'Suspend')
-		group by 1, 2
-		"""
-		% SNAPSHOT_DT
-	) or []
+	rows = _billed_groups()
 
-	def totals(price, keep):
-		n = sum(cint(r[2]) for r in rows if keep(r))
-		w = sum(cint(r[3]) for r in rows if keep(r))
-		return {
-			"count": n, "cost": flt(price) * n,
-			"wasted": w, "wasted_cost": flt(price) * w,
-		}
+	def totals(keep, flat=None):
+		out = {"count": 0, "cost": 0.0, "wasted": 0, "wasted_cost": 0.0, "unpriced": 0}
+		seen = {}
+		for plan, carrier, status, n, w in rows:
+			if not keep(plan, carrier, status):
+				continue
+			n, w = cint(n), cint(w)
+			out["count"] += n
+			out["wasted"] += w
+			price = flat if flat is not None else _sim_price(plan, carrier, status, prices)
+			if price is None:
+				out["unpriced"] += n
+				continue
+			out["cost"] += price * n
+			out["wasted_cost"] += price * w
+			key = (carrier or "No carrier", flt(price))
+			seen[key] = seen.get(key, 0) + n
+		out["rates"] = [
+			{"carrier": c, "price": p, "count": n}
+			for (c, p), n in sorted(seen.items(), key=lambda kv: -kv[1])
+		]
+		return out
 
-	# Cheapest first, which is also the order these were asked for.
+	# Cheapest first, by the plan's own Estimated Price -- which is also the
+	# order these were asked for.
 	tiles = []
-	for plan, price in sorted(prices.items(), key=lambda kv: (flt(kv[1]), kv[0])):
-		t = {"plan": plan, "label": plan, "status": "Active", "price": flt(price)}
-		t.update(totals(price, lambda r, p=plan: (r[0] or "").strip() == p and r[1] == "Active"))
+	for plan in sorted(prices, key=lambda p: (flt(prices[p].get("default")), p)):
+		t = {"plan": plan, "label": plan, "status": "Active"}
+		t.update(totals(lambda pl, ca, st, p=plan: pl == p and st == "Active"))
 		tiles.append(t)
 
-	t = {"plan": "", "label": "Suspended", "status": "Suspend", "price": SUSPENDED_PRICE}
-	t.update(totals(SUSPENDED_PRICE, lambda r: r[1] == "Suspend"))
+	t = {"plan": "", "label": "Suspended", "status": "Suspend"}
+	t.update(totals(lambda pl, ca, st: st == "Suspend", flat=SUSPENDED_PRICE))
 	tiles.append(t)
 
 	return {
 		"currency": frappe.defaults.get_global_default("currency") or "SAR",
+		"suspended_price": SUSPENDED_PRICE,
 		"tiles": tiles,
 	}
+
+
+def _record_cost_history(when=None) -> dict:
+	"""Write this month's cost line into COST_HISTORY_DT.
+
+	The snapshot is truncated and rebuilt on every run, so on its own it can
+	only ever answer "what does this cost today". The question people actually
+	ask -- is the waste going up or down -- needs numbers that outlive the
+	rebuild, and this is the smallest table that can answer it: one row per
+	month per plan per carrier, a few dozen rows a year.
+
+	The PRICE USED is stored next to the count, never just the count. A tariff
+	is a setting somebody edits; recomputing last March from today's price list
+	would silently rewrite history every time a price changed.
+
+	Re-running inside the same month REPLACES that month's rows instead of
+	adding to them, so the series stays one reading per month -- the most
+	recent one -- however often the audit runs.
+	"""
+	if not frappe.db.exists("DocType", COST_HISTORY_DT):
+		return {"written": 0, "skipped": "doctype not installed"}
+
+	when = when or now_datetime()
+	period = when.strftime("%Y-%m")
+	prices = _sim_prices()
+
+	rows = []
+	for plan, carrier, status, n, w in _billed_groups():
+		n, w = cint(n), cint(w)
+		price = (
+			SUSPENDED_PRICE if status == "Suspend"
+			else _sim_price(plan, carrier, status, prices)
+		)
+		# An unpriced group is still recorded -- with priced=0 and cost 0 -- so
+		# a month that looks cheap can be told apart from a month where nobody
+		# had filled the tariffs in.
+		rows.append({
+			"doctype": COST_HISTORY_DT,
+			"period": period,
+			"captured_at": when,
+			"plan": plan or "",
+			"carrier": carrier or "",
+			"sim_status": status,
+			"priced": 0 if price is None else 1,
+			"price": flt(price or 0),
+			"sim_count": n,
+			"cost": flt(price or 0) * n,
+			"wasted_count": w,
+			"wasted_cost": flt(price or 0) * w,
+		})
+
+	frappe.db.delete(COST_HISTORY_DT, {"period": period})
+	for r in rows:
+		frappe.get_doc(r).insert(ignore_permissions=True)
+	frappe.db.commit()
+	return {"period": period, "written": len(rows)}
+
+
+@frappe.whitelist()
+def record_cost_history() -> dict:
+	"""Record the current month by hand -- for a first backfill, or after a
+	tariff was corrected and the month should be restated."""
+	frappe.only_for(READ_ROLES)
+	return _record_cost_history()
 
 
 @frappe.whitelist()
@@ -1356,9 +1522,19 @@ def get_summary() -> dict:
 	sim_row = frappe.db.sql(
 		"select count(*), max(modified) from `tab%s`" % SIM_DT
 	)
+	# How OLD the SIM file is, not just when it was uploaded: "12-08-2026"
+	# needs mental arithmetic before it means anything, and the number that
+	# matters is the number of days.
+	last_import = sim_row[0][1] if sim_row and sim_row[0][1] else None
+	age_days = None
+	if last_import:
+		age_days = (now_datetime() - frappe.utils.get_datetime(last_import)).days
 	summary["sim"] = {
 		"rows": cint(sim_row[0][0]) if sim_row else 0,
-		"last_import": str(sim_row[0][1]) if sim_row and sim_row[0][1] else None,
+		"last_import": str(last_import) if last_import else None,
+		"age_days": age_days,
+		"stale_after_days": STALE_SIM_DAYS,
+		"stale": bool(age_days is not None and age_days > STALE_SIM_DAYS),
 		"matched": frappe.db.sql(
 			"select count(*) from `tab%s` where ifnull(sim_status, '') <> ''" % SNAPSHOT_DT
 		)[0][0],
@@ -1456,12 +1632,10 @@ def get_rows(verdict: str = "", erp_status: str = "", on_pilot: str = "", on_im:
 	# id (`uniqid`) is not always an IMEI -- about 10,000 of the ~24,000 rows
 	# one estate sweep returns are 10-digit registration numbers or
 	# SIM-length ids that can never be a real vehicle (see _absorb_estate).
-	# Those rows are kept in the snapshot -- under "Unmatchable ID" -- rather
-	# than dropped, but "on_pilot_1 = 1" has to mean the same ~14,000 real
-	# devices the "On Pilot (WSL)" tile counts, or clicking that tile lands on
-	# a table of ~24,000 rows nobody asked for. Only the "yes" side needs the
-	# restriction: a junk-id row's on_pilot* is always 1 (that row exists ONLY
-	# because Pilot reported it), so it can never match "= 0" anyway.
+	# Those rows are no longer stored at all (see _build_rows), so this is
+	# belt-and-braces today -- but it is what makes "on_pilot_1 = 1" mean the
+	# same ~14,000 real devices the "On Pilot (WSL)" tile counts, and it keeps
+	# the count honest against any snapshot written before they were dropped.
 	real_imei = "imei regexp '^[0-9]{15}$'"
 	if verdict:
 		where.append("verdict = %s")
@@ -1560,7 +1734,9 @@ def get_rows(verdict: str = "", erp_status: str = "", on_pilot: str = "", on_im:
 	# filters or sorts. None reaches the browser as "unknown", not as zero.
 	prices = _sim_prices()
 	for r in rows:
-		r["sim_price"] = _sim_price(r.get("sim_type"), r.get("sim_status"), prices)
+		r["sim_price"] = _sim_price(
+			r.get("sim_type"), r.get("sim_item"), r.get("sim_status"), prices
+		)
 
 	return {"rows": rows, "total": total, "start": cint(start), "limit": cint(limit) or 100}
 

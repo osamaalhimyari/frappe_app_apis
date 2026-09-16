@@ -1,0 +1,159 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-09-16 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "period",
+  "plan",
+  "carrier",
+  "sim_status",
+  "col_a",
+  "captured_at",
+  "priced",
+  "price",
+  "sec_totals",
+  "sim_count",
+  "cost",
+  "col_b",
+  "wasted_count",
+  "wasted_cost"
+ ],
+ "fields": [
+  {
+   "description": "The month this reading belongs to, as YYYY-MM. Re-running the audit inside the same month replaces that month's rows rather than adding to them.",
+   "fieldname": "period",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Period",
+   "read_only": 1
+  },
+  {
+   "description": "SIM Type. Empty means the SIM had no plan set when the reading was taken.",
+   "fieldname": "plan",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Plan",
+   "read_only": 1
+  },
+  {
+   "description": "The ERP Item behind the SIM — Lebara, STC, Mobily. Empty means no Item was recorded.",
+   "fieldname": "carrier",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Carrier",
+   "read_only": 1
+  },
+  {
+   "description": "Only Active and Suspend are billed, so only they are recorded.",
+   "fieldname": "sim_status",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "SIM Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "When the reading was taken — the audit run it came from.",
+   "fieldname": "captured_at",
+   "fieldtype": "Datetime",
+   "label": "Captured At",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Unticked means no tariff was on file for this plan and carrier, so Cost is zero because the price was unknown — not because the SIMs were free.",
+   "fieldname": "priced",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "Priced",
+   "read_only": 1
+  },
+  {
+   "description": "The per-SIM price AS IT WAS when this reading was taken. Stored rather than looked up, so correcting a tariff later does not rewrite past months.",
+   "fieldname": "price",
+   "fieldtype": "Currency",
+   "label": "Price Used",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_totals",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "sim_count",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "SIMs",
+   "read_only": 1
+  },
+  {
+   "description": "SIMs x Price Used.",
+   "fieldname": "cost",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_b",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Of those SIMs, how many sat behind a device the ERP had deleted or whose subscription had expired.",
+   "fieldname": "wasted_count",
+   "fieldtype": "Int",
+   "label": "Wasted SIMs",
+   "read_only": 1
+  },
+  {
+   "description": "Wasted SIMs x Price Used.",
+   "fieldname": "wasted_cost",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Wasted Cost",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-16 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "app_apis_cost_history",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Support Team"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "period",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}
