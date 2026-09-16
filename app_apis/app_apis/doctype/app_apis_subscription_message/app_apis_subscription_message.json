@@ -34,7 +34,6 @@
   },
   {
    "columns": 5,
-   "description": "Placeholders: {customer} {vehicles} {count} {plate} {expiry} {days} {contacts}.",
    "fieldname": "message",
    "fieldtype": "Small Text",
    "in_list_view": 1,
@@ -62,7 +61,7 @@
  "index_web_pages_for_search": 0,
  "istable": 1,
  "links": [],
- "modified": "2026-09-14 00:00:00.000000",
+ "modified": "2026-09-16 13:29:36.000000",
  "modified_by": "Administrator",
  "module": "App Apis",
  "name": "App Apis Subscription Message",

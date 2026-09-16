@@ -45,7 +45,7 @@
   },
   {
    "columns": 3,
-   "description": "Sent ONCE to each technician who has tickets stuck in this status -- not once per ticket. {count} = how many of their tickets; {engineer} {state} {hours} are filled in too.",
+   "description": "Sent ONCE to each technician who has tickets stuck in this status -- not once per ticket.",
    "fieldname": "message",
    "fieldtype": "Small Text",
    "in_list_view": 1,
@@ -63,7 +63,7 @@
   },
   {
    "depends_on": "whatsapp_template",
-   "description": "One line per variable in the template, e.g. {{1}} = {count}. Placeholders: {engineer} {count} {state} {hours}.",
+   "description": "One line per variable in the template, e.g. {{1}} = {count}.",
    "fieldname": "template_variables",
    "fieldtype": "Small Text",
    "label": "Template Variables"
@@ -82,7 +82,7 @@
  "index_web_pages_for_search": 0,
  "istable": 1,
  "links": [],
- "modified": "2026-09-14 15:00:17.040158",
+ "modified": "2026-09-16 13:29:36.000000",
  "modified_by": "Administrator",
  "module": "App Apis",
  "name": "App Apis Stale Ticket Rule",

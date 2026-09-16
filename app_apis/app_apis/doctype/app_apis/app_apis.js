@@ -389,14 +389,17 @@ frappe.ui.form.on("app_apis", {
 });
 
 // Every table whose rows can name a WhatsApp template gets the same picker
-// behaviour; only the placeholders on offer differ.
-const WA_PLACEHOLDERS = {
-	"App Apis Auto Message": "{customer} {ticket} {plate} {engineer} {state} {link}",
-	"App Apis Stale Ticket Rule": "{ticket} {customer} {plate} {engineer} {state}",
-	"App Apis Subscription Message": "{customer} {plate} {vehicles} {count} {expiry} {days}",
-};
+// behaviour. Which placeholders each one can use is listed once, under the
+// Chatwoot section's tables -- not repeated here, where a second copy had
+// already drifted (it offered {customer} to Stale Ticket Rules, which only
+// fill {engineer} {count} {state} {hours}).
+const WA_TABLES = [
+	"App Apis Auto Message",
+	"App Apis Stale Ticket Rule",
+	"App Apis Subscription Message",
+];
 
-Object.keys(WA_PLACEHOLDERS).forEach((doctype) => {
+WA_TABLES.forEach((doctype) => {
 	frappe.ui.form.on(doctype, {
 		whatsapp_template(frm, cdt, cdn) {
 			const row = locals[cdt][cdn];
@@ -415,9 +418,8 @@ Object.keys(WA_PLACEHOLDERS).forEach((doctype) => {
 						wa_preview(t) +
 						`<hr><div style="font-size:12px">${
 							params.length
-								? __("Open the row and complete Template Variables, one line per variable, e.g. {0}. Placeholders: {1}.", [
+								? __("Open the row and complete Template Variables, one line per variable, e.g. {0}. Placeholders are listed under the Chatwoot section.", [
 										"<code>{{1}} = {plate}</code>",
-										`<code>${WA_PLACEHOLDERS[doctype]}</code>`,
 								  ])
 								: __("No variables: it is sent exactly as shown.")
 						}</div>`,

@@ -65,6 +65,7 @@
   "chatwoot_api_token",
   "chatwoot_request_timeout",
   "chatwoot_inboxes",
+  "message_placeholders",
   "col_chatwoot_alt_divider",
   "chatwoot_active_connector",
   "chatwoot2_enabled",
@@ -107,7 +108,6 @@
  "fields": [
   {
    "collapsible": 1,
-   "description": "Two ways into the same estate: the fields below sign in as the CUSTOMER (read off each ticket) for live per-vehicle reads; the Admin fields sign in as the partner account for the whole-estate sweep the Fleet Audit uses.",
    "fieldname": "sec_pilot",
    "fieldtype": "Section Break",
    "label": "Pilot (WSL)"
@@ -205,7 +205,6 @@
   },
   {
    "collapsible": 1,
-   "description": "A second, separate Pilot estate -- not a backup for Pilot (WSL). Same shape: a per-customer connection for live reads, an Admin connection for the estate sweep.",
    "fieldname": "sec_pilot_admin2",
    "fieldtype": "Section Break",
    "label": "Pilot 2"
@@ -260,7 +259,6 @@
   },
   {
    "collapsible": 1,
-   "description": "One account, site-wide. Live IMEI lookups.",
    "fieldname": "sec_im",
    "fieldtype": "Section Break",
    "label": "IM Connection"
@@ -345,7 +343,6 @@
   },
   {
    "collapsible": 1,
-   "description": "Two send routes; Active Connector below decides which one actually sends.",
    "fieldname": "sec_chatwoot",
    "fieldtype": "Section Break",
    "label": "Chatwoot"
@@ -413,6 +410,12 @@
    "fieldtype": "Table",
    "label": "Chatwoot Inboxes",
    "options": "App Apis Inbox"
+  },
+  {
+   "fieldname": "message_placeholders",
+   "fieldtype": "HTML",
+   "label": "Message Placeholders",
+   "options": "<div style=\"margin-top:12px\"><div style=\"font-size:12px;font-weight:600;margin-bottom:6px\">Message Placeholders</div><div style=\"font-size:11px;color:var(--text-muted);margin:6px 0 2px\">Status Rules</div><div><code title=\"Ticket number\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{ticket}</code><code title=\"Ticket status\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{state}</code><code title=\"Customer name\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{customer}</code><code title=\"Assigned technician\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{engineer}</code><code title=\"Vehicle line (dropped if empty)\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{vehicle}</code><code title=\"Plate only\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{plate}</code><code title=\"Location line (dropped if empty)\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{location}</code><code title=\"Phone line (dropped if empty)\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{phone}</code><code title=\"Company name\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{company}</code><code title=\"Valuation link (customer messages only)\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{link}</code><code title=\"Contact Numbers table\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{contacts}</code></div><div style=\"font-size:11px;color:var(--text-muted);margin:6px 0 2px\">Stale Ticket Rules</div><div><code title=\"Technician name\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{engineer}</code><code title=\"How many of their tickets are stuck\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{count}</code><code title=\"The row&#x27;s status\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{state}</code><code title=\"The row&#x27;s hours\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{hours}</code></div><div style=\"font-size:11px;color:var(--text-muted);margin:6px 0 2px\">Reminder Messages</div><div><code title=\"Customer name\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{customer}</code><code title=\"Number of vehicles\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{count}</code><code title=\"Vehicle list\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{vehicles}</code><code title=\"First plate\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{plate}</code><code title=\"Soonest expiry date\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{expiry}</code><code title=\"Days to or since expiry\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{days}</code><code title=\"Company name\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{company}</code><code title=\"Contact Numbers table\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{contacts}</code></div></div>"
   },
   {
    "default": "1",
@@ -506,7 +509,6 @@
   },
   {
    "collapsible": 1,
-   "description": "Who gets messaged, and by which status, as a ticket moves through its stages.",
    "fieldname": "sec_auto_messages",
    "fieldtype": "Section Break",
    "label": "Automatic Messages"
@@ -568,7 +570,6 @@
   },
   {
    "collapsible": 1,
-   "description": "Warns before subscriptions expire. Read-only. Message placeholders: {customer} {vehicles} {count} {plate} {expiry} {days} {contacts}.",
    "fieldname": "sec_subscription_reminders",
    "fieldtype": "Section Break",
    "label": "Subscription Reminders"
@@ -657,7 +658,6 @@
   },
   {
    "collapsible": 1,
-   "description": "Customers who opted out of messages.",
    "fieldname": "sec_excluded",
    "fieldtype": "Section Break",
    "label": "Excluded Customers"
@@ -731,7 +731,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-09-15 15:00:00.000000",
+ "modified": "2026-09-16 13:29:36.000000",
  "modified_by": "Administrator",
  "module": "App Apis",
  "name": "app_apis",
