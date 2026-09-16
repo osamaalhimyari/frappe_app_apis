@@ -1,0 +1,311 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:FUEL-{#####}",
+ "creation": "2026-09-13 00:00:00.000000",
+ "description": "One uploaded fuel report -- the fuel-card export, plus IM's Fill-Drain and Fuel Consumption reports when given -- and the result of checking it against IM. Created from the Fuel Efficiency dashboard.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "status",
+  "progress",
+  "col_a",
+  "period_from",
+  "period_to",
+  "analysed_on",
+  "col_b",
+  "source_file",
+  "file_name",
+  "sec_limits",
+  "normal_limit",
+  "col_lim",
+  "theft_limit",
+  "share_key",
+  "sec_im",
+  "fill_drain_file",
+  "fill_drain_period",
+  "col_im",
+  "consumption_file",
+  "consumption_period",
+  "sec_notes",
+  "notes",
+  "note_data",
+  "sec_totals",
+  "fills",
+  "vehicles",
+  "tracked_vehicles",
+  "sensor_vehicles",
+  "col_c",
+  "liters",
+  "cost",
+  "col_d",
+  "liters_at_risk",
+  "cost_at_risk",
+  "sec_error",
+  "error"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title",
+   "read_only": 1
+  },
+  {
+   "default": "Queued",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Queued\nRunning\nDone\nFailed\nCancelled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "progress",
+   "fieldtype": "Data",
+   "label": "Progress",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "period_from",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "From",
+   "read_only": 1
+  },
+  {
+   "fieldname": "period_to",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "To",
+   "read_only": 1
+  },
+  {
+   "fieldname": "analysed_on",
+   "fieldtype": "Datetime",
+   "label": "Analysed On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_b",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "source_file",
+   "fieldtype": "Attach",
+   "label": "Fuel-Card File",
+   "read_only": 1
+  },
+  {
+   "fieldname": "file_name",
+   "fieldtype": "Data",
+   "label": "File Name",
+   "read_only": 1
+  },
+  {
+   "description": "The report's own limits for heavy trucks, set when adding it. Blank: the standard 55 and 70. Medium trucks and light vehicles keep their own.",
+   "fieldname": "sec_limits",
+   "fieldtype": "Section Break",
+   "label": "Consumption Limits (L/100 km)"
+  },
+  {
+   "fieldname": "normal_limit",
+   "fieldtype": "Float",
+   "label": "Normal Up To",
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_lim",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "theft_limit",
+   "fieldtype": "Float",
+   "label": "Theft Likely Above",
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "description": "The key of this report's link for someone without an account; empty when it is not shared. Made and stopped from the dashboard.",
+   "fieldname": "share_key",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Share Key",
+   "read_only": 1
+  },
+  {
+   "description": "Totals per truck over the report's own dates; compared only with the fuel-card fills inside those dates.",
+   "fieldname": "sec_im",
+   "fieldtype": "Section Break",
+   "label": "IM Reports"
+  },
+  {
+   "fieldname": "fill_drain_file",
+   "fieldtype": "Attach",
+   "label": "IM Fill-Drain Report",
+   "read_only": 1
+  },
+  {
+   "fieldname": "fill_drain_period",
+   "fieldtype": "Data",
+   "label": "Fill-Drain Dates",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_im",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "consumption_file",
+   "fieldtype": "Attach",
+   "label": "IM Fuel Consumption Report",
+   "read_only": 1
+  },
+  {
+   "fieldname": "consumption_period",
+   "fieldtype": "Data",
+   "label": "Fuel Consumption Dates",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_notes",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes",
+   "read_only": 1
+  },
+  {
+   "description": "The notes as codes and values, put into the reader's language on the dashboard.",
+   "fieldname": "note_data",
+   "fieldtype": "Small Text",
+   "hidden": 1,
+   "label": "Notes (data)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_totals",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "fills",
+   "fieldtype": "Int",
+   "label": "Fills",
+   "read_only": 1
+  },
+  {
+   "fieldname": "vehicles",
+   "fieldtype": "Int",
+   "label": "Vehicles",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tracked_vehicles",
+   "fieldtype": "Int",
+   "label": "Tracked by GPS",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sensor_vehicles",
+   "fieldtype": "Int",
+   "label": "With Fuel Sensor",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_c",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "liters",
+   "fieldtype": "Float",
+   "label": "Liters",
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cost",
+   "fieldtype": "Float",
+   "label": "Cost (SAR)",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_d",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "liters_at_risk",
+   "fieldtype": "Float",
+   "label": "Liters at Risk",
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cost_at_risk",
+   "fieldtype": "Float",
+   "label": "Cost at Risk (SAR)",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "sec_error",
+   "fieldtype": "Section Break",
+   "label": "Error"
+  },
+  {
+   "fieldname": "error",
+   "fieldtype": "Small Text",
+   "label": "Error",
+   "read_only": 1
+  }
+ ],
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-15 13:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "App Apis Fuel Import",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Technical"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Support Team"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "title",
+ "track_changes": 0
+}

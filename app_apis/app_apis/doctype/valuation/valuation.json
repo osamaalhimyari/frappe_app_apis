@@ -1,0 +1,169 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:ticket",
+ "creation": "2026-08-12 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "ticket",
+  "assigned_to",
+  "engineer_name",
+  "engineer_driver",
+  "col_a",
+  "customer",
+  "submitted_on",
+  "sec_engineer",
+  "engineer_rating",
+  "engineer_description",
+  "sec_speed",
+  "speed_rating",
+  "sec_company",
+  "company_rating",
+  "company_description"
+ ],
+ "fields": [
+  {
+   "description": "One valuation per ticket: the doc is named after the ticket, so a second submission updates the first.",
+   "fieldname": "ticket",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Ticket",
+   "options": "xticket",
+   "reqd": 1
+  },
+  {
+   "description": "Who the customer is rating. Read from the ticket's assigned_to.",
+   "fieldname": "assigned_to",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Installation Engineer (User)",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "description": "Name as it stood at submission time, so the rating stays readable after a rename.",
+   "fieldname": "engineer_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Installation Engineer",
+   "read_only": 1
+  },
+  {
+   "description": "Legacy Driver link, set on under 1% of tickets. Copied at submission time.",
+   "fieldname": "engineer_driver",
+   "fieldtype": "Link",
+   "label": "Installation Engineer (Driver)",
+   "options": "Driver",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer",
+   "read_only": 1
+  },
+  {
+   "fieldname": "submitted_on",
+   "fieldtype": "Datetime",
+   "label": "Submitted On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_engineer",
+   "fieldtype": "Section Break",
+   "label": "Installation Engineer"
+  },
+  {
+   "description": "Stored as a fraction, shown as five stars.",
+   "fieldname": "engineer_rating",
+   "fieldtype": "Rating",
+   "in_list_view": 1,
+   "label": "Engineer Rating",
+   "reqd": 1
+  },
+  {
+   "fieldname": "engineer_description",
+   "fieldtype": "Small Text",
+   "label": "Engineer Comments"
+  },
+  {
+   "fieldname": "sec_speed",
+   "fieldtype": "Section Break",
+   "label": "Installation Speed"
+  },
+  {
+   "description": "How fast the installation was done. Not mandatory: valuations submitted before this existed have no value here and must stay saveable.",
+   "fieldname": "speed_rating",
+   "fieldtype": "Rating",
+   "in_list_view": 1,
+   "label": "Speed Rating"
+  },
+  {
+   "fieldname": "sec_company",
+   "fieldtype": "Section Break",
+   "label": "Company"
+  },
+  {
+   "description": "The service overall, separately from the engineer. Not mandatory, for the same reason as speed.",
+   "fieldname": "company_rating",
+   "fieldtype": "Rating",
+   "in_list_view": 1,
+   "label": "Company Rating"
+  },
+  {
+   "fieldname": "company_description",
+   "fieldtype": "Small Text",
+   "label": "Company Comments"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-13 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "Valuation",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Support Team",
+   "share": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Technical"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -1,0 +1,137 @@
+{% extends "templates/web.html" %}
+
+{#
+	Public, read-only Fuel Efficiency report. The dashboard's own block runs in
+	a shadow root, as on the desk; `frappe` inside it is the small stand-in
+	below, and every call it makes goes through public_call with this page's key.
+#}
+
+{% block page_content %}
+<div class="fue-public" dir="{{ text_dir }}" lang="{{ lang }}">
+{% if invalid %}
+	<div class="fue-public-card">
+		<h1>{{ t.invalid_title }}</h1>
+		<p>{{ t.invalid_body }}</p>
+	</div>
+{% else %}
+	<div id="fue-host"></div>
+{% endif %}
+</div>
+
+<style>
+.fue-public { padding-block: 24px 48px; }
+.fue-public-card { max-width: 520px; margin: 48px auto; padding: 28px; border: 1px solid var(--border-color, #d1d8dd);
+	border-radius: 12px; text-align: center; }
+.fue-public-card h1 { font-size: 20px; margin: 0 0 8px; }
+.fue-modal { position: fixed; inset: 0; z-index: 1050; background: rgba(0, 0, 0, .4); display: flex;
+	align-items: flex-start; justify-content: center; padding: 32px 16px; overflow: auto; }
+.fue-modal-box { background: var(--card-bg, #fff); color: var(--text-color, #1f272e); border-radius: 12px;
+	width: 100%; max-width: 1100px; box-shadow: 0 12px 40px rgba(0, 0, 0, .2); }
+.fue-modal-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 20px;
+	border-bottom: 1px solid var(--border-color, #d1d8dd); }
+.fue-modal-head h2 { font-size: 16px; margin: 0; }
+.fue-modal-x { border: 0; background: none; font-size: 22px; line-height: 1; cursor: pointer; color: inherit; padding: 4px 8px; }
+.fue-modal-x:focus-visible { outline: 2px solid var(--primary, #2490ef); border-radius: 6px; }
+.fue-modal-body { padding: 16px 20px 20px; }
+</style>
+
+{% if not invalid %}
+<script>
+(function () {
+	var P = {{ page_data|safe }};
+
+	function esc(s) {
+		return String(s === undefined || s === null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+			.replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+	}
+
+	// A modal in place of the desk's dialog; closes on ×, Escape or a click outside.
+	function modal(title, html) {
+		var wrap = document.createElement("div");
+		wrap.className = "fue-modal";
+		wrap.innerHTML = '<div class="fue-modal-box" role="dialog" aria-modal="true"><div class="fue-modal-head"><h2></h2>' +
+			'<button type="button" class="fue-modal-x" aria-label="' + esc(P.close) + '">×</button></div>' +
+			'<div class="fue-modal-body"></div></div>';
+		wrap.querySelector("h2").textContent = title || "";
+		var body = wrap.querySelector(".fue-modal-body");
+		body.innerHTML = html || "";
+		function onkey(e) { if (e.key === "Escape") close(); }
+		function close() {
+			wrap.remove();
+			document.removeEventListener("keydown", onkey);
+		}
+		wrap.addEventListener("click", function (e) { if (e.target === wrap) close(); });
+		wrap.querySelector(".fue-modal-x").addEventListener("click", close);
+		document.addEventListener("keydown", onkey);
+		document.body.appendChild(wrap);
+		wrap.querySelector(".fue-modal-x").focus();
+		return { body: body, close: close };
+	}
+
+	// What the block uses of the desk's `frappe`, for a visitor: every call is
+	// a read through public_call, and nothing here can change the report.
+	var stand_in = {
+		call: function (o) {
+			var q = new URLSearchParams({ k: P.key, method: String(o.method || "").split(".").pop(), args: JSON.stringify(o.args || {}) });
+			return fetch("/api/method/app_apis.fuel_efficiency.public_call?" + q.toString(), { headers: { Accept: "application/json" } })
+				.then(function (r) {
+					return r.json().catch(function () { return {}; }).then(function (j) {
+						if (!r.ok) {
+							stand_in.msgprint(esc(P.failed));
+							throw new Error("HTTP " + r.status);
+						}
+						return j;
+					});
+				});
+		},
+		utils: {
+			escape_html: esc,
+			debounce: function (fn, ms) {
+				var timer;
+				return function () {
+					var self = this, args = arguments;
+					clearTimeout(timer);
+					timer = setTimeout(function () { fn.apply(self, args); }, ms || 300);
+				};
+			},
+		},
+		datetime: {
+			str_to_user: function (v) {
+				var m = String(v || "").match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+				return m ? m[3] + "-" + m[2] + "-" + m[1] + (m[4] ? " " + m[4] + ":" + m[5] : "") : String(v || "");
+			},
+		},
+		user: { has_role: function () { return false; } },
+		boot: { lang: P.lang },
+		realtime: { on: function () {} },
+		show_alert: function () {},
+		msgprint: function (m) {
+			modal((m && m.title) || "", "<p>" + (typeof m === "string" ? m : (m && m.message) || "") + "</p>");
+		},
+		confirm: function (msg, yes) {
+			if (window.confirm(String(msg).replace(/<[^>]*>/g, ""))) yes();
+		},
+		ui: {
+			Dialog: function (opts) {
+				var open = null, html = "";
+				this.$body = { html: function (h) { html = h; if (open) open.body.innerHTML = h; } };
+				this.show = function () { open = modal(opts.title, html); };
+				this.hide = function () { if (open) open.close(); open = null; };
+			},
+		},
+	};
+
+	var host = document.getElementById("fue-host");
+	var root = host.attachShadow({ mode: "open" });
+	root.innerHTML = (P.desk_css ? '<link rel="stylesheet" href="' + esc(P.desk_css) + '">' : "") +
+		"<style>" + P.css + "</style>" + P.html;
+	try {
+		if (!localStorage.getItem("fue_lang")) localStorage.setItem("fue_lang", P.lang);
+	} catch (e) {
+		// private window or blocked storage: the page opens in its default language
+	}
+	new Function("root_element", "frappe", P.js)(root, stand_in);
+})();
+</script>
+{% endif %}
+{% endblock %}

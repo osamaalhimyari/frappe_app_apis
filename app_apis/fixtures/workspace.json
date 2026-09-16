@@ -1,0 +1,55 @@
+[
+ {
+  "charts": [],
+  "content": "[{\"id\": \"fuelEffHead\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\">Fuel Efficiency</span>\", \"col\": 12}}, {\"id\": \"fuelEffBlock\", \"type\": \"custom_block\", \"data\": {\"custom_block_name\": \"Fuel Efficiency\", \"col\": 12}}]",
+  "custom_blocks": [
+   {
+    "custom_block_name": "Fuel Efficiency",
+    "label": "Fuel Efficiency",
+    "parent": "Fuel Efficiency",
+    "parentfield": "custom_blocks",
+    "parenttype": "Workspace"
+   }
+  ],
+  "docstatus": 0,
+  "doctype": "Workspace",
+  "for_user": null,
+  "hide_custom": 0,
+  "icon": "group-by",
+  "indicator_color": "orange",
+  "is_hidden": 0,
+  "label": "Fuel Efficiency",
+  "links": [],
+  "modified": "2026-09-13 17:12:22.276539",
+  "module": null,
+  "name": "Fuel Efficiency",
+  "number_cards": [],
+  "parent_page": "Dashboards",
+  "public": 1,
+  "quick_lists": [],
+  "restrict_to_domain": null,
+  "roles": [
+   {
+    "parent": "Fuel Efficiency",
+    "parentfield": "roles",
+    "parenttype": "Workspace",
+    "role": "System Manager"
+   },
+   {
+    "parent": "Fuel Efficiency",
+    "parentfield": "roles",
+    "parenttype": "Workspace",
+    "role": "Technical"
+   },
+   {
+    "parent": "Fuel Efficiency",
+    "parentfield": "roles",
+    "parenttype": "Workspace",
+    "role": "Support Team"
+   }
+  ],
+  "sequence_id": 3.2,
+  "shortcuts": [],
+  "title": "Fuel Efficiency"
+ }
+]

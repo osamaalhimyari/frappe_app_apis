@@ -1,0 +1,98 @@
+{
+ "actions": [],
+ "allow_copy": 1,
+ "allow_rename": 0,
+ "creation": "2026-09-05 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "msisdn",
+  "imei",
+  "iccid",
+  "col_a",
+  "sim_status",
+  "last_connection"
+ ],
+ "fields": [
+  {
+   "description": "The SIM's phone number. Also this doctype's own name -- it is the one column every row in a Lebara export carries.",
+   "fieldname": "msisdn",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "MSISDN",
+   "search_index": 1
+  },
+  {
+   "description": "Blank on a fair number of rows -- Lebara does not always know which device a SIM is fitted to. When blank, the Fleet Audit falls back to matching by MSISDN against Pilot's own record of the device's MSISDN.",
+   "fieldname": "imei",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "IMEI",
+   "search_index": 1
+  },
+  {
+   "fieldname": "iccid",
+   "fieldtype": "Data",
+   "label": "ICCID"
+  },
+  {
+   "fieldname": "col_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sim_status",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "SIM Status"
+  },
+  {
+   "fieldname": "last_connection",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Last Connection"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "app_apis_sim_import",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Technical"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Support Team"
+  }
+ ],
+ "quick_entry": 0,
+ "read_only": 1,
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

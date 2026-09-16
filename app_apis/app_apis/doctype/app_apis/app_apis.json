@@ -1,0 +1,776 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-11 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sec_pilot",
+  "pilot_base_url",
+  "pilot_node",
+  "pilot_fallback_username",
+  "col_pilot_a",
+  "pilot_password",
+  "pilot_request_timeout",
+  "pilot_stale_after_minutes",
+  "col_pilot_wsl_divider",
+  "pilot_admin_enabled",
+  "pilot_admin_base_url",
+  "pilot_admin_username",
+  "pilot_admin_password",
+  "col_pilot_admin_a",
+  "pilot_admin_node",
+  "pilot_admin_request_timeout",
+  "pilot_admin_token_ttl_minutes",
+  "sec_pilot_admin2",
+  "pilot2_base_url",
+  "pilot2_node",
+  "pilot2_fallback_username",
+  "col_pilot2_a",
+  "pilot2_password",
+  "pilot2_request_timeout",
+  "pilot2_stale_after_minutes",
+  "col_pilot2_admin_divider",
+  "pilot_admin2_enabled",
+  "pilot_admin2_base_url",
+  "pilot_admin2_username",
+  "pilot_admin2_password",
+  "col_pilot_admin2_a",
+  "pilot_admin2_node",
+  "pilot_admin2_request_timeout",
+  "pilot_admin2_token_ttl_minutes",
+  "sec_im",
+  "im_base_url",
+  "im_project_id",
+  "im_username",
+  "im_password",
+  "col_im_a",
+  "im_request_timeout",
+  "im_stale_after_minutes",
+  "im_data_timezone",
+  "col_im_b",
+  "im_min_call_interval_seconds",
+  "im_token_ttl_minutes",
+  "im_ignition_poll_seconds",
+  "im_ignition_window_minutes",
+  "sec_chatwoot",
+  "chatwoot_enabled",
+  "chatwoot_base_url",
+  "chatwoot_account_id",
+  "stale_ticket_reminder_enabled",
+  "stale_ticket_reminder_hour",
+  "stale_ticket_rules",
+  "col_chatwoot_a",
+  "chatwoot_api_token",
+  "chatwoot_request_timeout",
+  "chatwoot_inboxes",
+  "col_chatwoot_alt_divider",
+  "chatwoot_active_connector",
+  "chatwoot2_enabled",
+  "chatwoot2_method",
+  "chatwoot2_base_url",
+  "chatwoot2_account_id",
+  "chatwoot2_inbox_id",
+  "col_chatwoot2_a",
+  "chatwoot2_api_token",
+  "chatwoot2_webhook_url",
+  "chatwoot2_webhook_auth_header",
+  "chatwoot2_webhook_secret",
+  "chatwoot2_request_timeout",
+  "sec_auto_messages",
+  "auto_message_enabled",
+  "auto_message_customer_types",
+  "show_vehicle_customer_types",
+  "technician_message_enabled",
+  "auto_message_rules",
+  "excluded_technicians",
+  "chatwoot_use_templates",
+  "sync_whatsapp_templates",
+  "contact_numbers",
+  "sec_subscription_reminders",
+  "subscription_reminder_enabled",
+  "subscription_reminder_dry_run",
+  "subscription_reminder_hour",
+  "subscription_reminder_weekday",
+  "subscription_reminder_batch_size",
+  "col_subscription_a",
+  "subscription_reminder_repeat_days",
+  "subscription_reminder_days_before",
+  "subscription_reminder_days_after",
+  "subscription_reminder_customer_types",
+  "subscription_reminder_phone_source",
+  "subscription_messages",
+  "sec_excluded",
+  "excluded_customers"
+ ],
+ "fields": [
+  {
+   "collapsible": 1,
+   "description": "Two ways into the same estate: the fields below sign in as the CUSTOMER (read off each ticket) for live per-vehicle reads; the Admin fields sign in as the partner account for the whole-estate sweep the Fleet Audit uses.",
+   "fieldname": "sec_pilot",
+   "fieldtype": "Section Break",
+   "label": "Pilot (WSL)"
+  },
+  {
+   "default": "https://ksa.pilot-gps.com/api/api.php",
+   "description": "Pilot API endpoint.",
+   "fieldname": "pilot_base_url",
+   "fieldtype": "Data",
+   "label": "Pilot Base URL"
+  },
+  {
+   "default": "5",
+   "description": "Wrong node answers \u201cInvalid imei\u201d.",
+   "fieldname": "pilot_node",
+   "fieldtype": "Data",
+   "label": "Pilot Node"
+  },
+  {
+   "description": "Used only when the ticket has no pilot email.",
+   "fieldname": "pilot_fallback_username",
+   "fieldtype": "Data",
+   "label": "Pilot Fallback Username"
+  },
+  {
+   "fieldname": "col_pilot_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Shared password. site_config overrides it.",
+   "fieldname": "pilot_password",
+   "fieldtype": "Password",
+   "label": "Pilot Password"
+  },
+  {
+   "default": "20",
+   "fieldname": "pilot_request_timeout",
+   "fieldtype": "Int",
+   "label": "Pilot Request Timeout (seconds)"
+  },
+  {
+   "default": "15",
+   "fieldname": "pilot_stale_after_minutes",
+   "fieldtype": "Int",
+   "label": "Pilot Stale After (minutes)"
+  },
+  {
+   "default": "0",
+   "description": "Nothing calls Pilot until ticked.",
+   "fieldname": "pilot_admin_enabled",
+   "fieldtype": "Check",
+   "label": "Pilot Admin Enabled"
+  },
+  {
+   "default": "https://ksa.pilot-gps.com",
+   "description": "Server root only \u2014 /api/v3 is added automatically.",
+   "fieldname": "pilot_admin_base_url",
+   "fieldtype": "Data",
+   "label": "Pilot Admin Base URL"
+  },
+  {
+   "description": "The account login (not the legacy email).",
+   "fieldname": "pilot_admin_username",
+   "fieldtype": "Data",
+   "label": "Pilot Admin Login"
+  },
+  {
+   "description": "Encrypted at rest. site_config overrides it.",
+   "fieldname": "pilot_admin_password",
+   "fieldtype": "Password",
+   "label": "Pilot Admin Password"
+  },
+  {
+   "fieldname": "col_pilot_admin_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Sent as X-Node header. Blank = auto.",
+   "fieldname": "pilot_admin_node",
+   "fieldtype": "Data",
+   "label": "Pilot Admin Node"
+  },
+  {
+   "default": "20",
+   "fieldname": "pilot_admin_request_timeout",
+   "fieldtype": "Int",
+   "label": "Pilot Admin Request Timeout (seconds)"
+  },
+  {
+   "default": "45",
+   "description": "Upper bound only.",
+   "fieldname": "pilot_admin_token_ttl_minutes",
+   "fieldtype": "Int",
+   "label": "Pilot Admin Token Cache TTL (minutes)"
+  },
+  {
+   "collapsible": 1,
+   "description": "A second, separate Pilot estate -- not a backup for Pilot (WSL). Same shape: a per-customer connection for live reads, an Admin connection for the estate sweep.",
+   "fieldname": "sec_pilot_admin2",
+   "fieldtype": "Section Break",
+   "label": "Pilot 2"
+  },
+  {
+   "default": "0",
+   "description": "Nothing calls Pilot until ticked.",
+   "fieldname": "pilot_admin2_enabled",
+   "fieldtype": "Check",
+   "label": "Pilot Admin 2 Enabled"
+  },
+  {
+   "description": "Server root only.",
+   "fieldname": "pilot_admin2_base_url",
+   "fieldtype": "Data",
+   "label": "Pilot Admin Base URL (2)"
+  },
+  {
+   "description": "Login for this second estate.",
+   "fieldname": "pilot_admin2_username",
+   "fieldtype": "Data",
+   "label": "Pilot Admin Login (2)"
+  },
+  {
+   "description": "Encrypted at rest. site_config overrides it.",
+   "fieldname": "pilot_admin2_password",
+   "fieldtype": "Password",
+   "label": "Pilot Admin Password (2)"
+  },
+  {
+   "fieldname": "col_pilot_admin2_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Sent as X-Node header. Blank = auto.",
+   "fieldname": "pilot_admin2_node",
+   "fieldtype": "Data",
+   "label": "Pilot Admin Node (2)"
+  },
+  {
+   "default": "20",
+   "fieldname": "pilot_admin2_request_timeout",
+   "fieldtype": "Int",
+   "label": "Pilot Admin Request Timeout (2) (seconds)"
+  },
+  {
+   "default": "45",
+   "description": "Upper bound only.",
+   "fieldname": "pilot_admin2_token_ttl_minutes",
+   "fieldtype": "Int",
+   "label": "Pilot Admin Token Cache TTL (2) (minutes)"
+  },
+  {
+   "collapsible": 1,
+   "description": "One account, site-wide. Live IMEI lookups.",
+   "fieldname": "sec_im",
+   "fieldtype": "Section Break",
+   "label": "IM Connection"
+  },
+  {
+   "default": "https://gps.im2m.ws/webservice",
+   "description": "IM webservice endpoint.",
+   "fieldname": "im_base_url",
+   "fieldtype": "Data",
+   "label": "IM Base URL"
+  },
+  {
+   "default": "37",
+   "description": "Sent as ProjectId.",
+   "fieldname": "im_project_id",
+   "fieldtype": "Data",
+   "label": "IM Project ID"
+  },
+  {
+   "fieldname": "im_username",
+   "fieldtype": "Data",
+   "label": "IM Username"
+  },
+  {
+   "description": "Case-sensitive.",
+   "fieldname": "im_password",
+   "fieldtype": "Password",
+   "label": "IM Password"
+  },
+  {
+   "fieldname": "col_im_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "20",
+   "fieldname": "im_request_timeout",
+   "fieldtype": "Int",
+   "label": "IM Request Timeout (seconds)"
+  },
+  {
+   "default": "15",
+   "fieldname": "im_stale_after_minutes",
+   "fieldtype": "Int",
+   "label": "IM Stale After (minutes)"
+  },
+  {
+   "description": "Blank = system timezone.",
+   "fieldname": "im_data_timezone",
+   "fieldtype": "Data",
+   "label": "IM Data Timezone (blank = system)"
+  },
+  {
+   "fieldname": "col_im_b",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "60",
+   "description": "About one call a minute; cached otherwise.",
+   "fieldname": "im_min_call_interval_seconds",
+   "fieldtype": "Int",
+   "label": "IM Minimum Call Interval (seconds)"
+  },
+  {
+   "default": "45",
+   "description": "How long an access token is reused.",
+   "fieldname": "im_token_ttl_minutes",
+   "fieldtype": "Int",
+   "label": "IM Token Cache TTL (minutes)"
+  },
+  {
+   "default": "90",
+   "description": "Must stay above the rate limit.",
+   "fieldname": "im_ignition_poll_seconds",
+   "fieldtype": "Int",
+   "label": "IM Ignition Test Poll (seconds)"
+  },
+  {
+   "default": "10",
+   "fieldname": "im_ignition_window_minutes",
+   "fieldtype": "Int",
+   "label": "IM Ignition Test Window (minutes)"
+  },
+  {
+   "collapsible": 1,
+   "description": "Two send routes; Active Connector below decides which one actually sends.",
+   "fieldname": "sec_chatwoot",
+   "fieldtype": "Section Break",
+   "label": "Chatwoot"
+  },
+  {
+   "default": "0",
+   "description": "Off = configure without sending.",
+   "fieldname": "chatwoot_enabled",
+   "fieldtype": "Check",
+   "label": "Chatwoot Enabled"
+  },
+  {
+   "default": "https://app.chatwoot.com",
+   "description": "Scheme and host only.",
+   "fieldname": "chatwoot_base_url",
+   "fieldtype": "Data",
+   "label": "Chatwoot Domain"
+  },
+  {
+   "description": "The number after /accounts/ in the URL.",
+   "fieldname": "chatwoot_account_id",
+   "fieldtype": "Data",
+   "label": "Chatwoot Account ID"
+  },
+  {
+   "default": "0",
+   "description": "Once a day, tell each technician how many of their tickets have sat in the statuses below without an update -- one message per row, never one per ticket. Off by default.",
+   "fieldname": "stale_ticket_reminder_enabled",
+   "fieldtype": "Check",
+   "label": "Nudge Stuck Tickets"
+  },
+  {
+   "default": "9",
+   "description": "Server hour, 0\u201323. The check runs once on this hour.",
+   "fieldname": "stale_ticket_reminder_hour",
+   "fieldtype": "Int",
+   "label": "Run At Hour"
+  },
+  {
+   "description": "Status \u2192 hours \u2192 message mapping for the nudge above.",
+   "fieldname": "stale_ticket_rules",
+   "fieldtype": "Table",
+   "label": "Stale Ticket Rules",
+   "options": "App Apis Stale Ticket Rule"
+  },
+  {
+   "fieldname": "col_chatwoot_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Profile Settings \u2192 Access Token.",
+   "fieldname": "chatwoot_api_token",
+   "fieldtype": "Password",
+   "label": "Chatwoot API Token"
+  },
+  {
+   "default": "20",
+   "fieldname": "chatwoot_request_timeout",
+   "fieldtype": "Int",
+   "label": "Chatwoot Request Timeout (seconds)"
+  },
+  {
+   "description": "Inboxes to send from. Fill with Sync Inboxes.",
+   "fieldname": "chatwoot_inboxes",
+   "fieldtype": "Table",
+   "label": "Chatwoot Inboxes",
+   "options": "App Apis Inbox"
+  },
+  {
+   "default": "1",
+   "description": "Which connection sends.",
+   "fieldname": "chatwoot_active_connector",
+   "fieldtype": "Select",
+   "label": "Active Connector",
+   "options": "1\n2"
+  },
+  {
+   "default": "0",
+   "description": "Off = configure without sending.",
+   "fieldname": "chatwoot2_enabled",
+   "fieldtype": "Check",
+   "label": "Connector 2 Enabled"
+  },
+  {
+   "default": "agent_bot",
+   "description": "agent_bot = API; webhook = POST to your URL.",
+   "fieldname": "chatwoot2_method",
+   "fieldtype": "Select",
+   "label": "Method",
+   "options": "agent_bot\nwebhook"
+  },
+  {
+   "default": "https://app.chatwoot.com",
+   "depends_on": "eval:doc.chatwoot2_method=='agent_bot'",
+   "description": "Scheme and host only.",
+   "fieldname": "chatwoot2_base_url",
+   "fieldtype": "Data",
+   "label": "Chatwoot Domain (2)"
+  },
+  {
+   "depends_on": "eval:doc.chatwoot2_method=='agent_bot'",
+   "description": "The number after /accounts/ in the URL.",
+   "fieldname": "chatwoot2_account_id",
+   "fieldtype": "Data",
+   "label": "Account ID (2)"
+  },
+  {
+   "depends_on": "eval:doc.chatwoot2_method=='agent_bot'",
+   "description": "Which inbox the message leaves on. See list_inboxes.",
+   "fieldname": "chatwoot2_inbox_id",
+   "fieldtype": "Data",
+   "label": "Inbox ID (2)"
+  },
+  {
+   "fieldname": "col_chatwoot2_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.chatwoot2_method=='agent_bot'",
+   "description": "site_config overrides if set.",
+   "fieldname": "chatwoot2_api_token",
+   "fieldtype": "Password",
+   "label": "Access Token (2)"
+  },
+  {
+   "depends_on": "eval:doc.chatwoot2_method=='webhook'",
+   "description": "Message is POSTed here as JSON. Any 2xx = accepted.",
+   "fieldname": "chatwoot2_webhook_url",
+   "fieldtype": "Data",
+   "label": "Webhook URL"
+  },
+  {
+   "default": "Authorization",
+   "depends_on": "eval:doc.chatwoot2_method=='webhook'",
+   "description": "Authorization sends Bearer <secret>; else the raw value.",
+   "fieldname": "chatwoot2_webhook_auth_header",
+   "fieldtype": "Data",
+   "label": "Webhook Auth Header"
+  },
+  {
+   "depends_on": "eval:doc.chatwoot2_method=='webhook'",
+   "description": "Optional. site_config overrides if set.",
+   "fieldname": "chatwoot2_webhook_secret",
+   "fieldtype": "Password",
+   "label": "Webhook Secret"
+  },
+  {
+   "default": "20",
+   "fieldname": "chatwoot2_request_timeout",
+   "fieldtype": "Int",
+   "label": "Request Timeout (2) (seconds)"
+  },
+  {
+   "fieldname": "contact_numbers",
+   "fieldtype": "Table",
+   "label": "Contact Numbers",
+   "options": "App Apis Contact"
+  },
+  {
+   "collapsible": 1,
+   "description": "Who gets messaged, and by which status, as a ticket moves through its stages.",
+   "fieldname": "sec_auto_messages",
+   "fieldtype": "Section Break",
+   "label": "Automatic Messages"
+  },
+  {
+   "default": "0",
+   "description": "Off = no customer is messaged by a status change.",
+   "fieldname": "auto_message_enabled",
+   "fieldtype": "Check",
+   "label": "Send to Customers"
+  },
+  {
+   "default": "Individual",
+   "description": "Comma separated. Blank = Individual.",
+   "fieldname": "auto_message_customer_types",
+   "fieldtype": "Data",
+   "label": "Customer Types"
+  },
+  {
+   "default": "Individual",
+   "description": "Comma separated. Blank = Individual.",
+   "fieldname": "show_vehicle_customer_types",
+   "fieldtype": "Data",
+   "label": "Show Vehicle Number To"
+  },
+  {
+   "default": "0",
+   "description": "Needs a phone on the engineer's record.",
+   "fieldname": "technician_message_enabled",
+   "fieldtype": "Check",
+   "label": "Send to Technicians"
+  },
+  {
+   "description": "Status \u2192 message mapping.",
+   "fieldname": "auto_message_rules",
+   "fieldtype": "Table",
+   "label": "Status Rules",
+   "options": "App Apis Auto Message"
+  },
+  {
+   "description": "Technicians who get no messages of the kind picked in Stop, whatever happens to their tickets.",
+   "fieldname": "excluded_technicians",
+   "fieldtype": "Table",
+   "label": "Excluded Technicians",
+   "options": "App Apis Excluded Technician"
+  },
+  {
+   "default": "0",
+   "description": "WhatsApp delivers free text only within 24 hours of the person\u2019s last message to you. When on, a status message outside that window goes as the row\u2019s WhatsApp Template instead, and a row without one is skipped instead of being sent to fail.",
+   "fieldname": "chatwoot_use_templates",
+   "fieldtype": "Check",
+   "label": "Use WhatsApp Templates Outside the 24-Hour Window"
+  },
+  {
+   "description": "Reads the approved templates of every WhatsApp inbox from Chatwoot into the WhatsApp Template picker.",
+   "fieldname": "sync_whatsapp_templates",
+   "fieldtype": "Button",
+   "label": "Sync Templates from Chatwoot"
+  },
+  {
+   "collapsible": 1,
+   "description": "Warns before subscriptions expire. Read-only. Message placeholders: {customer} {vehicles} {count} {plate} {expiry} {days} {contacts}.",
+   "fieldname": "sec_subscription_reminders",
+   "fieldtype": "Section Break",
+   "label": "Subscription Reminders"
+  },
+  {
+   "default": "0",
+   "description": "Off = the scheduler does nothing at all.",
+   "fieldname": "subscription_reminder_enabled",
+   "fieldtype": "Check",
+   "label": "Send Subscription Reminders"
+  },
+  {
+   "default": "1",
+   "description": "Logs only until unticked.",
+   "fieldname": "subscription_reminder_dry_run",
+   "fieldtype": "Check",
+   "label": "Dry Run"
+  },
+  {
+   "default": "9",
+   "description": "Server hour, 0\u201323. The scan runs once on this hour.",
+   "fieldname": "subscription_reminder_hour",
+   "fieldtype": "Int",
+   "label": "Run At Hour"
+  },
+  {
+   "default": "Every day",
+   "description": "Which day to run on.",
+   "fieldname": "subscription_reminder_weekday",
+   "fieldtype": "Select",
+   "label": "Run On",
+   "options": "Every day\nMonday\nTuesday\nWednesday\nThursday\nFriday\nSaturday\nSunday"
+  },
+  {
+   "default": "50",
+   "description": "Most customers messaged per run. 0 = no cap.",
+   "fieldname": "subscription_reminder_batch_size",
+   "fieldtype": "Int",
+   "label": "Max Per Run"
+  },
+  {
+   "fieldname": "col_subscription_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "7",
+   "description": "Days before the same customer may be reminded again.",
+   "fieldname": "subscription_reminder_repeat_days",
+   "fieldtype": "Int",
+   "label": "Don't Repeat Within (days)"
+  },
+  {
+   "description": "Blank = every type.",
+   "fieldname": "subscription_reminder_customer_types",
+   "fieldtype": "Data",
+   "label": "Customer Types"
+  },
+  {
+   "default": "Customer, then vehicle",
+   "description": "Vehicle's is the driver's.",
+   "fieldname": "subscription_reminder_phone_source",
+   "fieldtype": "Select",
+   "label": "Phone Source",
+   "options": "Customer, then vehicle\nCustomer only\nVehicle only"
+  },
+  {
+   "description": "One row per kind; untick Send to stop that kind (e.g. send Expiring soon only). With Use WhatsApp Templates on, a customer outside the 24-hour window gets the row\u2019s WhatsApp Template instead of its Message.",
+   "fieldname": "subscription_messages",
+   "fieldtype": "Table",
+   "label": "Reminder Messages",
+   "options": "App Apis Subscription Message"
+  },
+  {
+   "default": "50",
+   "description": "Start reminding this many days BEFORE the subscription expires.",
+   "fieldname": "subscription_reminder_days_before",
+   "fieldtype": "Int",
+   "label": "Warn Before Expiry (days)"
+  },
+  {
+   "default": "90",
+   "description": "0 = forever.",
+   "fieldname": "subscription_reminder_days_after",
+   "fieldtype": "Int",
+   "label": "Keep Chasing After (days)"
+  },
+  {
+   "collapsible": 1,
+   "description": "Customers who opted out of messages.",
+   "fieldname": "sec_excluded",
+   "fieldtype": "Section Break",
+   "label": "Excluded Customers"
+  },
+  {
+   "description": "Name, phone, or both.",
+   "fieldname": "excluded_customers",
+   "fieldtype": "Table",
+   "label": "Do Not Message",
+   "options": "App Apis Excluded Customer"
+  },
+  {
+   "fieldname": "col_pilot_wsl_divider",
+   "fieldtype": "Column Break",
+   "label": "Pilot Admin (estate sweep)"
+  },
+  {
+   "description": "Pilot API endpoint for this estate.",
+   "fieldname": "pilot2_base_url",
+   "fieldtype": "Data",
+   "label": "Pilot Base URL (2)"
+  },
+  {
+   "default": "5",
+   "description": "Wrong node answers \"Invalid imei\".",
+   "fieldname": "pilot2_node",
+   "fieldtype": "Data",
+   "label": "Pilot Node (2)"
+  },
+  {
+   "description": "Used only when no per-customer email is found.",
+   "fieldname": "pilot2_fallback_username",
+   "fieldtype": "Data",
+   "label": "Pilot Fallback Username (2)"
+  },
+  {
+   "fieldname": "col_pilot2_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Shared password for this estate. site_config pilot2_passwords overrides it.",
+   "fieldname": "pilot2_password",
+   "fieldtype": "Password",
+   "label": "Pilot Password (2)"
+  },
+  {
+   "default": "20",
+   "fieldname": "pilot2_request_timeout",
+   "fieldtype": "Int",
+   "label": "Pilot Request Timeout (2) (seconds)"
+  },
+  {
+   "default": "15",
+   "fieldname": "pilot2_stale_after_minutes",
+   "fieldtype": "Int",
+   "label": "Pilot Stale After (2) (minutes)"
+  },
+  {
+   "fieldname": "col_pilot2_admin_divider",
+   "fieldtype": "Column Break",
+   "label": "Pilot Admin 2 (estate sweep)"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "col_chatwoot_alt_divider",
+   "fieldtype": "Section Break",
+   "label": "Connection 2 (Alternative)"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-09-15 15:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "app_apis",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Support Team",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Technical",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

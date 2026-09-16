@@ -1,0 +1,213 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:template_key",
+ "creation": "2026-09-13 00:00:00.000000",
+ "description": "WhatsApp templates copied from Chatwoot by Sync Templates on App APIs settings. Read-only: templates are created and approved in Meta, not here.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "template_name",
+  "language",
+  "category",
+  "col_a",
+  "status",
+  "supported",
+  "unsupported_reason",
+  "col_b",
+  "inbox_name",
+  "inbox_id",
+  "parameter_format",
+  "params",
+  "sec_content",
+  "header",
+  "body",
+  "footer",
+  "buttons",
+  "sec_ids",
+  "template_key",
+  "chatwoot_template_id",
+  "col_c",
+  "last_synced"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "label": "Title",
+   "read_only": 1
+  },
+  {
+   "fieldname": "template_name",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Template Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "language",
+   "fieldtype": "Data",
+   "label": "Language",
+   "read_only": 1
+  },
+  {
+   "description": "UTILITY suits ticket updates. MARKETING is billed higher and Meta may hold it back from people who have not engaged recently.",
+   "fieldname": "category",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Category",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Meta's review status at the last sync. REMOVED: no longer in Chatwoot.",
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Approved, and nothing in it that a Status Rules row cannot fill. Only these can be picked.",
+   "fieldname": "supported",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Can Be Sent",
+   "read_only": 1
+  },
+  {
+   "fieldname": "unsupported_reason",
+   "fieldtype": "Data",
+   "label": "Why Not",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_b",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The WhatsApp number that owns this template. It is always sent from this inbox.",
+   "fieldname": "inbox_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Inbox",
+   "read_only": 1
+  },
+  {
+   "fieldname": "inbox_id",
+   "fieldtype": "Int",
+   "label": "Inbox ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "parameter_format",
+   "fieldtype": "Data",
+   "label": "Parameter Format",
+   "read_only": 1
+  },
+  {
+   "description": "The body's variables, in the order they are sent.",
+   "fieldname": "params",
+   "fieldtype": "Data",
+   "label": "Variables",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_content",
+   "fieldtype": "Section Break",
+   "label": "Content"
+  },
+  {
+   "fieldname": "header",
+   "fieldtype": "Small Text",
+   "label": "Header",
+   "read_only": 1
+  },
+  {
+   "fieldname": "body",
+   "fieldtype": "Long Text",
+   "label": "Body",
+   "read_only": 1
+  },
+  {
+   "fieldname": "footer",
+   "fieldtype": "Small Text",
+   "label": "Footer",
+   "read_only": 1
+  },
+  {
+   "fieldname": "buttons",
+   "fieldtype": "Small Text",
+   "label": "Buttons",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "sec_ids",
+   "fieldtype": "Section Break",
+   "label": "Identifiers"
+  },
+  {
+   "description": "Inbox ID, name and language: a template is unique per WhatsApp number and language.",
+   "fieldname": "template_key",
+   "fieldtype": "Data",
+   "label": "Key",
+   "read_only": 1,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "chatwoot_template_id",
+   "fieldtype": "Data",
+   "label": "Meta Template ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_c",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "last_synced",
+   "fieldtype": "Datetime",
+   "label": "Last Synced",
+   "read_only": 1
+  }
+ ],
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-13 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "App Apis WhatsApp Template",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "search_fields": "template_name,language,inbox_name,category",
+ "show_title_field_in_link": 1,
+ "sort_field": "template_name",
+ "sort_order": "ASC",
+ "states": [],
+ "title_field": "title",
+ "track_changes": 0
+}

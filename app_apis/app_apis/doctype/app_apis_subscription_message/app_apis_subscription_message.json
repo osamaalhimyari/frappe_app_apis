@@ -1,0 +1,76 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-09-14 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "enabled",
+  "kind",
+  "message",
+  "whatsapp_template",
+  "template_variables"
+ ],
+ "fields": [
+  {
+   "columns": 1,
+   "default": "1",
+   "description": "Untick to stop sending this kind -- e.g. tick only Expiring soon to warn before expiry and never chase after it.",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Send"
+  },
+  {
+   "columns": 3,
+   "description": "Expiring soon: the subscription runs out inside the reminder window. Already expired: it has run out.",
+   "fieldname": "kind",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Kind",
+   "options": "Expiring soon\nAlready expired",
+   "reqd": 1
+  },
+  {
+   "columns": 5,
+   "description": "Placeholders: {customer} {vehicles} {count} {plate} {expiry} {days} {contacts}.",
+   "fieldname": "message",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Message",
+   "reqd": 1
+  },
+  {
+   "columns": 3,
+   "description": "Sent instead of Message when WhatsApp's 24-hour window is closed, which is the usual case for a renewal reminder. Needs Use WhatsApp Templates on.",
+   "fieldname": "whatsapp_template",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "WhatsApp Template",
+   "options": "App Apis WhatsApp Template"
+  },
+  {
+   "depends_on": "whatsapp_template",
+   "description": "One line per variable in the template, e.g. {{1}} = {plate}.",
+   "fieldname": "template_variables",
+   "fieldtype": "Small Text",
+   "label": "Template Variables"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-14 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "App Apis Subscription Message",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "states": [],
+ "track_changes": 0
+}

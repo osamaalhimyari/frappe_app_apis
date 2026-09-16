@@ -1,0 +1,551 @@
+{% extends "templates/web.html" %}
+
+{#
+	Public feedback page. Everything below renders from the `t` string table in
+	valuation.py rather than `_()`, because frappe only translates strings that
+	exist in an app's .csv files and these do not. The contact numbers come from
+	the child table on the app_apis settings doctype -- nothing here is hardcoded.
+#}
+
+{% macro stars(field, checked) %}
+	{# Radios, not JS state: the choice survives with scripting off. DOM order
+	   runs 5..1 so the `~` selector can reach every star before the hovered
+	   one; `row-reverse` puts them back in reading order, and does the right
+	   thing in RTL too. #}
+	<div class="val-stars" data-stars="{{ field }}">
+		{% for i in [5, 4, 3, 2, 1] %}
+		<input type="radio" name="{{ field }}" id="{{ field }}-{{ i }}" value="{{ i }}"
+			{% if checked == i %}checked{% endif %}>
+		<label for="{{ field }}-{{ i }}" aria-label="{{ i }}">
+			<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.4-5.8-3-5.8 3 1.1-6.4L2.6 9.4l6.5-.9L12 2.6z"/></svg>
+		</label>
+		{% endfor %}
+	</div>
+	<div class="val-starword" data-starword="{{ field }}"></div>
+{% endmacro %}
+
+{% macro contact_list(contacts, extra_class="") %}
+	<ul class="val-contacts {{ extra_class }}">
+		{% for c in contacts %}
+		<li>
+			<a href="tel:{{ c.tel }}">
+				{% if c.is_whatsapp %}
+				<svg class="val-ci" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 00-8.6 15L2 22l5.1-1.3A10 10 0 1012 2z"/></svg>
+				{% else %}
+				<svg class="val-ci" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 10.8a15.1 15.1 0 006.6 6.6l2.2-2.2a1 1 0 011-.2 11 11 0 003.5.6 1 1 0 011 1V20a1 1 0 01-1 1A17 17 0 013 4a1 1 0 011-1h3.5a1 1 0 011 1 11 11 0 00.6 3.5 1 1 0 01-.3 1l-2.2 2.3z"/></svg>
+				{% endif %}
+				<span class="val-cl">{{ c.label }}</span>
+				<span class="val-cn" dir="ltr">{{ c.phone }}</span>
+			</a>
+		</li>
+		{% endfor %}
+	</ul>
+{% endmacro %}
+
+{% block page_content %}
+<div class="val-page" dir="{{ text_dir }}" lang="{{ lang }}">
+
+{% if expired %}
+	<div class="val-card val-card-plain">
+		<div class="val-icon val-icon-warn" aria-hidden="true">
+			<svg viewBox="0 0 24 24"><path d="M12 8v5M12 16.5v.01M12 3l9 16H3l9-16z"/></svg>
+		</div>
+		<h1 class="val-title">{{ t.expired_title }}</h1>
+		<p class="val-body">{{ t.expired_body }}</p>
+		{% if contacts %}
+		<div class="val-foot">
+			<div class="val-foot-head">{{ t.contacts_heading }}</div>
+			{{ contact_list(contacts) }}
+		</div>
+		{% endif %}
+		<a class="val-ghost" href="{{ toggle_url }}">{{ toggle_label }}</a>
+	</div>
+{% else %}
+
+	<div class="val-card">
+		<div class="val-head">
+			<div class="val-headrow">
+				<span class="val-eyebrow">{{ t.eyebrow }}</span>
+				<a class="val-lang" href="{{ toggle_url }}" rel="nofollow">
+					<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18"/></svg>
+					{{ toggle_label }}
+				</a>
+			</div>
+			<h1 class="val-title">{{ t.title }}</h1>
+			<p class="val-intro">{{ t.intro }}</p>
+		</div>
+
+		<dl class="val-rows">
+			<div class="val-row">
+				<dt>{{ t.ticket }}</dt>
+				<dd class="val-mono">{{ ticket }}</dd>
+			</div>
+			{% if customer %}
+			<div class="val-row">
+				<dt>{{ t.customer }}</dt>
+				<dd>{{ customer }}</dd>
+			</div>
+			{% endif %}
+			{# Blank for a customer type that is not shown their plate, and for a
+			   ticket that has none. The row goes away entirely rather than
+			   showing a label with nothing after it. #}
+			{% if vehicle %}
+			<div class="val-row">
+				<dt>{{ t.vehicle }}</dt>
+				<dd class="val-plate">{{ vehicle }}</dd>
+			</div>
+			{% endif %}
+			{% if engineer_name %}
+			<div class="val-row">
+				<dt>{{ t.engineer }}</dt>
+				<dd>{{ engineer_name }}</dd>
+			</div>
+			{% endif %}
+			<div class="val-row">
+				<dt>{{ t.status }}</dt>
+				<dd><span class="val-pill">{{ state }}</span></dd>
+			</div>
+		</dl>
+
+		{% if existing %}
+		<p class="val-note">{{ t.already }}</p>
+		{% endif %}
+
+		<form id="val-form" novalidate>
+			<section class="val-block">
+				<div class="val-blockhead">
+					<span class="val-num">1</span>
+					<div>
+						<h2>{{ t.engineer_heading }}</h2>
+						<p>{{ t.engineer_hint }}</p>
+					</div>
+				</div>
+				{{ stars("rating", existing.stars if existing else 0) }}
+				<label class="val-label" for="val-description">
+					{{ t.engineer_comment }} <span class="val-opt">{{ t.optional }}</span>
+				</label>
+				<textarea id="val-description" name="description" rows="3" maxlength="2000"
+					placeholder="{{ t.engineer_placeholder }}">{{ existing.description if existing else "" }}</textarea>
+			</section>
+
+			<section class="val-block">
+				<div class="val-blockhead">
+					<span class="val-num">2</span>
+					<div>
+						<h2>{{ t.speed_heading }}</h2>
+						<p>{{ t.speed_hint }}</p>
+					</div>
+				</div>
+				{{ stars("speed_rating", existing.speed_stars if existing else 0) }}
+			</section>
+
+			<section class="val-block">
+				<div class="val-blockhead">
+					<span class="val-num">3</span>
+					<div>
+						<h2>{{ t.company_heading }}</h2>
+						<p>{{ t.company_hint }}</p>
+					</div>
+				</div>
+				{{ stars("company_rating", existing.company_stars if existing else 0) }}
+				<label class="val-label" for="val-company-description">
+					{{ t.company_comment }} <span class="val-opt">{{ t.optional }}</span>
+				</label>
+				<textarea id="val-company-description" name="company_description" rows="3" maxlength="2000"
+					placeholder="{{ t.company_placeholder }}">{{ existing.company_description if existing else "" }}</textarea>
+			</section>
+
+			<button type="submit" class="val-submit" id="val-submit">
+				<span id="val-submit-text">{{ t.submit_again if existing else t.submit }}</span>
+			</button>
+
+			<div class="val-msg" id="val-msg" role="alert"></div>
+			<p class="val-validity">{{ t.validity }}</p>
+		</form>
+
+		{% if contacts %}
+		<div class="val-foot">
+			<div class="val-foot-head">{{ t.contacts_heading }}</div>
+			{{ contact_list(contacts) }}
+		</div>
+		{% endif %}
+	</div>
+
+	<div class="val-overlay" id="val-overlay" hidden>
+		<div class="val-modal" role="dialog" aria-modal="true" aria-labelledby="val-ok-title">
+			<div class="val-icon val-icon-ok" aria-hidden="true">
+				<svg viewBox="0 0 24 24"><path d="M4 12.5l5.2 5.2L20 7"/></svg>
+			</div>
+			<h2 class="val-modal-title" id="val-ok-title">{{ t.ok_title }}</h2>
+			<p class="val-body">{{ t.ok_body }}</p>
+			<dl class="val-summary" id="val-summary"></dl>
+			{% if contacts %}
+			<div class="val-modal-contacts">
+				<div class="val-foot-head">{{ t.ok_contacts }}</div>
+				{{ contact_list(contacts, "val-contacts-tight") }}
+			</div>
+			{% endif %}
+			<button type="button" class="val-submit" id="val-ok-close">{{ t.ok_close }}</button>
+		</div>
+	</div>
+
+	<script>
+	(function () {
+		var STARWORDS = {{ t.stars | tojson }};
+		var TEXT = {
+			sending: {{ t.sending | tojson }},
+			submit_again: {{ t.submit_again | tojson }},
+			missing: {{ t.err_missing | tojson }},
+			failed: {{ t.err_failed | tojson }},
+			expired: {{ t.err_expired | tojson }},
+			engineer: {{ t.engineer_heading | tojson }},
+			speed: {{ t.speed_heading | tojson }},
+			company: {{ t.company_heading | tojson }}
+		};
+
+		var form = document.getElementById("val-form");
+		var msg = document.getElementById("val-msg");
+		var button = document.getElementById("val-submit");
+		var buttonText = document.getElementById("val-submit-text");
+		var overlay = document.getElementById("val-overlay");
+		var summary = document.getElementById("val-summary");
+
+		// The word under each row ("Excellent") follows the pointer while
+		// hovering and settles on the actual choice when the pointer leaves,
+		// so the scale is legible before you commit to it.
+		Array.prototype.forEach.call(document.querySelectorAll("[data-stars]"), function (group) {
+			var field = group.getAttribute("data-stars");
+			var word = document.querySelector('[data-starword="' + field + '"]');
+
+			function show(value) {
+				word.textContent = value ? STARWORDS[value - 1] : "";
+			}
+			function chosen() {
+				var hit = group.querySelector("input:checked");
+				return hit ? parseInt(hit.value, 10) : 0;
+			}
+
+			Array.prototype.forEach.call(group.querySelectorAll("label"), function (label) {
+				var value = parseInt(label.getAttribute("aria-label"), 10);
+				label.addEventListener("mouseenter", function () { show(value); });
+			});
+			group.addEventListener("mouseleave", function () { show(chosen()); });
+			group.addEventListener("change", function () {
+				show(chosen());
+				setError("");
+			});
+
+			show(chosen());
+		});
+
+		function setError(text) {
+			msg.textContent = text;
+			msg.className = text ? "val-msg val-msg-error" : "val-msg";
+		}
+
+		function value(name) {
+			var hit = form.querySelector('input[name="' + name + '"]:checked');
+			return hit ? hit.value : "";
+		}
+
+		function openDialog(data) {
+			summary.innerHTML = "";
+			[
+				[TEXT.engineer, data.stars],
+				[TEXT.speed, data.speed_stars],
+				[TEXT.company, data.company_stars]
+			].forEach(function (row) {
+				var dt = document.createElement("dt");
+				dt.textContent = row[0];
+				var dd = document.createElement("dd");
+				dd.className = "val-summary-stars";
+				dd.textContent = "★".repeat(row[1]) + "☆".repeat(5 - row[1]);
+				summary.appendChild(dt);
+				summary.appendChild(dd);
+			});
+			overlay.hidden = false;
+			document.body.style.overflow = "hidden";
+			document.getElementById("val-ok-close").focus();
+		}
+
+		function closeDialog() {
+			overlay.hidden = true;
+			document.body.style.overflow = "";
+		}
+
+		document.getElementById("val-ok-close").addEventListener("click", closeDialog);
+		overlay.addEventListener("click", function (event) {
+			if (event.target === overlay) { closeDialog(); }
+		});
+		document.addEventListener("keydown", function (event) {
+			if (event.key === "Escape" && !overlay.hidden) { closeDialog(); }
+		});
+
+		form.addEventListener("submit", function (event) {
+			event.preventDefault();
+
+			var rating = value("rating");
+			var speedRating = value("speed_rating");
+			var companyRating = value("company_rating");
+			if (!rating || !speedRating || !companyRating) {
+				setError(TEXT.missing);
+				return;
+			}
+
+			button.disabled = true;
+			buttonText.textContent = TEXT.sending;
+			setError("");
+
+			var body = new URLSearchParams({
+				ticket: {{ ticket | tojson }},
+				token: {{ token | tojson }},
+				expires: {{ expires | tojson }},
+				rating: rating,
+				description: document.getElementById("val-description").value,
+				speed_rating: speedRating,
+				company_rating: companyRating,
+				company_description: document.getElementById("val-company-description").value
+			});
+
+			fetch("/api/method/app_apis.valuation.submit_valuation", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/x-www-form-urlencoded",
+					"X-Frappe-CSRF-Token": {{ csrf_token | tojson }}
+				},
+				body: body
+			})
+				.then(function (response) {
+					return response.json()
+						.catch(function () { return {}; })
+						.then(function (data) { return { status: response.status, data: data }; });
+				})
+				.then(function (result) {
+					var payload = result.data && result.data.message;
+					if (result.status === 403) { throw new Error("expired"); }
+					if (result.status >= 400 || !payload || !payload.ok) { throw new Error("failed"); }
+
+					openDialog(payload);
+					buttonText.textContent = TEXT.submit_again;
+				})
+				.catch(function (error) {
+					setError(error.message === "expired" ? TEXT.expired : TEXT.failed);
+					buttonText.textContent = TEXT.submit_again;
+				})
+				.finally(function () {
+					button.disabled = false;
+				});
+		});
+	})();
+	</script>
+{% endif %}
+</div>
+
+<style>
+	/* Committed to a light look and painted explicitly: this page is opened by
+	   strangers on unknown devices, and inheriting half a theme is worse than
+	   picking one. */
+	.val-page {
+		color-scheme: light;
+		--ink: #0f172a;
+		--muted: #64748b;
+		--line: #e5e9f0;
+		--brand: #1d4ed8;
+		--star: #f59e0b;
+		--ok: #15803d;
+		--bad: #b91c1c;
+
+		display: flex;
+		justify-content: center;
+		padding: 2rem 1rem 4rem;
+		color: var(--ink);
+		font-feature-settings: "kern";
+	}
+
+	.val-card {
+		width: 100%;
+		max-width: 36rem;
+		background: #fff;
+		border: 1px solid var(--line);
+		border-radius: 16px;
+		padding: 1.75rem;
+		box-shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 12px 32px -12px rgba(15, 23, 42, .12);
+	}
+	.val-card-plain { text-align: center; padding: 2.5rem 1.75rem; }
+
+	.val-head { padding-bottom: 1.25rem; border-bottom: 1px solid var(--line); }
+	.val-headrow { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+	.val-eyebrow {
+		font-size: .7rem; font-weight: 700; letter-spacing: .1em;
+		text-transform: uppercase; color: var(--brand);
+	}
+
+	.val-lang {
+		display: inline-flex; align-items: center; gap: .4rem;
+		padding: .35rem .7rem; border: 1px solid var(--line); border-radius: 999px;
+		font-size: .8rem; font-weight: 600; line-height: 1;
+		color: var(--ink); background: #f8fafc; text-decoration: none;
+		transition: background .15s ease, border-color .15s ease;
+	}
+	.val-lang:hover { background: #eef2ff; border-color: #c7d2fe; color: var(--brand); text-decoration: none; }
+	.val-lang svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+
+	.val-title { font-size: 1.6rem; font-weight: 700; margin: .75rem 0 .35rem; line-height: 1.25; }
+	.val-intro { margin: 0; color: var(--muted); font-size: .9rem; }
+	.val-body { margin: .5rem 0 1.25rem; color: var(--muted); font-size: .92rem; line-height: 1.6; }
+
+	.val-rows { margin: 1.25rem 0 0; }
+	.val-row {
+		display: flex; justify-content: space-between; align-items: baseline;
+		gap: 1rem; padding: .5rem 0; font-size: .88rem;
+	}
+	.val-row dt { color: var(--muted); font-weight: 400; margin: 0; }
+	.val-row dd { margin: 0; text-align: end; font-weight: 600; }
+	.val-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82rem; }
+	/* A plate reads as one unit, so it never wraps mid-number. Direction is
+	   deliberately left to the page: the Arabic page shows the Arabic plate and
+	   lays it out RTL, the English page shows the Latin one and lays it out LTR,
+	   which is how each is written on the metal. Forcing a direction here would
+	   only matter for the ~3% of tickets that carry one plate and not the other,
+	   and it would drag `text-align: end` on the row along with it. */
+	.val-plate { white-space: nowrap; letter-spacing: .02em; }
+	.val-pill {
+		display: inline-block; padding: .18rem .6rem; border-radius: 999px;
+		background: #ecfdf5; color: #047857; font-size: .78rem; font-weight: 600;
+	}
+
+	.val-note {
+		margin: 1.25rem 0 0; padding: .7rem .9rem; border-radius: 10px;
+		background: #fffbeb; border: 1px solid #fde68a; color: #92400e;
+		font-size: .84rem;
+	}
+
+	.val-block { border-top: 1px solid var(--line); margin-top: 1.5rem; padding-top: 1.5rem; }
+	.val-blockhead { display: flex; gap: .75rem; align-items: flex-start; }
+	.val-blockhead h2 { font-size: 1.02rem; font-weight: 700; margin: 0; }
+	.val-blockhead p { margin: .15rem 0 0; font-size: .84rem; color: var(--muted); }
+	.val-num {
+		flex: none; width: 1.6rem; height: 1.6rem; border-radius: 50%;
+		background: #eef2ff; color: var(--brand);
+		font-size: .8rem; font-weight: 700;
+		display: inline-flex; align-items: center; justify-content: center;
+	}
+
+	.val-stars { display: inline-flex; flex-direction: row-reverse; margin: .9rem 0 .1rem; }
+	.val-stars input { position: absolute; opacity: 0; width: 0; height: 0; }
+	.val-stars label { cursor: pointer; padding: 0 .15rem; line-height: 0; }
+	.val-stars svg {
+		width: 2.1rem; height: 2.1rem;
+		fill: #e2e8f0; transition: fill .12s ease, transform .12s ease;
+	}
+	.val-stars label:hover svg,
+	.val-stars label:hover ~ label svg,
+	.val-stars input:checked ~ label svg { fill: var(--star); }
+	.val-stars label:hover svg { transform: scale(1.12); }
+	.val-stars input:focus-visible + label svg { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 4px; }
+
+	.val-starword {
+		min-height: 1.15rem; font-size: .82rem; font-weight: 600;
+		color: var(--star); margin-bottom: .9rem;
+	}
+
+	.val-label { display: block; font-size: .84rem; font-weight: 600; margin-bottom: .4rem; }
+	.val-opt { font-weight: 400; color: var(--muted); font-size: .78rem; }
+
+	.val-page textarea {
+		width: 100%; padding: .65rem .8rem; font: inherit; font-size: .9rem;
+		color: var(--ink); background: #fff;
+		border: 1px solid var(--line); border-radius: 10px; resize: vertical;
+		transition: border-color .15s ease, box-shadow .15s ease;
+	}
+	.val-page textarea:focus {
+		outline: 0; border-color: var(--brand);
+		box-shadow: 0 0 0 3px rgba(29, 78, 216, .12);
+	}
+	.val-page textarea::placeholder { color: #94a3b8; }
+
+	.val-submit {
+		margin-top: 1.5rem; width: 100%; padding: .8rem 1rem;
+		font: inherit; font-size: .95rem; font-weight: 600; color: #fff;
+		background: var(--brand); border: 0; border-radius: 10px; cursor: pointer;
+		transition: background .15s ease, opacity .15s ease;
+	}
+	.val-submit:hover { background: #1e40af; }
+	.val-submit:disabled { opacity: .65; cursor: default; }
+
+	.val-ghost {
+		display: inline-block; margin-top: .5rem; font-size: .85rem;
+		font-weight: 600; color: var(--brand); text-decoration: none;
+	}
+
+	.val-msg { min-height: 1.1rem; margin-top: .6rem; font-size: .84rem; text-align: center; }
+	.val-msg-error { color: var(--bad); }
+	.val-validity { margin: .9rem 0 0; text-align: center; font-size: .76rem; color: #94a3b8; }
+
+	/* Contact numbers -- content comes from the app_apis settings table. */
+	.val-foot { margin-top: 1.75rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
+	.val-foot-head {
+		font-size: .72rem; font-weight: 700; letter-spacing: .07em;
+		text-transform: uppercase; color: var(--muted); margin-bottom: .6rem;
+	}
+	.val-contacts { list-style: none; margin: 0; padding: 0; display: grid; gap: .4rem; }
+	.val-contacts a {
+		display: flex; align-items: center; gap: .6rem;
+		padding: .55rem .7rem; border-radius: 10px;
+		background: #f8fafc; border: 1px solid var(--line);
+		color: var(--ink); text-decoration: none; font-size: .86rem;
+		transition: background .15s ease, border-color .15s ease;
+	}
+	.val-contacts a:hover { background: #eef2ff; border-color: #c7d2fe; text-decoration: none; }
+	.val-ci { width: 1rem; height: 1rem; flex: none; fill: var(--brand); }
+	.val-cl { flex: 1 1 auto; color: var(--muted); }
+	.val-cn { font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82rem; }
+	.val-contacts-tight a { padding: .4rem .6rem; font-size: .82rem; }
+
+	.val-icon {
+		width: 3.25rem; height: 3.25rem; margin: 0 auto .25rem;
+		border-radius: 50%; display: flex; align-items: center; justify-content: center;
+	}
+	.val-icon svg { width: 1.6rem; height: 1.6rem; fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+	.val-icon-ok { background: #dcfce7; }
+	.val-icon-ok svg { stroke: var(--ok); stroke-dasharray: 26; animation: val-draw .45s ease-out .1s both; }
+	.val-icon-warn { background: #fef3c7; }
+	.val-icon-warn svg { stroke: #b45309; }
+	@keyframes val-draw { from { stroke-dashoffset: 26; } to { stroke-dashoffset: 0; } }
+
+	.val-overlay {
+		position: fixed; inset: 0; z-index: 1050;
+		display: flex; align-items: center; justify-content: center; padding: 1rem;
+		background: rgba(15, 23, 42, .55);
+		animation: val-fade .18s ease-out both;
+		overflow-y: auto;
+	}
+	.val-overlay[hidden] { display: none; }
+	.val-modal {
+		width: 100%; max-width: 23rem; background: #fff; margin: auto;
+		border-radius: 16px; padding: 2rem 1.75rem 1.75rem; text-align: center;
+		box-shadow: 0 24px 60px -12px rgba(15, 23, 42, .35);
+		animation: val-pop .22s cubic-bezier(.2, .9, .3, 1.2) both;
+	}
+	.val-modal-title { font-size: 1.3rem; font-weight: 700; margin: .5rem 0 0; }
+	.val-modal-contacts { text-align: start; margin-bottom: 1.25rem; }
+	@keyframes val-fade { from { opacity: 0; } to { opacity: 1; } }
+	@keyframes val-pop { from { opacity: 0; transform: translateY(12px) scale(.97); } to { opacity: 1; transform: none; } }
+
+	.val-summary {
+		margin: 0 0 1.25rem; padding: .75rem .9rem; border-radius: 10px;
+		background: #f8fafc; display: grid; grid-template-columns: 1fr auto;
+		gap: .4rem 1rem; align-items: center; text-align: start;
+	}
+	.val-summary dt { font-size: .84rem; color: var(--muted); font-weight: 400; margin: 0; }
+	.val-summary-stars { margin: 0; color: var(--star); letter-spacing: .08em; font-size: .95rem; }
+
+	@media (max-width: 30rem) {
+		.val-card { padding: 1.25rem; border-radius: 14px; }
+		.val-title { font-size: 1.35rem; }
+		.val-stars svg { width: 1.85rem; height: 1.85rem; }
+		.val-row { flex-direction: column; gap: .1rem; }
+		.val-row dd { text-align: start; }
+	}
+</style>
+{% endblock %}

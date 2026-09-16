@@ -1,0 +1,539 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-09-13 00:00:00.000000",
+ "description": "One truck in an uploaded fuel report: what it bought, what IM says it drove, what its tank sensor saw, and its status.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "fuel_import",
+  "plate",
+  "plate_key",
+  "verdict",
+  "score",
+  "col_a",
+  "brand",
+  "model",
+  "vehicle_class",
+  "branch",
+  "drivers",
+  "col_b",
+  "source",
+  "imei",
+  "platform_name",
+  "checked_with",
+  "sec_fuel",
+  "fills",
+  "liters",
+  "cost",
+  "col_c",
+  "first_fill",
+  "last_fill",
+  "sec_gps",
+  "gps_km",
+  "im_km",
+  "odometer_km",
+  "odometer_gap_pct",
+  "gps_points",
+  "col_d",
+  "lp100",
+  "lp100_basis",
+  "normal_lp100",
+  "theft_lp100",
+  "col_d2",
+  "peer_lp100",
+  "excess_pct",
+  "idle_hours",
+  "idle_allowance_l",
+  "window_liters",
+  "sec_sensor",
+  "has_sensor",
+  "sensor_card_l",
+  "sensor_fill_l",
+  "sensor_fills",
+  "missing_l",
+  "col_s",
+  "drain_l",
+  "drains",
+  "slow_drain_l",
+  "col_s2",
+  "sensor_consumed_l",
+  "sensor_lp100",
+  "start_level",
+  "last_level",
+  "sec_flags",
+  "no_gps_fills",
+  "no_move_fills",
+  "quick_refills",
+  "big_fills",
+  "over_tank_fills",
+  "col_e",
+  "liters_at_risk",
+  "cost_at_risk",
+  "issues",
+  "finding_data",
+  "by_report"
+ ],
+ "fields": [
+  {
+   "fieldname": "fuel_import",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Fuel Report",
+   "options": "App Apis Fuel Import",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "plate",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Plate",
+   "read_only": 1
+  },
+  {
+   "fieldname": "plate_key",
+   "fieldtype": "Data",
+   "label": "Plate Key",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "verdict",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Theft likely\nSuspicious\nOK",
+   "read_only": 1
+  },
+  {
+   "description": "0–100, higher is worse. For sorting.",
+   "fieldname": "score",
+   "fieldtype": "Int",
+   "label": "Risk Score",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "brand",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Brand",
+   "read_only": 1
+  },
+  {
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "label": "Model",
+   "read_only": 1
+  },
+  {
+   "description": "Heavy truck unless the brand and model say pickup, van or light truck. Decides the consumption limits.",
+   "fieldname": "vehicle_class",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Class",
+   "read_only": 1
+  },
+  {
+   "fieldname": "branch",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Branch",
+   "read_only": 1
+  },
+  {
+   "fieldname": "drivers",
+   "fieldtype": "Small Text",
+   "label": "Drivers",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_b",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Data",
+   "label": "Tracked On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "imei",
+   "fieldtype": "Data",
+   "label": "IMEI",
+   "read_only": 1
+  },
+  {
+   "fieldname": "platform_name",
+   "fieldtype": "Data",
+   "label": "Name on IM",
+   "read_only": 1
+  },
+  {
+   "description": "What the truck was checked against: GPS, its tank fuel sensor, IM's reports -- or the fuel card alone.",
+   "fieldname": "checked_with",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Checked With",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_fuel",
+   "fieldtype": "Section Break",
+   "label": "Fuel Bought"
+  },
+  {
+   "fieldname": "fills",
+   "fieldtype": "Int",
+   "label": "Fills",
+   "read_only": 1
+  },
+  {
+   "fieldname": "liters",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Liters",
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cost",
+   "fieldtype": "Float",
+   "label": "Cost (SAR)",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_c",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "first_fill",
+   "fieldtype": "Datetime",
+   "label": "First Fill",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_fill",
+   "fieldtype": "Datetime",
+   "label": "Last Fill",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_gps",
+   "fieldtype": "Section Break",
+   "label": "Distance and Consumption"
+  },
+  {
+   "description": "Driven between the first and the last fill, from the GPS track.",
+   "fieldname": "gps_km",
+   "fieldtype": "Data",
+   "label": "GPS km",
+   "read_only": 1
+  },
+  {
+   "description": "IM's distance over the dates of its Fuel Consumption (or Fill-Drain) report.",
+   "fieldname": "im_km",
+   "fieldtype": "Data",
+   "label": "IM km (report)",
+   "read_only": 1
+  },
+  {
+   "description": "Last minus first odometer typed at the pump.",
+   "fieldname": "odometer_km",
+   "fieldtype": "Data",
+   "label": "Odometer km (card)",
+   "read_only": 1
+  },
+  {
+   "description": "How far the typed odometer is from IM's distance.",
+   "fieldname": "odometer_gap_pct",
+   "fieldtype": "Data",
+   "label": "Odometer vs IM (%)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "gps_points",
+   "fieldtype": "Int",
+   "label": "GPS Points Read",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_d",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Liters bought after the first fill, less the idling allowance, per 100 km.",
+   "fieldname": "lp100",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "L/100 km",
+   "read_only": 1
+  },
+  {
+   "description": "GPS, IM report, or Odometer (card) -- the typed odometer can make a truck Suspicious, never Theft likely.",
+   "fieldname": "lp100_basis",
+   "fieldtype": "Data",
+   "label": "Distance From",
+   "read_only": 1
+  },
+  {
+   "description": "Above this is Suspicious.",
+   "fieldname": "normal_lp100",
+   "fieldtype": "Float",
+   "label": "Normal Up To (L/100 km)",
+   "precision": "0",
+   "read_only": 1
+  },
+  {
+   "description": "Above this is Theft likely.",
+   "fieldname": "theft_lp100",
+   "fieldtype": "Float",
+   "label": "Theft Above (L/100 km)",
+   "precision": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_d2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Median GPS L/100 km of trucks of the same brand and model in this report.",
+   "fieldname": "peer_lp100",
+   "fieldtype": "Data",
+   "label": "Peer L/100 km",
+   "read_only": 1
+  },
+  {
+   "fieldname": "excess_pct",
+   "fieldtype": "Data",
+   "label": "Above Peers (%)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "idle_hours",
+   "fieldtype": "Data",
+   "label": "Idle Hours (IM)",
+   "read_only": 1
+  },
+  {
+   "description": "Fuel allowed for idling (air-conditioning, reefer) before consumption is judged.",
+   "fieldname": "idle_allowance_l",
+   "fieldtype": "Data",
+   "label": "Idling Allowance (L)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "window_liters",
+   "fieldtype": "Data",
+   "label": "Card Liters in IM Report Dates",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_sensor",
+   "fieldtype": "Section Break",
+   "label": "Tank Fuel Sensor (IM Fill-Drain)"
+  },
+  {
+   "default": "0",
+   "fieldname": "has_sensor",
+   "fieldtype": "Check",
+   "label": "Has Fuel Sensor",
+   "read_only": 1
+  },
+  {
+   "description": "Fuel-card liters inside the Fill-Drain report's dates.",
+   "fieldname": "sensor_card_l",
+   "fieldtype": "Data",
+   "label": "Paid For (L)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sensor_fill_l",
+   "fieldtype": "Data",
+   "label": "Seen Arriving (L)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sensor_fills",
+   "fieldtype": "Data",
+   "label": "Fills Seen",
+   "read_only": 1
+  },
+  {
+   "description": "Paid for minus seen arriving. Negative: the tank got fuel the card does not show.",
+   "fieldname": "missing_l",
+   "fieldtype": "Data",
+   "label": "Paid, Not Seen in Tank (L)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_s",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "drain_l",
+   "fieldtype": "Data",
+   "label": "Drained (L)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "drains",
+   "fieldtype": "Data",
+   "label": "Drains",
+   "read_only": 1
+  },
+  {
+   "fieldname": "slow_drain_l",
+   "fieldtype": "Data",
+   "label": "Slowly Drained (L)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_s2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sensor_consumed_l",
+   "fieldtype": "Data",
+   "label": "Burned per Sensor (L)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sensor_lp100",
+   "fieldtype": "Data",
+   "label": "Sensor L/100 km",
+   "read_only": 1
+  },
+  {
+   "fieldname": "start_level",
+   "fieldtype": "Data",
+   "label": "Level at Start (L)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_level",
+   "fieldtype": "Data",
+   "label": "Level at End (L)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_flags",
+   "fieldtype": "Section Break",
+   "label": "Findings"
+  },
+  {
+   "fieldname": "no_gps_fills",
+   "fieldtype": "Int",
+   "label": "Fills With No GPS",
+   "read_only": 1
+  },
+  {
+   "fieldname": "no_move_fills",
+   "fieldtype": "Int",
+   "label": "Refuelled Without Driving",
+   "read_only": 1
+  },
+  {
+   "fieldname": "quick_refills",
+   "fieldtype": "Int",
+   "label": "Refilled Too Soon",
+   "read_only": 1
+  },
+  {
+   "fieldname": "big_fills",
+   "fieldtype": "Int",
+   "label": "Unusually Large Fills",
+   "read_only": 1
+  },
+  {
+   "fieldname": "over_tank_fills",
+   "fieldtype": "Int",
+   "label": "Fills Bigger Than the Tanks",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_e",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "liters_at_risk",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Liters at Risk",
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cost_at_risk",
+   "fieldtype": "Float",
+   "label": "Cost at Risk (SAR)",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "issues",
+   "fieldtype": "Small Text",
+   "label": "Issues",
+   "read_only": 1
+  },
+  {
+   "description": "The findings as [level, code, numbers...], put into the reader's language on the dashboard.",
+   "fieldname": "finding_data",
+   "fieldtype": "Long Text",
+   "hidden": 1,
+   "label": "Findings (data)",
+   "read_only": 1
+  },
+  {
+   "description": "Each source's own L/100 km -- typed odometer, GPS, each IM report -- for the truck's page.",
+   "fieldname": "by_report",
+   "fieldtype": "Long Text",
+   "hidden": 1,
+   "label": "By Report (data)",
+   "read_only": 1
+  }
+ ],
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-15 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "App Apis Fuel Vehicle",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Technical"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Support Team"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "score",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "plate",
+ "track_changes": 0
+}
