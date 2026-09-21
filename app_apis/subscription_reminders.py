@@ -194,14 +194,24 @@ WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", 
 def settings() -> dict:
 	"""The reminder settings, every key present and typed."""
 	s = frappe.get_cached_doc("app_apis")
+	# Which fields have actually been saved. A Single keeps one row per saved
+	# field, and that row is the only way to tell "never saved" from "saved as
+	# 0": loading the document turns a missing Check into 0 as well.
+	saved = frappe.db.get_singles_dict("app_apis")
 	out = {}
 	for field, fallback in DEFAULTS.items():
 		value = s.get(field)
 		if isinstance(fallback, int):
-			# cint("") is 0, which is wrong for a field that has never been
-			# saved: an unset batch size means "the shipped 50", not "send to
-			# nobody" -- and an unset repeat window must not mean "no window".
-			out[field] = cint(value) if str(value or "").strip() != "" else fallback
+			# Only a field that was never saved, or saved empty, takes the
+			# default: an unset batch size means "the shipped 50" and an unset
+			# Dry Run means "dry run". A saved 0 is a choice and is kept --
+			# unticked Dry Run, sending hour 00, batch size 0 (no cap). This used
+			# to read `value or ""`, which turned every one of those back into
+			# its default, so unticking Dry Run never let anything be sent.
+			if field in saved and value is not None and str(value).strip() != "":
+				out[field] = cint(value)
+			else:
+				out[field] = fallback
 		else:
 			out[field] = str(value or "").strip() or fallback
 	out["doc"] = s
