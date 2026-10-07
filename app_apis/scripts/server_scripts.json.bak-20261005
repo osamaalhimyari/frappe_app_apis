@@ -1,0 +1,39 @@
+[
+  {
+    "name": "Lebara API",
+    "script_type": "API",
+    "api_method": "lebara",
+    "allow_guest": 0,
+    "disabled": 0,
+    "file": "lebara_api.py"
+  },
+  {
+    "name": "Lebara Keepalive",
+    "script_type": "Scheduler Event",
+    "event_frequency": "Cron",
+    "cron_format": "*/5 * * * *",
+    "disabled": 0,
+    "file": "lebara_keepalive.py"
+  },
+  {
+    "name": "Lebara SIM Sync",
+    "script_type": "Scheduler Event",
+    "event_frequency": "Hourly Long",
+    "disabled": 0,
+    "file": "lebara_sim_sync.py"
+  },
+  {
+    "name": "App Apis - Subscription Reminders",
+    "script_type": "Scheduler Event",
+    "event_frequency": "Hourly Long",
+    "disabled": 0,
+    "file": "subscription_reminders.py"
+  },
+  {
+    "name": "App Apis - Stale Ticket Reminders",
+    "script_type": "Scheduler Event",
+    "event_frequency": "Hourly Long",
+    "disabled": 0,
+    "file": "stale_reminders.py"
+  }
+]

@@ -54,6 +54,20 @@
   "im_token_ttl_minutes",
   "im_ignition_poll_seconds",
   "im_ignition_window_minutes",
+  "sec_lebara",
+  "lebara_enabled",
+  "lebara_base_url",
+  "lebara_username",
+  "lebara_password",
+  "lebara_notify_user",
+  "col_lebara_a",
+  "lebara_session_status",
+  "lebara_last_refresh",
+  "lebara_last_error",
+  "lebara_sims_synced_at",
+  "lebara_sims_count",
+  "lebara_sims_sync_note",
+  "lebara_two_factor_guid",
   "sec_chatwoot",
   "chatwoot_enabled",
   "chatwoot_base_url",
@@ -121,7 +135,7 @@
   },
   {
    "default": "5",
-   "description": "Wrong node answers \u201cInvalid imei\u201d.",
+   "description": "Wrong node answers “Invalid imei”.",
    "fieldname": "pilot_node",
    "fieldtype": "Data",
    "label": "Pilot Node"
@@ -163,7 +177,7 @@
   },
   {
    "default": "https://ksa.pilot-gps.com",
-   "description": "Server root only \u2014 /api/v3 is added automatically.",
+   "description": "Server root only — /api/v3 is added automatically.",
    "fieldname": "pilot_admin_base_url",
    "fieldtype": "Data",
    "label": "Pilot Admin Base URL"
@@ -342,6 +356,95 @@
    "label": "IM Ignition Test Window (minutes)"
   },
   {
+   "fieldname": "sec_lebara",
+   "fieldtype": "Section Break",
+   "label": "Lebara",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "lebara_enabled",
+   "fieldtype": "Check",
+   "label": "Lebara Enabled",
+   "default": "0"
+  },
+  {
+   "fieldname": "lebara_base_url",
+   "fieldtype": "Data",
+   "label": "Lebara Portal URL",
+   "default": "https://b2b.lebara.sa"
+  },
+  {
+   "fieldname": "lebara_username",
+   "fieldtype": "Data",
+   "label": "Lebara Username"
+  },
+  {
+   "fieldname": "lebara_password",
+   "fieldtype": "Password",
+   "label": "Lebara Password"
+  },
+  {
+   "fieldname": "lebara_notify_user",
+   "fieldtype": "Link",
+   "options": "User",
+   "label": "Notify on Expiry",
+   "description": "Gets a desk notification when the session expires and a new OTP is needed."
+  },
+  {
+   "fieldname": "col_lebara_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "lebara_session_status",
+   "fieldtype": "Data",
+   "label": "Session Status",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "lebara_last_refresh",
+   "fieldtype": "Datetime",
+   "label": "Last Refresh",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "lebara_last_error",
+   "fieldtype": "Small Text",
+   "label": "Last Error",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "lebara_sims_synced_at",
+   "fieldtype": "Datetime",
+   "label": "SIMs Synced At",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "lebara_sims_count",
+   "fieldtype": "Int",
+   "label": "SIMs in List",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "lebara_sims_sync_note",
+   "fieldtype": "Small Text",
+   "label": "Last SIM Sync",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "lebara_two_factor_guid",
+   "fieldtype": "Data",
+   "label": "Lebara Two Factor Guid",
+   "hidden": 1,
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
    "collapsible": 1,
    "fieldname": "sec_chatwoot",
    "fieldtype": "Section Break",
@@ -376,13 +479,13 @@
   },
   {
    "default": "9",
-   "description": "Server hour, 0\u201323. The check runs once on this hour.",
+   "description": "Server hour, 0–23. The check runs once on this hour.",
    "fieldname": "stale_ticket_reminder_hour",
    "fieldtype": "Int",
    "label": "Run At Hour"
   },
   {
-   "description": "Status \u2192 hours \u2192 message mapping for the nudge above.",
+   "description": "Status → hours → message mapping for the nudge above.",
    "fieldname": "stale_ticket_rules",
    "fieldtype": "Table",
    "label": "Stale Ticket Rules",
@@ -393,7 +496,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Profile Settings \u2192 Access Token.",
+   "description": "Profile Settings → Access Token.",
    "fieldname": "chatwoot_api_token",
    "fieldtype": "Password",
    "label": "Chatwoot API Token"
@@ -542,7 +645,7 @@
    "label": "Send to Technicians"
   },
   {
-   "description": "Status \u2192 message mapping.",
+   "description": "Status → message mapping.",
    "fieldname": "auto_message_rules",
    "fieldtype": "Table",
    "label": "Status Rules",
@@ -557,7 +660,7 @@
   },
   {
    "default": "0",
-   "description": "WhatsApp delivers free text only within 24 hours of the person\u2019s last message to you. When on, a status message outside that window goes as the row\u2019s WhatsApp Template instead, and a row without one is skipped instead of being sent to fail.",
+   "description": "WhatsApp delivers free text only within 24 hours of the person’s last message to you. When on, a status message outside that window goes as the row’s WhatsApp Template instead, and a row without one is skipped instead of being sent to fail.",
    "fieldname": "chatwoot_use_templates",
    "fieldtype": "Check",
    "label": "Use WhatsApp Templates Outside the 24-Hour Window"
@@ -590,7 +693,7 @@
   },
   {
    "default": "9",
-   "description": "Server hour, 0\u201323. The scan runs once on this hour.",
+   "description": "Server hour, 0–23. The scan runs once on this hour.",
    "fieldname": "subscription_reminder_hour",
    "fieldtype": "Int",
    "label": "Run At Hour"
@@ -636,7 +739,7 @@
    "options": "Customer, then vehicle\nCustomer only\nVehicle only"
   },
   {
-   "description": "One row per kind; untick Send to stop that kind (e.g. send Expiring soon only). With Use WhatsApp Templates on, a customer outside the 24-hour window gets the row\u2019s WhatsApp Template instead of its Message.",
+   "description": "One row per kind; untick Send to stop that kind (e.g. send Expiring soon only). With Use WhatsApp Templates on, a customer outside the 24-hour window gets the row’s WhatsApp Template instead of its Message.",
    "fieldname": "subscription_messages",
    "fieldtype": "Table",
    "label": "Reminder Messages",
@@ -731,7 +834,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-09-16 13:29:36.000000",
+ "modified": "2026-10-05 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "App Apis",
  "name": "app_apis",

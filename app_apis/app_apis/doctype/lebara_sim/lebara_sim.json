@@ -1,0 +1,235 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:subscriber_id",
+ "creation": "2026-10-05 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "msisdn",
+  "status",
+  "group_name",
+  "sub_customer",
+  "col_a",
+  "subscriber_id",
+  "iccid",
+  "imsi",
+  "status_code",
+  "sec_usage",
+  "activation_date",
+  "last_connection",
+  "in_data_session",
+  "col_b",
+  "this_month_mb",
+  "last_month_mb",
+  "sec_erp",
+  "imei",
+  "erp_imei",
+  "match_by",
+  "col_c",
+  "erp_vehicle",
+  "erp_plate",
+  "erp_customer"
+ ],
+ "fields": [
+  {
+   "fieldname": "msisdn",
+   "fieldtype": "Data",
+   "label": "MSISDN",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "bold": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "read_only": 1,
+   "options": "\nIdle\nActive\nBar\nSuspend\nDeactivated",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "group_name",
+   "fieldtype": "Data",
+   "label": "Group",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "sub_customer",
+   "fieldtype": "Data",
+   "label": "Sub-customer",
+   "read_only": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "col_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "subscriber_id",
+   "fieldtype": "Int",
+   "label": "Subscriber Id",
+   "read_only": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "iccid",
+   "fieldtype": "Data",
+   "label": "ICCID",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "imsi",
+   "fieldtype": "Data",
+   "label": "IMSI",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "status_code",
+   "fieldtype": "Int",
+   "label": "Status Code",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_usage",
+   "fieldtype": "Section Break",
+   "label": "Usage"
+  },
+  {
+   "fieldname": "activation_date",
+   "fieldtype": "Datetime",
+   "label": "Activation Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_connection",
+   "fieldtype": "Datetime",
+   "label": "Last Connection",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "in_data_session",
+   "fieldtype": "Check",
+   "label": "In Data Session",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_b",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "this_month_mb",
+   "fieldtype": "Float",
+   "label": "This Month (MB)",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "last_month_mb",
+   "fieldtype": "Float",
+   "label": "Last Month (MB)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_erp",
+   "fieldtype": "Section Break",
+   "label": "Device & ERP Vehicle"
+  },
+  {
+   "fieldname": "imei",
+   "fieldtype": "Data",
+   "label": "IMEI (Lebara)",
+   "read_only": 1,
+   "search_index": 1,
+   "description": "The device IMEI Lebara's network last saw with this SIM."
+  },
+  {
+   "fieldname": "erp_imei",
+   "fieldtype": "Data",
+   "label": "IMEI (ERP)",
+   "read_only": 1,
+   "search_index": 1,
+   "in_standard_filter": 1,
+   "description": "Device Serial of the matched Customer Vehicle."
+  },
+  {
+   "fieldname": "match_by",
+   "fieldtype": "Select",
+   "label": "Matched By",
+   "options": "\nICCID\nIMEI",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_c",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "erp_vehicle",
+   "fieldtype": "Link",
+   "label": "Customer Vehicle",
+   "options": "Customer Vehicle",
+   "read_only": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "erp_plate",
+   "fieldtype": "Data",
+   "label": "Plate",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "erp_customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer",
+   "read_only": 1,
+   "in_standard_filter": 1
+  }
+ ],
+ "in_create": 1,
+ "links": [],
+ "modified": "2026-10-05 13:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "Lebara SIM",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "delete": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Support Team"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Technical"
+  }
+ ],
+ "row_format": "Dynamic",
+ "search_fields": "msisdn,iccid,imei,erp_imei,erp_plate",
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "msisdn",
+ "track_changes": 0
+}

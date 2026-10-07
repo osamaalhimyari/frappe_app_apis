@@ -39,11 +39,28 @@ class app_apis(Document):
 		if frappe.utils.cint(self.im_ignition_poll_seconds) < 30:
 			self.im_ignition_poll_seconds = 90
 
+		self._keep_lebara_session_state()
 		self._validate_pilot_admin()
 		self._validate_pilot_admin2()
 		self._validate_chatwoot()
 		self._validate_whatsapp_templates()
 		self._normalise_excluded_customers()
+
+	def _keep_lebara_session_state(self):
+		"""The Lebara session fields are written by the "Lebara API" Server
+		Script, straight to the database, while this form may be open. Saving
+		the form must not put back the stale values it loaded -- that would
+		flip an Expired session back to "Logged In", or drop a pending OTP."""
+		for field in (
+			"lebara_session_status",
+			"lebara_last_refresh",
+			"lebara_last_error",
+			"lebara_two_factor_guid",
+			"lebara_sims_synced_at",
+			"lebara_sims_count",
+			"lebara_sims_sync_note",
+		):
+			self.set(field, frappe.db.get_single_value(self.doctype, field))
 
 	def _normalise_excluded_customers(self):
 		"""Rewrite the Excluded Customers grid into full international form.

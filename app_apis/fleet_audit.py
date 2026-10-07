@@ -70,15 +70,16 @@ from frappe import _
 from frappe.utils import cint, now_datetime, flt
 
 SNAPSHOT_DT = "app_apis_fleet_audit"
-SIM_DT = "app_apis_sim_import"
+# SIM data comes from the "Lebara SIM" list, which the "Lebara SIM Sync" Server
+# Script refreshes from Lebara every hour. (app_apis_sim_import is the table
+# the old hand-uploaded Excel export filled; it is no longer read.)
+SIM_DT = "Lebara SIM"
 COST_HISTORY_DT = "app_apis_cost_history"
 
-# Nobody has given us a SIM API, so the SIM columns are only ever as fresh as
-# the last spreadsheet somebody remembered to upload. A month is the point at
-# which "these are the current SIM statuses" stops being true enough to bill
-# decisions on, so past it the page says so rather than letting a stale figure
-# pass for a live one.
-STALE_SIM_DAYS = 30
+# The SIM list is synced every hour; a day without a sync means the sync has
+# stopped (Lebara logged out, the job disabled), and the page says so rather
+# than letting a stale figure pass for a live one.
+STALE_SIM_DAYS = 1
 SUMMARY_KEY = "app_apis_fleet_audit_summary"
 PROGRESS_EVENT = "fleet_audit_progress"
 
@@ -873,129 +874,33 @@ def _store(rows, audited_at) -> None:
 
 
 # --------------------------------------------------------------------------
-# side 4: SIM data -- a Lebara export, uploaded by hand
+# side 4: SIM data -- the Lebara SIM list
 # --------------------------------------------------------------------------
 #
-# Not a fourth platform this module reads live: nobody has given it an API,
-# so the SIM status and last-connection date come from whatever .xlsx file
-# somebody last uploaded. That file is parsed into its own table (`SIM_DT`)
-# and merged onto the snapshot as two more columns -- exactly how Pilot's and
-# IM's own "last seen" already sit on the same row, because a SIM's status is
-# one more fact about the same device, not a separate audit.
+# Not a fourth platform this module reads live: the "Lebara SIM Sync" Server
+# Script copies Lebara's SIM list into `SIM_DT` every hour, and this merges it
+# onto the snapshot as more columns -- exactly how Pilot's and IM's own "last
+# seen" already sit on the same row, because a SIM's status is one more fact
+# about the same device, not a separate audit.
 #
 # The merge survives a "Fetch All" refresh: `_store()` truncates and rebuilds
-# the whole snapshot from a fresh ERP/Pilot/IM read, which would silently wipe
-# the SIM columns along with everything else -- so `run_audit()` calls
-# `_apply_sim_data()` again right after storing, re-applying the LAST upload
-# onto the NEW snapshot. The SIM data itself lives in its own table precisely
-# so it survives a snapshot rebuild it is not part of.
-
-
-def _find_sim_header(ws) -> tuple[int | None, dict]:
-	"""The row and column map for one worksheet, or (None, {}) if this is not it.
-
-	Lebara's export can carry more than one sheet, and this module has no
-	control over which is "the" data sheet -- so it looks for a header rather
-	than assuming a name or position. A row counts once it has both MSISDN and
-	IMEI headers, matched case-insensitively.
-	"""
-	for row in ws.iter_rows(min_row=1, max_row=10):
-		values = {}
-		for idx, c in enumerate(row):
-			if c.value is not None:
-				values[str(c.value).strip().lower()] = idx
-		if "msisdn" in values and "imei" in values:
-			return row[0].row, values
-	return None, {}
-
-
-def _coerce_datetime(v):
-	"""A cell's date, in whatever form Lebara's export used.
-
-	openpyxl hands back a real `datetime` for a date-formatted cell already;
-	a plain string is only worth trying to parse, never worth failing an
-	otherwise-good row over.
-	"""
-	if v in (None, ""):
-		return None
-	if isinstance(v, datetime):
-		return v
-	try:
-		return frappe.utils.get_datetime(str(v).strip())
-	except Exception:
-		return None
-
-
-def _parse_sim_workbook(path: str) -> list[dict]:
-	"""Every usable row from a Lebara SIM export, keyed by column HEADER.
-
-	Only five of the export's ~65 columns are read. A row with no MSISDN is
-	dropped -- it is the identity of the SIM and the join key when no IMEI is
-	present, so a row without one cannot be used for anything here.
-	"""
-	import openpyxl
-
-	wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-
-	header_row, cols = None, {}
-	target = None
-	for ws in wb.worksheets:
-		header_row, cols = _find_sim_header(ws)
-		if header_row:
-			target = ws
-			break
-
-	if not target:
-		frappe.throw(
-			_(
-				"Could not find a header row with MSISDN and IMEI columns in this "
-				"file. This importer expects a Lebara SIM export."
-			),
-			title=_("SIM Import"),
-		)
-
-	idx_msisdn = cols["msisdn"]
-	idx_imei = cols["imei"]
-	idx_iccid = cols.get("iccid")
-	# The (M2M) variant is Lebara's per-line status; the plain column is a
-	# secondary status field some exports omit. Either is usable; prefer the
-	# M2M one when both are present.
-	idx_status = cols.get("subscriber status (m2m)", cols.get("subscriber status"))
-	idx_last = cols.get("last connection date")
-
-	def cell(row, idx):
-		if idx is None or idx >= len(row):
-			return None
-		v = row[idx].value
-		return None if v in (None, "") else v
-
-	out = []
-	for row in target.iter_rows(min_row=header_row + 1):
-		msisdn = str(cell(row, idx_msisdn) or "").strip()
-		if not msisdn:
-			continue
-		out.append({
-			"msisdn": msisdn,
-			"imei": str(cell(row, idx_imei) or "").strip() or None,
-			"iccid": str(cell(row, idx_iccid) or "").strip() or None,
-			"sim_status": str(cell(row, idx_status) or "").strip() or None,
-			"last_connection": _coerce_datetime(cell(row, idx_last)),
-		})
-
-	return out
+# the whole snapshot, which wipes the SIM columns with everything else -- so
+# `run_audit()` calls `_apply_sim_data()` again right after storing. The sync
+# job calls `refresh_sim_data()` after each hourly sync as well.
 
 
 def _apply_sim_data() -> dict:
-	"""Merge the last uploaded SIM file onto the CURRENT snapshot.
+	"""Merge the Lebara SIM list onto the CURRENT snapshot.
 
-	Matched by IMEI first -- the more trustworthy key, and the one most SIM
-	rows carry. Rows still unmatched are tried again by MSISDN, against
-	whatever MSISDN Pilot itself reported for that device (`pilot_msisdn`) --
-	this is the fallback for the SIM rows that carry no IMEI at all.
+	A device can have had more than one SIM (an old one deactivated, a new one
+	active), so a live SIM is matched first and a Deactivated one only fills
+	what is still empty. Keys, in order of trust:
+	  1. the IMEI Lebara's network reports for the SIM
+	  2. the ERP vehicle's device IMEI, linked to the SIM by its ICCID
+	  3. the MSISDN Pilot itself reports for the device (`pilot_msisdn`)
 
-	Every SIM column is reset before either pass, so a device the newest
-	import no longer mentions does not keep showing a stale status from a
-	previous upload.
+	Every SIM column is reset first, so a device the list no longer has does
+	not keep a stale status.
 	"""
 	frappe.db.sql(
 		"update `tab%s` set sim_status = NULL, sim_last_seen = NULL, sim_msisdn = NULL"
@@ -1005,29 +910,27 @@ def _apply_sim_data() -> dict:
 	sim_rows = frappe.db.count(SIM_DT)
 	if not sim_rows:
 		frappe.db.commit()
-		return {"sim_rows": 0, "matched_by_imei": 0, "matched_by_msisdn": 0}
+		return {"sim_rows": 0, "matched_by_imei": 0, "matched_by_erp_imei": 0, "matched_by_msisdn": 0}
 
-	frappe.db.sql(
-		"update `tab%s` fa join `tab%s` si on fa.imei = si.imei "
-		"set fa.sim_status = si.sim_status, fa.sim_last_seen = si.last_connection, "
-		"    fa.sim_msisdn = si.msisdn "
-		"where ifnull(fa.imei, '') <> '' and ifnull(si.imei, '') <> ''"
-		% (SNAPSHOT_DT, SIM_DT)
-	)
-	matched_imei = frappe.db._cursor.rowcount if frappe.db._cursor else 0
+	def merge(join_on, live_only):
+		frappe.db.sql(
+			"update `tab%s` fa join `tab%s` si on %s "
+			"set fa.sim_status = si.status, fa.sim_last_seen = si.last_connection, "
+			"    fa.sim_msisdn = si.msisdn "
+			"where ifnull(fa.sim_status, '') = '' %s"
+			% (SNAPSHOT_DT, SIM_DT, join_on, "and si.status <> 'Deactivated'" if live_only else "")
+		)
+		return frappe.db._cursor.rowcount if frappe.db._cursor else 0
 
-	frappe.db.sql(
-		"update `tab%s` fa join `tab%s` si on fa.pilot_msisdn = si.msisdn "
-		"set fa.sim_status = si.sim_status, fa.sim_last_seen = si.last_connection, "
-		"    fa.sim_msisdn = si.msisdn "
-		"where ifnull(fa.sim_status, '') = '' and ifnull(fa.pilot_msisdn, '') <> '' "
-		"  and ifnull(si.msisdn, '') <> ''"
-		% (SNAPSHOT_DT, SIM_DT)
-	)
-	matched_msisdn = frappe.db._cursor.rowcount if frappe.db._cursor else 0
+	by_imei = by_erp = by_msisdn = 0
+	for live_only in (True, False):
+		by_imei += merge("fa.imei = si.imei and ifnull(si.imei, '') <> ''", live_only)
+		by_erp += merge("fa.imei = si.erp_imei and ifnull(si.erp_imei, '') <> ''", live_only)
+		by_msisdn += merge("fa.pilot_msisdn = si.msisdn and ifnull(si.msisdn, '') <> ''", live_only)
 
 	frappe.db.commit()
-	return {"sim_rows": sim_rows, "matched_by_imei": matched_imei, "matched_by_msisdn": matched_msisdn}
+	return {"sim_rows": sim_rows, "matched_by_imei": by_imei, "matched_by_erp_imei": by_erp,
+	        "matched_by_msisdn": by_msisdn}
 
 
 # --------------------------------------------------------------------------
@@ -1159,62 +1062,13 @@ def start_refresh(include_im: int = 1, include_pilot: int = 1, pilot_source: str
 
 
 @frappe.whitelist()
-def import_sim_file(file_url: str) -> dict:
-	"""Ingest a Lebara SIM export (.xlsx) and merge it onto the snapshot.
-
-	Runs in the request, not a background job: parsing is a few seconds even
-	at 30,000 rows, and unlike the platform reads there is no network call
-	here to time out.
-
-	`file_url` is whatever Frappe's own upload endpoint (`frappe.ui.FileUploader`
-	on the client) already saved -- this never accepts raw file bytes itself,
-	so the upload goes through Frappe's existing, audited file-upload path and
-	this only ever reads a file already on this server's disk.
-	"""
+def refresh_sim_data() -> dict:
+	"""Re-apply the Lebara SIM list onto the current snapshot -- seconds, no
+	platform calls. The "Refresh SIM Data" button and the hourly Lebara SIM
+	Sync both call it."""
 	frappe.only_for(RUN_ROLES)
-
-	file_url = str(file_url or "").strip()
-	if not file_url:
-		frappe.throw(_("file_url is required."), title=_("SIM Import"))
-
-	file_doc = frappe.get_doc("File", {"file_url": file_url})
-	rows = _parse_sim_workbook(file_doc.get_full_path())
-
-	if not rows:
-		frappe.throw(
-			_("No usable rows found -- every row needs at least an MSISDN."),
-			title=_("SIM Import"),
-		)
-
-	# Truncate + bulk insert: this is a replacement copy of Lebara's own
-	# records, not something to merge row by row, and doing it this way is
-	# seconds rather than minutes even at tens of thousands of rows.
-	frappe.db.truncate(SIM_DT)
-	now = now_datetime()
-	user = frappe.session.user
-	seen = set()
-	values = []
-	for r in rows:
-		if r["msisdn"] in seen:
-			continue
-		seen.add(r["msisdn"])
-		values.append([
-			r["msisdn"], now, now, user, user, 0, 0,
-			r["msisdn"], r["imei"], r["iccid"], r["sim_status"], r["last_connection"],
-		])
-
-	frappe.db.bulk_insert(
-		SIM_DT,
-		fields=["name", "creation", "modified", "modified_by", "owner", "docstatus", "idx",
-		        "msisdn", "imei", "iccid", "sim_status", "last_connection"],
-		values=values,
-		chunk_size=5000,
-	)
-	frappe.db.commit()
-
 	result = _apply_sim_data()
-	result["file_rows"] = len(rows)
-	result["duplicate_msisdns_dropped"] = len(rows) - len(values)
+	result["synced_at"] = str(frappe.db.get_single_value("app_apis", "lebara_sims_synced_at") or "")
 	return result
 
 
@@ -1519,13 +1373,12 @@ def get_summary() -> dict:
 
 	summary["money"] = _money_summary()
 
-	sim_row = frappe.db.sql(
-		"select count(*), max(modified) from `tab%s`" % SIM_DT
-	)
-	# How OLD the SIM file is, not just when it was uploaded: "12-08-2026"
-	# needs mental arithmetic before it means anything, and the number that
+	sim_row = frappe.db.sql("select count(*) from `tab%s`" % SIM_DT)
+	# How OLD the SIM list is, not just when it was synced: the number that
 	# matters is the number of days.
-	last_import = sim_row[0][1] if sim_row and sim_row[0][1] else None
+	last_import = frappe.db.get_single_value("app_apis", "lebara_sims_synced_at") or None
+	if str(last_import or "").startswith("0001"):
+		last_import = None
 	age_days = None
 	if last_import:
 		age_days = (now_datetime() - frappe.utils.get_datetime(last_import)).days

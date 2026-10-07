@@ -404,7 +404,7 @@ def run(force: bool = False) -> dict:
 
 
 def hourly():
-	"""What hooks.py calls. Never raises: a scheduled job that throws is
+	"""What app_apis.core.jobs calls. Never raises: a scheduled job that throws is
 	retried and can turn one bad configuration into a queue full of tracebacks.
 	"""
 	try:

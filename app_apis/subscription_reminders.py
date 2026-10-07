@@ -694,7 +694,7 @@ def run(force: bool = False, limit: int | None = None) -> dict:
 
 
 def hourly():
-	"""What hooks.py calls. Never raises: a scheduled job that throws is retried
+	"""What app_apis.core.jobs calls. Never raises: a scheduled job that throws is retried
 	and can turn one bad configuration into a queue full of tracebacks."""
 	try:
 		return run()

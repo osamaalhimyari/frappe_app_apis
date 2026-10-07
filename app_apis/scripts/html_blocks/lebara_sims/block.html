@@ -1,0 +1,48 @@
+<div class="lb">
+	<div class="lb-head">
+		<div>
+			<h3 class="lb-title">Lebara SIMs</h3>
+			<div class="lb-sub lb-synced">…</div>
+		</div>
+		<div class="lb-headright">
+			<span class="lb-session indicator-pill gray">…</span>
+			<button type="button" class="btn btn-default btn-sm lb-syncnow">Sync now</button>
+			<button type="button" class="btn btn-default btn-sm lb-login" style="display:none">Log in (OTP)</button>
+		</div>
+	</div>
+
+	<div class="lb-grid">
+		<div class="lb-list">
+			<div class="lb-filters">
+				<input type="text" class="form-control input-sm lb-q" placeholder="MSISDN / ICCID / IMEI / plate">
+				<select class="form-control input-sm lb-status">
+					<option value="">All statuses</option>
+					<option value="2">Active</option>
+					<option value="4">Suspend</option>
+					<option value="1">Idle</option>
+					<option value="3">Bar</option>
+					<option value="9">Deactivated</option>
+				</select>
+				<button type="button" class="btn btn-primary btn-sm lb-search">Search</button>
+				<button type="button" class="btn btn-default btn-sm lb-imeis" title="Paste many device IMEIs from the ERP">Find IMEIs</button>
+				<button type="button" class="btn btn-default btn-sm lb-export" title="Download every SIM matching this search (CSV, opens in Excel)">Export</button>
+			</div>
+			<div class="lb-imeibar" style="display:none"></div>
+			<div class="lb-tablewrap">
+				<table class="lb-table">
+					<thead><tr><th>MSISDN</th><th>Status</th><th>IMEI</th><th>Vehicle</th><th>Customer</th><th>Last connection</th><th class="lb-num">This month MB</th></tr></thead>
+					<tbody class="lb-rows"><tr><td colspan="7" class="lb-empty">…</td></tr></tbody>
+				</table>
+			</div>
+			<div class="lb-pager">
+				<button type="button" class="btn btn-default btn-xs lb-prev">‹ Prev</button>
+				<span class="lb-count"></span>
+				<button type="button" class="btn btn-default btn-xs lb-next">Next ›</button>
+			</div>
+		</div>
+
+		<div class="lb-detail">
+			<div class="lb-empty lb-pick">Pick a SIM from the list.</div>
+		</div>
+	</div>
+</div>

@@ -187,6 +187,16 @@ frappe.ui.form.on("app_apis", {
 	refresh(frm) {
 		frm.add_custom_button(__("Send Test Template"), () => wa_send_test(), __("WhatsApp"));
 
+		lebara_buttons(frm);
+
+		// frappe hides "Customize" on Singles; this one is customizable
+		// (app_apis.core.customize).
+		if (frappe.user.has_role("System Manager")) {
+			frm.page.add_menu_item(__("Customize"), () =>
+				frappe.set_route("Form", "Customize Form", { doc_type: frm.doctype })
+			);
+		}
+
 		frm.add_custom_button(
 			__("Test IM Connection"),
 			() => {
@@ -428,3 +438,103 @@ WA_TABLES.forEach((doctype) => {
 		},
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Lebara: the login is two steps (password -> SMS code), both done by the
+// "Lebara API" Server Script (api_method "lebara"). Everything here is only
+// buttons around it.
+// ---------------------------------------------------------------------------
+function lebara_call(action, args, freeze_message) {
+	return frappe
+		.call({
+			method: "lebara",
+			args: Object.assign({ action }, args || {}),
+			freeze: true,
+			freeze_message: freeze_message || __("Talking to Lebara…"),
+		})
+		.then((r) => ((r && r.message) || {}).result);
+}
+
+function lebara_ask_otp(frm, hint) {
+	frappe.prompt(
+		[
+			{
+				fieldname: "code",
+				fieldtype: "Data",
+				label: __("Code from SMS"),
+				reqd: 1,
+				description: frappe.utils.escape_html(hint || "") + " " + __("The code is valid for about 60 seconds."),
+			},
+		],
+		(v) =>
+			lebara_call("submit_otp", { code: v.code }, __("Checking the code…")).then((res) => {
+				frappe.show_alert({ message: (res && res.message) || __("Logged in to Lebara."), indicator: "green" });
+				frm.reload_doc();
+			}),
+		__("Lebara OTP"),
+		__("Submit")
+	);
+}
+
+function lebara_buttons(frm) {
+	const group = __("Lebara");
+	frm.add_custom_button(
+		__("Request OTP"),
+		() => {
+			if (frm.is_dirty()) {
+				frappe.msgprint(__("Save the form first, so the Lebara username and password are stored."));
+				return;
+			}
+			lebara_call("request_otp", {}, __("Signing in to Lebara…")).then((res) => {
+				if (res && res.logged_in) {
+					frappe.show_alert({ message: res.message, indicator: "green" });
+					frm.reload_doc();
+					return;
+				}
+				frm.reload_doc();
+				lebara_ask_otp(frm, res && res.message);
+			});
+		},
+		group
+	);
+	frm.add_custom_button(__("Submit OTP"), () => lebara_ask_otp(frm, ""), group);
+	frm.add_custom_button(
+		__("Test Session"),
+		() =>
+			lebara_call("ping").then(() => {
+				frappe.show_alert({ message: __("Lebara session is alive."), indicator: "green" });
+				frm.reload_doc();
+			}),
+		group
+	);
+	frm.add_custom_button(
+		__("Find SIM"),
+		() =>
+			frappe.prompt(
+				[{ fieldname: "msisdn", fieldtype: "Data", label: __("MSISDN"), reqd: 1 }],
+				(v) =>
+					lebara_call("sim_full", { msisdn: v.msisdn.trim() }, __("Looking up the SIM…")).then((sim) => {
+						frappe.msgprint({
+							title: __("Lebara SIM"),
+							indicator: sim ? "green" : "orange",
+							message: sim
+								? `<pre style="font-size:11px;max-height:60vh;overflow:auto">${frappe.utils.escape_html(
+										JSON.stringify(sim, null, 2)
+								  )}</pre>`
+								: __("No SIM with that MSISDN."),
+						});
+					}),
+				__("Find Lebara SIM"),
+				__("Find")
+			),
+		group
+	);
+	frm.add_custom_button(
+		__("Logout"),
+		() =>
+			frappe.confirm(__("Log out of Lebara? You will need a new OTP to log in again."), () =>
+				lebara_call("logout").then(() => frm.reload_doc())
+			),
+		group
+	);
+}

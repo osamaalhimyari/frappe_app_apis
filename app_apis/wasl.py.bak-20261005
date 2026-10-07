@@ -1,0 +1,237 @@
+"""
+WASL linking for Customer Vehicle -- custom app module.
+
+Put this file in any custom Frappe app, e.g.  apps/<your_app>/<your_app>/wasl.py
+then:  bench --site erb.im2m.ws migrate   (or just restart)  ->  method path:
+    <your_app>.wasl.link_vehicle
+
+Why a custom app and not a Server Script: Pilot's WASL form only works inside a
+signed-in *user* session, and that session lives in a cookie. Server Scripts
+cannot keep cookies between calls; a requests.Session here can.
+
+Flow (all on Pilot, admin account 1 from the app_apis settings):
+  1. admin panel login            <admin>/backend/login.php        -> JWT
+  2. find the vehicle by IMEI     backend/app/fitter.php get_agents -> agent_id, account_id
+  3. owner user + login link      backend/app/accounts.php getUsers / getUsersFormAuth
+  4. "log in as account"          <user site>/ax/user/login.php    -> session cookie
+  5. save the WASL form           <user site>/ax/mod/wasl/wasl.php?cmd=vehiclesave&agentid=..
+  6. register with WASL           <user site>/ax/mod/wasl/wasl.php  cmd=vehicleregister
+Steps 5-6 are the same calls Pilot's own WASL window makes (Save, then Register).
+Nothing is logged that contains a password or token.
+"""
+
+import json
+
+import frappe
+import requests
+
+ROLES = ("System Manager", "Technical")
+VEH_DT = "Customer Vehicle"
+TIMEOUT = 60
+REGISTER_TIMEOUT = 600   # Pilot's own UI waits up to 10 minutes for WASL
+
+PLATE_TYPES = {str(i) for i in range(1, 12)}
+TELECOMS = {"BEYOND ONE", "BULL", "eSIM", "FREEDOM", "GO", "LEBARA", "MOBILY",
+            "RED", "SALAM", "STC", "ZAIN"}
+SOURCES = {"RS", "ONE_WIRE", "BLUETOOTH"}
+
+
+def _s(v):
+    return str(v or "").strip()
+
+
+def _check_roles():
+    if frappe.session.user == "Administrator":
+        return
+    if not set(frappe.get_roles()) & set(ROLES):
+        frappe.throw("Not permitted", frappe.PermissionError)
+
+
+def _json(resp):
+    try:
+        return resp.json()
+    except Exception:
+        return {"_text": (resp.text or "")[:300]}
+
+
+# ---------------------------------------------------------------- admin panel
+def _admin(sess):
+    st = frappe.get_doc("app_apis")
+    base = _s(st.get("pilot_admin_base_url")).rstrip("/") + "/backend/"
+    user = _s(st.get("pilot_admin_username"))
+    pwd = st.get_password("pilot_admin_password", raise_exception=False)
+    if not (base.startswith("http") and user and pwd):
+        frappe.throw("Pilot admin account 1 is not configured in app_apis.")
+
+    who = _json(sess.post(base + "login.php", timeout=TIMEOUT, data={
+        "cmd": "get_user_without_auth", "username": user, "password": pwd}))
+    if not isinstance(who, dict):
+        who = {}
+    form = {"cmd": "login", "time_zone": "0", "username": user, "password": pwd,
+            "email": _s(who.get("email")) or user}
+    if not who.get("isadmin") and (who.get("ispartner") or who.get("adm_user_id")) and who.get("id"):
+        form["partner_id"] = str(who.get("id"))
+    ans = _json(sess.post(base + "login.php", data=form, timeout=TIMEOUT))
+    tok = _s(ans.get("jwt_token")) if isinstance(ans, dict) else ""
+    if not tok:
+        frappe.throw("Could not sign in to the Pilot admin panel.")
+    return {"base": base, "hdr": {"Authorization": "Bearer " + tok}}
+
+
+def _adm_get(sess, adm, path, params):
+    r = sess.get(adm["base"] + path, headers=adm["hdr"], params=params, timeout=TIMEOUT)
+    r.raise_for_status()
+    return _json(r)
+
+
+def _find_agent(sess, adm, imei):
+    got = _adm_get(sess, adm, "app/fitter.php", {"cmd": "get_agents", "query": imei,
+                                                 "page": 1, "start": 0, "limit": 25})
+    for r in (got.get("data") or []) if isinstance(got, dict) else []:
+        if isinstance(r, dict) and _s(r.get("uniqid")) == imei:
+            return r
+    frappe.throw("IMEI " + imei + " is not on Pilot -- upload the vehicle first.")
+
+
+def _user_session(sess, adm, account_id):
+    """The admin panel's own 'log in as this account' (Users grid double-click)."""
+    users = _adm_get(sess, adm, "app/accounts.php", {"cmd": "getUsers", "account_id": account_id,
+                                                      "page": 1, "start": 0, "limit": 50})
+    login = ""
+    for u in (users.get("data") or []) if isinstance(users, dict) else []:
+        if isinstance(u, dict) and frappe.utils.cint(u.get("status")) != 0:
+            if u.get("is_owner_user") or not login:
+                login = _s(u.get("login"))
+    if not login:
+        frappe.throw("Pilot account " + str(account_id) + " has no active user.")
+
+    host = adm["base"].split("//", 1)[1].split("/", 1)[0]
+    auth = _adm_get(sess, adm, "app/accounts.php", {"cmd": "getUsersFormAuth",
+                                                     "account_id": account_id,
+                                                     "host": host, "protocol": "https:"})
+    url = _s(auth.get("url")) if isinstance(auth, dict) else ""
+    if not url:
+        frappe.throw("The admin panel gave no login link for account " + str(account_id) + ".")
+    r = sess.post(url, timeout=TIMEOUT, data={
+        "username": login, "role": _s(auth.get("role")), "id": _s(auth.get("id")),
+        "token": _s(auth.get("token")), "sec_token": _s(auth.get("sec_token"))})
+    r.raise_for_status()
+    # .../ax/user/login.php -> site root
+    return url.split("ax/user/login.php")[0]
+
+
+# ---------------------------------------------------------------- form
+def _validate(f):
+    gaps = []
+    if _s(f.get("plateType")) not in PLATE_TYPES:
+        gaps.append("Plate Type")
+    for k, label in (("plate_number", "Plate Number"), ("left_letter", "Left Letter"),
+                     ("middle_letter", "Middle Letter"), ("right_letter", "Right Letter"),
+                     ("sequenceNumber", "Sequence Number"), ("imeiNumber", "Imei Number"),
+                     ("deviceBrand", "Tracking device Brand"),
+                     ("deviceModel", "Tracking device Model")):
+        if not _s(f.get(k)):
+            gaps.append(label)
+    if _s(f.get("telecomCompanyName")) not in TELECOMS:
+        gaps.append("Telecom service provider")
+    sim = _s(f.get("simNumber")).replace(" ", "")
+    if not (sim.startswith("966") and sim.isdigit() and 4 <= len(sim) <= 18):
+        gaps.append("Data SIM number")
+    for flag, src, label in (("hasTemperatureSensor", "temperatureSource", "Temperature source"),
+                             ("hasHumiditySensor", "humiditySource", "Humidity source")):
+        if frappe.utils.cint(f.get(flag)) and _s(f.get(src)) not in SOURCES:
+            gaps.append(label)
+    if _s(f.get("weightSource")) not in ("ANALOG", "CAN"):
+        gaps.append("Weight source")
+    for k in ("weightInKilogramsEmptyVehicle", "mlVoltageEmptyVehicle",
+              "weightInKilogramsFullLoad", "mlVoltageFullLoad"):
+        if _s(f.get(k)) == "":
+            gaps.append(k)
+    return gaps
+
+
+def _payload(f):
+    p = {
+        "plateType": _s(f.get("plateType")),
+        "vehiclePlate[number]": _s(f.get("plate_number")),
+        "vehiclePlate[leftLetter]": _s(f.get("left_letter")),
+        "vehiclePlate[middleLetter]": _s(f.get("middle_letter")),
+        "vehiclePlate[rightLetter]": _s(f.get("right_letter")),
+        "sequenceNumber": _s(f.get("sequenceNumber")),
+        "imeiNumber": _s(f.get("imeiNumber")),
+        "trackingDevice[telecomCompanyName]": _s(f.get("telecomCompanyName")),
+        "trackingDevice[simNumber]": _s(f.get("simNumber")).replace(" ", ""),
+        "trackingDevice[deviceBrand]": _s(f.get("deviceBrand")),
+        "trackingDevice[deviceModel]": _s(f.get("deviceModel")),
+        "trackingDevice[hasTemperatureSensor]": frappe.utils.cint(f.get("hasTemperatureSensor")),
+        "trackingDevice[hasHumiditySensor]": frappe.utils.cint(f.get("hasHumiditySensor")),
+        "trackingDevice[weightSource]": _s(f.get("weightSource")),
+        "trackingDevice[weightInKilogramsEmptyVehicle]": _s(f.get("weightInKilogramsEmptyVehicle")),
+        "trackingDevice[mlVoltageEmptyVehicle]": _s(f.get("mlVoltageEmptyVehicle")),
+        "trackingDevice[weightInKilogramsHalfLoad]": _s(f.get("weightInKilogramsHalfLoad")),
+        "trackingDevice[mlVoltageHalfLoad]": _s(f.get("mlVoltageHalfLoad")),
+        "trackingDevice[weightInKilogramsFullLoad]": _s(f.get("weightInKilogramsFullLoad")),
+        "trackingDevice[mlVoltageFullLoad]": _s(f.get("mlVoltageFullLoad")),
+    }
+    if p["trackingDevice[hasTemperatureSensor]"]:
+        p["trackingDevice[temperatureSource]"] = _s(f.get("temperatureSource"))
+    if p["trackingDevice[hasHumiditySensor]"]:
+        p["trackingDevice[humiditySource]"] = _s(f.get("humiditySource"))
+    if p["trackingDevice[weightSource]"] == "ANALOG":
+        p["trackingDevice[weightSensorAnalogNumber]"] = _s(f.get("weightSensorAnalogNumber"))
+    return p
+
+
+# ---------------------------------------------------------------- API
+@frappe.whitelist()
+def link_vehicle(vehicle, form, register=1):
+    """Save the WASL form on Pilot, then (register=1) register it with WASL."""
+    _check_roles()
+    doc = frappe.get_doc(VEH_DT, vehicle)
+    f = json.loads(form) if isinstance(form, str) else (form or {})
+    imei = _s(doc.device_serial)
+    if _s(f.get("imeiNumber")) != imei:
+        frappe.throw("The IMEI in the form does not match this vehicle's Device Serial.")
+    gaps = _validate(f)
+    if gaps:
+        return {"ok": False, "step": "validate", "msg": "Missing or invalid: " + ", ".join(gaps)}
+
+    out = {"ok": False, "imei": imei}
+    with requests.Session() as sess:
+        adm = _admin(sess)
+        row = _find_agent(sess, adm, imei)
+        agent_id = _s(row.get("agent_id"))
+        out["agent_id"] = agent_id
+        site = _user_session(sess, adm, _s(row.get("account_id")))
+        url = site + "ax/mod/wasl/wasl.php"
+
+        # 5. Save Form (Pilot posts it as an Ext form submit)
+        r = sess.post(url, params={"cmd": "vehiclesave", "agentid": agent_id},
+                      data=_payload(f), timeout=TIMEOUT)
+        saved = _json(r)
+        if r.status_code != 200 or not (isinstance(saved, dict) and saved.get("success")):
+            out["step"] = "save"
+            out["msg"] = "Pilot did not save the WASL form: " + _s(
+                saved.get("msg") if isinstance(saved, dict) else r.text)[:300]
+            return out
+        out["saved"] = True
+        if not frappe.utils.cint(register):
+            out["ok"] = True
+            out["step"] = "save"
+            out["msg"] = "WASL form saved on Pilot (not registered)."
+            return out
+
+        # 6. Register
+        r = sess.post(url, data={"cmd": "vehicleregister", "agentid": agent_id},
+                      timeout=REGISTER_TIMEOUT)
+        reg = _json(r)
+        out["step"] = "register"
+        out["ok"] = bool(isinstance(reg, dict) and reg.get("result"))
+        out["msg"] = _s(reg.get("msg") if isinstance(reg, dict) else r.text)[:500] or (
+            "Registered with WASL." if out["ok"] else "WASL did not confirm the registration.")
+
+    frappe.get_doc({"doctype": "Comment", "comment_type": "Info",
+                    "reference_doctype": VEH_DT, "reference_name": vehicle,
+                    "content": "WASL link: " + ("registered" if out["ok"] else "failed") +
+                               " -- " + out["msg"]}).insert(ignore_permissions=True)
+    return out

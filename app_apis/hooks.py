@@ -43,7 +43,9 @@ app_license = "mit"
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-# doctype_js = {"doctype" : "public/js/doctype.js"}
+# Customize Form normally refuses every Single; the app lets it open app_apis
+# (see app_apis/core/customize.py and public/js/customize_form.js).
+doctype_js = {"Customize Form": "public/js/customize_form.js"}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -86,7 +88,11 @@ app_license = "mit"
 # ------------
 
 # before_install = "app_apis.install.before_install"
-# after_install = "app_apis.install.after_install"
+# Seed the app's Server Scripts and Client Scripts (app_apis/scripts/) into
+# the desk -- only the ones that do not exist yet, so desk edits are never
+# overwritten. See app_apis/core/scripts.py.
+after_install = "app_apis.core.scripts.after_install"
+after_migrate = "app_apis.core.scripts.after_migrate"
 
 # Uninstallation
 # ------------
@@ -163,27 +169,14 @@ doc_events = {
 # Scheduler Events
 # ----------------
 #
-# Hourly rather than daily, and the hook itself decides nothing: the hour and
-# the weekday are `subscription_reminder_hour` and `subscription_reminder_weekday`
-# on the settings Single, so an operator changes when this runs from the desk
-# instead of editing this file and redeploying. `hourly_long` because a pass
-# reads 22,000 vehicle rows and can then sit on HTTP calls to Chatwoot; the
-# short queue is for work that finishes quickly.
-#
-# The job is a no-op unless `subscription_reminder_enabled` is ticked, and sends
-# nothing at all while `subscription_reminder_dry_run` is on. See
-# app_apis/subscription_reminders.py for why there are three separate guards.
-#
-# `stale_reminders.hourly` follows the same trick: `stale_ticket_reminder_hour`
-# on the settings Single decides which of these 24 ticks is the one that scans,
-# so that hour is a setting too, not a second cron line to keep in sync with
-# the first. See app_apis/stale_reminders.py.
-scheduler_events = {
-	"hourly_long": [
-		"app_apis.subscription_reminders.hourly",
-		"app_apis.stale_reminders.hourly",
-	],
-}
+# Intentionally empty. The scheduled jobs are Scheduler Event Server Scripts
+# now, visible and editable in the desk (Server Script list):
+#   "App Apis - Subscription Reminders"  -> app_apis.core.jobs.subscription_reminders_hourly
+#   "App Apis - Stale Ticket Reminders"  -> app_apis.core.jobs.stale_reminders_hourly
+#   "Lebara Keepalive"                   -> the "lebara" API Server Script
+# The passes still read their hour/weekday/enabled settings from the app_apis
+# Single, as before.
+# scheduler_events = {}
 
 # Testing
 # -------
@@ -197,6 +190,11 @@ scheduler_events = {
 # extend_doctype_class = {
 # 	"Task": "app_apis.custom.task.CustomTaskMixin"
 # }
+
+# Customize Form: same class, but app_apis (a Single) may be customized.
+override_doctype_class = {
+	"Customize Form": "app_apis.core.customize.CustomizeForm",
+}
 
 # Overriding Methods
 # ------------------------------
@@ -223,43 +221,15 @@ scheduler_events = {
 
 # Fixtures
 # --------
-# Ship BOTH toolbar buttons with the app, so `bench install-app app_apis` on any
-# site that already has the doctypes delivers working features, not just a
-# library. The Client Scripts are the app's entire front end -- they call
-# app_apis.connector.get_snapshot / app_apis.im_connector.get_snapshot and
-# render the result.
+# Only desk-built records that are not scripts. The Client Scripts and Server
+# Scripts are *seeded* from app_apis/scripts/ instead (after_install /
+# after_migrate above): fixtures are re-imported with force=True on every
+# migrate, which would overwrite any edit made to a script in the desk.
 #
-# Both records live in ONE fixtures/client_script.json, and that filename is not
-# a choice: frappe resolves a fixture file by the scrubbed doctype name, so a
-# second file (im_client_script.json) is silently never imported.
-#
-# Regenerate after editing either script in the desk:
+# The Fleet Audit / Fuel Efficiency dashboards are Custom HTML Blocks.
+# Regenerate after editing them in the desk:
 #     bench --site <site> export-fixtures --app app_apis
-#
-# There is no Server Script to ship: all logic lives in the two connectors.
-#
-# The Fleet Audit dashboard is a Custom HTML Block, which is desk-editable
-# document data rather than a file in this app -- without a fixture for it,
-# every dashboard change made from the desk (which is how it has always been
-# built) would live only in this site's database and never reach git at all.
-# Regenerate the same way, after editing the block in the desk.
 fixtures = [
-    {
-        "dt": "Client Script",
-        "filters": [
-            [
-                "name",
-                "in",
-                [
-                    "xticket-check-pilot",
-                    "xticket-check-pilot2",
-                    "xticket-check-im",
-                    "xticket-valuation-link",
-                    "xticket-message-toast",
-                ],
-            ]
-        ],
-    },
     {
         "dt": "Custom HTML Block",
         "filters": [["name", "in", ["Fleet Audit", "Fuel Efficiency"]]],
