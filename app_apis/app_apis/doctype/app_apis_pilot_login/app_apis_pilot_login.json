@@ -1,0 +1,111 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:account_key",
+ "creation": "2026-10-07 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "account_key",
+  "estate",
+  "email",
+  "col_a",
+  "password_no",
+  "last_ok",
+  "last_failed",
+  "failures",
+  "password_row"
+ ],
+ "fields": [
+  {
+   "fieldname": "account_key",
+   "fieldtype": "Data",
+   "label": "Key",
+   "read_only": 1,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "estate",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Estate",
+   "read_only": 1
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Pilot Account",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Which row of Pilot Passwords worked, counting from 1. 0 = none did.",
+   "fieldname": "password_no",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Password No.",
+   "read_only": 1
+  },
+  {
+   "description": "When the remembered password was last confirmed to work.",
+   "fieldname": "last_ok",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Worked On",
+   "read_only": 1
+  },
+  {
+   "description": "When every password in the list was last rejected for this account.",
+   "fieldname": "last_failed",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "All Rejected On",
+   "read_only": 1
+  },
+  {
+   "description": "How many checks in a row had every password rejected.",
+   "fieldname": "failures",
+   "fieldtype": "Int",
+   "label": "Rejected In A Row",
+   "read_only": 1
+  },
+  {
+   "description": "The row in the password table that worked. Not the password itself.",
+   "fieldname": "password_row",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Password Row",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-07 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "App Apis Pilot Login",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "email",
+ "track_changes": 0
+}

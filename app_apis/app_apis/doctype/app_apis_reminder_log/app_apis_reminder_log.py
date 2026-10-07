@@ -9,12 +9,15 @@ it -- a row here is evidence of what the system did to a real customer, and an
 editable row is worth nothing as evidence.
 
 This table is load-bearing, not just an audit trail. `subscription_reminders`
-reads it to answer "have we already told this customer this week", so deleting
+reads it to answer "have we already told this vehicle this week" (and how much
+has been sent today), so deleting
 rows inside the repeat window will cause the next run to message those customers
 again. That is the reason there is no automatic pruning wired up.
 
-One row per CUSTOMER per attempt, not one per vehicle: the reminder itself is
-grouped that way, and `plates` carries the whole list.
+One row per VEHICLE per attempt: the reminder is sent per vehicle, and `plates`
+carries that one plate. (Rows written before that change hold a customer's whole
+list, and are still read that way.) Only attempts are logged -- vehicles passed
+over for the day are counted in the round's note, not written here.
 """
 
 import frappe

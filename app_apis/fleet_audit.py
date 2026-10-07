@@ -531,14 +531,21 @@ def _pilot_fleet(source: str = "admin", max_accounts: int = 0,
 
 	total = len(accounts)
 	for i, (email, _n) in enumerate(accounts, start=1):
-		password = connector._password_for(email, legacy)
-		if not password:
+		# Each account is tried against the estate's Pilot Passwords in order,
+		# the one that worked last time first. A cached sign-in token does not
+		# prove the password it was minted with, so that case remembers nothing.
+		res, _info = connector.with_passwords(
+			email,
+			legacy,
+			lambda pw, email=email: pilot_admin.request(
+				"/vehicles", settings=pilot_admin.settings_for(email, pw)
+			),
+			proves=lambda r: (r.get("_pilot_admin") or {}).get("token_source") != "cache",
+		)
+		if res is None:
 			report["accounts_errored"] += 1
 			report["failures"].append({"account": email, "why": "no password available"})
 			continue
-
-		cfg = pilot_admin.settings_for(email, password)
-		res = pilot_admin.request("/vehicles", settings=cfg)
 		report["accounts_tried"] += 1
 
 		code = cint(res.get("code"))

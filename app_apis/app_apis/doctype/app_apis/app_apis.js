@@ -185,6 +185,14 @@ frappe.ui.form.on("app_apis", {
 	},
 
 	refresh(frm) {
+		// The Pilot password tables show only the password: no "No." column
+		if (!document.getElementById("app-apis-pilot-pw-grid")) {
+			$(`<style id="app-apis-pilot-pw-grid">
+				[data-fieldname="pilot_password_list"] .row-index,
+				[data-fieldname="pilot2_password_list"] .row-index { display: none !important; }
+			</style>`).appendTo("head");
+		}
+
 		frm.add_custom_button(__("Send Test Template"), () => wa_send_test(), __("WhatsApp"));
 
 		lebara_buttons(frm);

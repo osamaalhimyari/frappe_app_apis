@@ -194,38 +194,188 @@ def _settings(account: int = 1) -> dict:
 		"doc": s,
 		"account_no": account,
 		"label": label,
-		"pw_field": prefix + "_password",
+		"pw_table": prefix + "_password_list",
 		"conf_key": prefix + "_passwords",
+		"_pw_cache": {},
 	}
 
 
-def _password_for(email: str, settings: dict) -> str | None:
-	"""Resolve the password for one account.
+LOGIN_DT = "App Apis Pilot Login"
 
-	Pilot may or may not use the same password across a customer's accounts.
-	Resolution order:
+
+def _login_key(settings: dict, email: str) -> str:
+	return "%s:%s" % (settings.get("account_no", 1), str(email or "").strip().lower())
+
+
+def _table_passwords(settings: dict) -> list[dict]:
+	"""The Pilot Passwords table, top to bottom: [{"row", "no", "password"}].
+
+	`row` is the child row's name (what is remembered per account), `no` is its
+	position counting from 1 (what is shown to people). Blank rows are skipped,
+	and the same password typed twice counts once. Decrypted once per settings
+	dict, because a Fleet Audit sweep resolves thousands of accounts from one.
+	"""
+	cache = settings.setdefault("_pw_cache", {})
+	if "rows" not in cache:
+		rows, seen = [], set()
+		table = settings["doc"].get(settings.get("pw_table", "pilot_password_list")) or []
+		for position, row in enumerate(table, start=1):
+			password = row.get_password("password", raise_exception=False)
+			if password and password not in seen:
+				seen.add(password)
+				rows.append({"row": row.name, "no": position, "password": password})
+		cache["rows"] = rows
+	return cache["rows"]
+
+
+def _remembered_row(settings: dict, email: str) -> str:
+	"""The password row that worked for this account last time, or ""."""
+	try:
+		return frappe.db.get_value(LOGIN_DT, _login_key(settings, email), "password_row") or ""
+	except Exception:
+		return ""
+
+
+def _password_candidates(email: str, settings: dict) -> list[dict]:
+	"""Every password to try for one account, in the order to try them.
+
+	Pilot customers do not share one password: an estate has a short list of
+	them (the Pilot Passwords table) and which one belongs to which customer is
+	not written down anywhere. So an account is tried against the list, top to
+	bottom, and the row that worked is remembered for that account (see
+	`_remember`) and moved to the front next time -- the normal check is then
+	one request, not three.
+
+	Order:
 
 	  1. `pilot_passwords` (or `pilot2_passwords` for the second estate) in
-	     site_config -- an {email: password} map, for the case where accounts
-	     genuinely differ.
-	  2. `app_apis.pilot_password` / `pilot2_password` -- the shared password
-	     for that estate, encrypted at rest, which is what this deployment
-	     currently uses for most accounts.
-
-	Step 1 makes per-account credentials possible with no schema change. If
-	per-account passwords become the norm rather than the exception, promote
-	them to a child table on `app_apis` (fields `pilot_email` +
-	`pilot_password`) so they are encrypted and editable from the desk.
+	     site_config -- an {email: password} map. An explicit per-account
+	     override, so it always goes first and is never "remembered".
+	  2. The remembered row for this account, if it is still in the table.
+	  3. The rest of the table, top to bottom.
 	"""
+	candidates = []
+
 	per = frappe.conf.get(settings.get("conf_key", "pilot_passwords")) or {}
 	if isinstance(per, dict) and email:
 		pw = per.get(email) or per.get(email.strip().lower())
 		if pw:
-			return str(pw)
+			candidates.append({"row": "", "no": 0, "password": str(pw)})
 
-	doc = settings["doc"]
-	pw_field = settings.get("pw_field", "pilot_password")
-	return doc.get_password(pw_field) if doc.get(pw_field) else None
+	rows = _table_passwords(settings)
+	if len(rows) > 1:
+		remembered = _remembered_row(settings, email)
+		if remembered:
+			rows = sorted(rows, key=lambda r: r["row"] != remembered)  # stable: the rest keep their order
+
+	known = {c["password"] for c in candidates}
+	candidates += [r for r in rows if r["password"] not in known]
+	return candidates
+
+
+def _password_for(email: str, settings: dict) -> str | None:
+	"""The password to try first for one account, or None when none is set.
+
+	Kept for callers that only want one. Anything that signs in should use
+	`with_passwords`, which walks the whole list and remembers the winner.
+	"""
+	candidates = _password_candidates(email, settings)
+	return candidates[0]["password"] if candidates else None
+
+
+def _is_authenticated(code: int) -> bool:
+	"""Did Pilot accept the login? 0 is OK. A positive code is Pilot answering
+	a signed-in request with its own error ("Invalid imei", HTTP 200), and -403
+	is "signed in, but not allowed this": both prove the password. A wrong
+	password is always HTTP 401, i.e. -401 -- the only code that means "try the
+	next password". Every other negative code is a transport problem (timeout,
+	unreachable, bad response) that says nothing about the password."""
+	return code >= 0 or code == -403
+
+
+def _remember(settings: dict, email: str, candidate: dict | None, ok: bool) -> None:
+	"""Record which password row worked for an account, or that none did.
+
+	Written only when something CHANGES -- a new winner, or a failure -- so a
+	healthy account costs no write. Holds the row's name and position, never
+	the password. Never raises: this is a convenience, and a check that found
+	the device must not fail because its bookkeeping did.
+	"""
+	try:
+		key = _login_key(settings, email)
+		row = frappe.db.get_value(
+			LOGIN_DT, key, ["password_row", "last_failed", "failures"], as_dict=True
+		)
+		now = frappe.utils.now_datetime()
+
+		if ok:
+			if not candidate or not candidate["no"]:
+				return  # a site_config override is not part of the table
+			if row and row.password_row == candidate["row"] and not row.last_failed and not row.failures:
+				return
+			values = {"password_row": candidate["row"], "password_no": candidate["no"],
+			          "last_ok": now, "last_failed": None, "failures": 0}
+		else:
+			values = {"password_row": "", "password_no": 0, "last_failed": now,
+			          "failures": frappe.utils.cint(row.failures if row else 0) + 1}
+
+		if row:
+			frappe.db.set_value(LOGIN_DT, key, values)
+		else:
+			frappe.get_doc({
+				"doctype": LOGIN_DT, "account_key": key, "estate": settings.get("label"),
+				"email": str(email or "").strip(), **values,
+			}).insert(ignore_permissions=True)
+		# Committed on its own: a check that then throws (every account failed)
+		# rolls its transaction back, and that is exactly when this is wanted.
+		frappe.db.commit()
+	except Exception:
+		frappe.logger("app_apis").error("pilot: could not remember the login for %s" % email, exc_info=True)
+
+
+def with_passwords(email: str, settings: dict, attempt, proves=None) -> tuple[dict | None, dict]:
+	"""Sign in as one account with each password in turn. Returns (result, info).
+
+	`attempt(password)` makes ONE request and returns a Pilot-shaped dict with
+	an integer `code`; -401 means the password was rejected. The first password
+	that is not rejected ends the walk and is remembered for this account. Any
+	other failure (timeout, unreachable, 5xx) also ends the walk without
+	remembering anything: it is not a verdict on the password, and trying the
+	rest would only repeat a request that is failing for another reason.
+
+	`proves(result)` lets a caller say a result does NOT prove the password
+	(a cached admin token, say) so it is not remembered. Default: it does.
+
+	`result` is None when no password is configured at all. `info` is
+	{"tried": n, "used": row position or 0, "all_rejected": bool}. When every
+	password is rejected the LAST rejection is returned, reworded to say how
+	many were tried, and the account is recorded as needing attention. The next
+	check tries the whole list again.
+	"""
+	candidates = _password_candidates(email, settings)
+	if not candidates:
+		return None, {"tried": 0, "used": 0, "all_rejected": False}
+
+	last = None
+	for n, candidate in enumerate(candidates, start=1):
+		result = attempt(candidate["password"])
+		code = frappe.utils.cint(result.get("code"))
+		if code == -401:
+			last = result
+			continue
+		if _is_authenticated(code) and (proves is None or proves(result)):
+			_remember(settings, email, candidate, ok=True)
+		return result, {"tried": n, "used": candidate["no"], "all_rejected": False}
+
+	_remember(settings, email, None, ok=False)
+	if len(candidates) > 1:
+		last["msg"] = (
+			"401 Unauthorized -- Pilot rejected all %d passwords for this account. This is "
+			"an account problem at Pilot's end, not a bug in this integration. Add the "
+			"customer's current password to the Pilot Passwords table; it is tried again "
+			"on the next check." % len(candidates)
+		)
+	return last, {"tried": len(candidates), "used": 0, "all_rejected": True}
 
 
 # --------------------------------------------------------------------------
@@ -263,7 +413,36 @@ def _offline_status(imei: str, email: str, meta: dict) -> dict:
 
 
 def _fetch_status(imei: str, email: str, node: str, settings: dict, password: str | None = None) -> dict:
-	"""One `cmd=status` request for one account.
+	"""`cmd=status` for one account, trying its passwords in order.
+
+	Walks the estate's Pilot Passwords (see `_password_candidates`): the one that
+	worked for this account last time first, then the table top to bottom, and
+	stops at the first that Pilot does not reject. The result's `_pilot` says
+	which row was used (`password_no`) and how many were tried
+	(`passwords_tried`); never the password.
+
+	An explicit `password` (the one-off "test this login yourself" path) is used
+	AS-IS, once, and neither walks the list nor is remembered. So is the offline
+	stand-in, which has no passwords to check.
+	"""
+	if password or is_offline():
+		return _fetch_once(imei, email, node, settings, password)
+
+	result, info = with_passwords(
+		email, settings, lambda pw: _fetch_once(imei, email, node, settings, pw)
+	)
+	if result is None:
+		# No password configured: `_fetch_once` produces the "set Pilot Passwords" error.
+		return _fetch_once(imei, email, node, settings, None)
+
+	meta = result.setdefault("_pilot", {})
+	meta["passwords_tried"] = info["tried"]
+	meta["password_no"] = info["used"] or None
+	return result
+
+
+def _fetch_once(imei: str, email: str, node: str, settings: dict, password: str | None = None) -> dict:
+	"""One `cmd=status` request for one account, with one password.
 
 	NEVER raises for an unusable account -- an account that does not work is a
 	value the retry loop iterates over, not an exception. Always returns a dict
@@ -286,10 +465,10 @@ def _fetch_status(imei: str, email: str, node: str, settings: dict, password: st
 	logged or echoed.
 
 	`password`, when given, is used AS-IS instead of resolving one from
-	`app_apis` / site_config -- the one-off "test this login yourself" path
-	(`get_vehicle_live_with_credentials`), where the caller supplies both
-	halves of the credential directly. Every existing caller leaves this
-	unset and gets the exact resolution `_password_for` already did.
+	`app_apis` / site_config -- what `_fetch_status` passes for each password it
+	tries, and the one-off "test this login yourself" path
+	(`get_vehicle_live_with_credentials`). Left unset, the first configured
+	password is used.
 	"""
 	meta = {
 		"account": email,
@@ -314,8 +493,8 @@ def _fetch_status(imei: str, email: str, node: str, settings: dict, password: st
 	if not password:
 		return _fail(
 			-500,
-			f"no password available for '{email}' -- set app_apis > Pilot "
-			f"Password ({label}), or add an entry to `{settings.get('conf_key', 'pilot_passwords')}` "
+			f"no password available for '{email}' -- add one to app_apis > Pilot "
+			f"Passwords ({label}), or an entry to `{settings.get('conf_key', 'pilot_passwords')}` "
 			"in site_config.",
 			meta,
 		)
@@ -790,6 +969,8 @@ def get_snapshot(ticket: str, imei: str | None = None, node: str | None = None,
 			"pilot_request_time": result.get("reqest_time"),  # Pilot's own spelling
 			"server_epoch": now_epoch,
 			"accounts_tried": len(rejected) + 1,
+			"password_no": diag.get("password_no"),
+			"passwords_tried": diag.get("passwords_tried"),
 			"rejected": rejected,
 		},
 		# Everything Pilot sent for this device, untouched. The curated keys
@@ -991,6 +1172,8 @@ def get_vehicle_live(imei: str, customer: str | None = None, node: str | None = 
 			"pilot_request_time": result.get("reqest_time"),
 			"server_epoch": now_epoch,
 			"accounts_tried": len(rejected) + 1,
+			"password_no": diag.get("password_no"),
+			"passwords_tried": diag.get("passwords_tried"),
 			"rejected": rejected,
 		},
 		"raw": device,
@@ -1131,7 +1314,7 @@ def status() -> dict:
 		"node": cfg["node"],
 		"timeout": cfg["timeout"],
 		"stale_after_minutes": cfg["stale_after_minutes"],
-		"shared_password_set": bool(cfg["doc"].pilot_password),
+		"passwords_in_table": len(_table_passwords(cfg)),
 		"per_account_passwords": sorted((frappe.conf.get("pilot_passwords") or {}).keys()),
 		"offline_devices": sorted(_DEVICES),
 		"offline_accounts": sorted(VALID_ACCOUNTS),

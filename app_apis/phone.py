@@ -70,3 +70,29 @@ def normalise(raw) -> str | None:
 		return None
 
 	return "+" + value
+
+
+def saudi_mobile(raw) -> str | None:
+	"""A Saudi MOBILE as +9665XXXXXXXX, or None when it cannot be one.
+
+	`normalise` is deliberately lenient -- it puts 966 in front of anything that
+	lacks a country code, so a foreign number or a landline comes out looking
+	like a well-formed +966 number. A subscription reminder goes to real
+	customers on WhatsApp, where a number that cannot be a Saudi mobile is a
+	data problem to skip, not a destination to try.
+
+	It also repairs the commonest typing mistake in this data: the country code
+	written in front of the LOCAL number, "+966" + "0533336900" ->
+	"+9660533336900" (21 such numbers on this site). Stripping 966 and then the
+	leading zero recovers the mobile; nothing is guessed, because what is left
+	must be exactly nine digits starting with 5.
+	"""
+	value = digits(raw)
+	if value.startswith("00"):
+		value = value[2:]
+	if value.startswith(DEFAULT_COUNTRY_CODE):
+		value = value[len(DEFAULT_COUNTRY_CODE):]
+	value = value.lstrip("0")
+	if len(value) == 9 and value.startswith("5"):
+		return "+" + DEFAULT_COUNTRY_CODE + value
+	return None

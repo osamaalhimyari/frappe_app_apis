@@ -77,8 +77,11 @@ together, with placeholders like `{ticket} {customer} {vehicle} {link}`.
   changes, per a `Status Rules` table (`auto_messages.py`).
 - **Subscription Reminders**: a scheduled scan of `Customer Vehicle` that
   warns a customer before (and after) their tracking subscription expires,
-  one message per customer listing every plate (`subscription_reminders.py`).
-  Dry Run stays on until the log looks right.
+  one message per VEHICLE (`subscription_reminders.py`). It runs as hourly
+  rounds from Run At Hour to Stop Sending At Hour, capped per round, per day
+  and per customer, always as the row's WhatsApp Template, and skips vehicles
+  already renewed, deleted, excluded or already reminded. Dry Run stays on
+  until the log looks right.
 - **Excluded Customers** / **App Apis Do Not Contact**: every automatic
   message -- ticket stage or subscription reminder -- checks this list first
   (`do_not_contact.py`). An agent can add a row from either place.

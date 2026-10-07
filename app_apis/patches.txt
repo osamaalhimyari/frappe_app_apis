@@ -55,3 +55,7 @@ app_apis.patches.subscription_reminder_lead_time
 # Subscription reminder wording moves from two fixed fields into the Reminder
 # Messages table (one row per kind), so each kind can carry a WhatsApp template.
 app_apis.patches.subscription_messages_to_table
+# Pilot passwords: the one shared password per estate becomes a table tried top to
+# bottom for each customer account (row 1 = the old password), with the working one
+# remembered per account. Post-sync: the child doctype has to exist first.
+app_apis.patches.pilot_passwords_to_table

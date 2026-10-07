@@ -9,93 +9,107 @@ connector the ticket messages use. Nothing outside this app is touched: no field
 is added to `Customer Vehicle`, no core doctype is edited, and the only state
 written is this app's own `App Apis Reminder Log`.
 
-BEFORE, NOT AFTER
------------------
-The window opens `subscription_reminder_days_before` days ahead of the expiry
-date -- 50 by default -- so the customer hears about it while they can still
-renew without losing tracking. It stays open for `subscription_reminder_days_after`
-days past the date, because a lapse that nobody acted on is still worth one more
-nudge.
+HOW A DAY WORKS
+---------------
+The scheduler ticks hourly. From `subscription_reminder_hour` until
+`subscription_reminder_end_hour` each tick is one ROUND: it sends at most
+`subscription_reminder_per_round` messages, one after the other, and each one
+waits for WhatsApp to say whether it took it -- so a Sent row means WhatsApp
+accepted the message, not just Chatwoot. The next round is an hour later, which
+is what keeps Meta from being handed the whole day's list at once.
 
-That is why there are TWO messages and not one. A reminder sent 50 days early
-that says "انتهى اشتراكك" is simply false, and a customer who checks their
-dashboard and finds it working will learn to ignore the next one. So:
+    subscription_reminder_batch_size          the limit per DAY (0 = none)
+    subscription_reminder_per_round           the limit per hourly ROUND
+    subscription_reminder_max_per_customer    per CUSTOMER per day, so one big
+                                              fleet cannot take the whole day
+    subscription_reminder_stop_after_failures this many failures in a row end
+                                              the round (Meta throttling,
+                                              Chatwoot down ...)
+
+ONE MESSAGE PER VEHICLE
+-----------------------
+A vehicle is the unit that expires, is paid for and is renewed, so it is the
+unit that is reminded: one message, one log row, one plate. A customer with
+forty vehicles is not sent forty messages in a minute -- the per-customer daily
+cap spreads them over days -- and a vehicle that fails is simply tried again,
+without a message for its neighbours being held hostage to it.
+
+WHO IS NEXT
+-----------
+Installed devices only, subscription expiring inside the window ("Warn Before
+Expiry" days ahead, "Keep Chasing After" days behind). Order: every vehicle
+still running first, nearest expiry first (0 days left, 1, 2 ... up to the
+lead time); then the expired ones, newest lapse first (-1, -2 ... down to the
+chase limit). Someone who can still renew without losing a day of tracking is
+worth reaching before someone who has been dark for a month.
+
+There are TWO messages, not one, because "your subscription has expired" sent
+50 days early is simply false:
 
     Expiring soon    -- "it runs out soon, renew and lose nothing"
     Already expired  -- "it has run out, let's get you back on"
 
-Both live in the Reminder Messages table on the settings form, one row per
-kind, each with its own Send tick. A kind that is not ticked is never
-mentioned at all: untick "Already expired" and a customer's expired vehicles
-drop out of the plan before anything is counted or listed.
+Both live in the Reminder Messages table, one row per kind, each with its own
+Send tick. A kind that is not ticked is never mentioned at all.
 
-Which one a customer gets is decided by their MOST URGENT vehicle among the
-kinds being sent: if the soonest date has already passed, they hear the
-expired wording, because that is the one that needs acting on today.
+WHAT IS NOT SENT (counted in the round's note, never logged)
+------------------------------------------------------------
+customer types outside "Customer Types"; Excluded Customers / Do Not Contact;
+a vehicle already reminded within "Don't Repeat Within" days; a vehicle whose
+renewal is already paid (a Subscription Renewal waiting to be applied, or a
+renewal invoice for this expiry); an "Installed" vehicle with a Deletion Date;
+a customer already messaged "max per customer" times today; a vehicle that has
+failed twice today (tried again tomorrow, so a dead number at the front of the
+queue cannot starve everything behind it); and a vehicle with no Saudi mobile
+number (+9665XXXXXXXX -- a number that cannot be one is not used and the next
+one is tried).
 
-ONE MESSAGE PER CUSTOMER, NOT PER VEHICLE
------------------------------------------
-This site has 9,053 already-expired vehicles and 966 customers holding them, so
-a message per vehicle would mean forty WhatsApp bubbles in a row for a haulage
-firm. The scan groups by customer and sends one message listing their plates,
-soonest first. That is also the message a person can act on: "these eleven need
-renewing" is a decision, "this one needs renewing", forty times, is a mess to
-reconcile.
+Those are counted rather than logged because they repeat every hour: logging
+them would write the same few hundred rows a day.
 
-WHAT STOPS IT MESSAGING SOMEBODY TWICE
---------------------------------------
-Every attempt writes a row to `App Apis Reminder Log`, and a customer with a
-Sent row inside `subscription_reminder_repeat_days` (7 by default) is skipped.
-The window is per CUSTOMER, not per vehicle: a fleet whose trucks expire on
-different days must not turn into a daily drip.
+THE LOG
+-------
+`App Apis Reminder Log` holds ONLY vehicles a message was attempted for: one
+row per message, Sent / Failed / Dry run (or Skipped when WhatsApp's 24-hour
+window was closed and the row has no template). It is load-bearing: the repeat
+window, the daily limit and the per-customer cap are all read from it, so
+deleting rows re-arms the reminder for everybody deleted.
 
-Note what a 50-day lead plus a 7-day repeat window means in practice -- a
-customer who does not renew hears from us about once a week for those 50 days.
-Widen `subscription_reminder_repeat_days` if that is too eager; it is the one
-number that controls how insistent this feature is.
-
-Failed and Skipped rows deliberately do NOT hold the next attempt off. A send
-that failed did not reach anybody, and a week of silence is not the right answer
-to a temporary outage.
-
-THE THREE GUARDS, AND WHY THERE ARE THREE
------------------------------------------
-Outbound messaging to hundreds of real customers is not something to switch on
-by accident, so getting there is deliberately three deliberate acts:
-
-    subscription_reminder_enabled   OFF  -- the scheduler does nothing at all
-    subscription_reminder_dry_run   ON   -- it scans and logs, and sends nothing
-    subscription_reminder_batch_size 50  -- a live run is capped, per pass
-
-Turn on `enabled` first and read the log: every row says exactly who would have
-been written to, on what number, with the full message body. Untick `dry_run`
-only once that list looks right.
-
-`subscription_reminder_days_after` matters as much as the switches. 1,490 of
-these subscriptions died more than a year ago; without an upper bound the first
-live run wakes up customers who left in 2023.
+TIME
+----
+Every date and time here is the app's (System Settings time zone), never the
+database clock. The database runs on UTC, 3 hours behind Riyadh, so SQL's
+`curdate()` and `now()` would move the window edge, the day boundary and the
+repeat window by three hours.
 
 THE 24-HOUR WINDOW
 ------------------
 WhatsApp only delivers free text to somebody who wrote to the business in the
-last 24 hours -- almost nobody, for a renewal reminder. With Use WhatsApp
-Templates on, the row's WhatsApp Template goes instead whenever that window is
-closed (see chatwoot_connector._route_window), and a row without one is logged
-Skipped rather than posted to fail. Every live send then waits for WhatsApp's
-answer, so a Sent row means WhatsApp took the message, not just Chatwoot.
+last 24 hours -- almost nobody, for a renewal reminder. So a row WITH a WhatsApp
+Template is always sent as that template (its Template Variables fill the
+{{1}}, {{2}} ...; an empty variable gets {plate}), and a row without one is
+sent as text only while the window is open, otherwise logged Skipped rather
+than posted to fail.
 """
+
+import time
 
 import frappe
 from frappe import _
-from frappe.utils import cint, getdate, now_datetime, today
+from frappe.utils import add_days, add_to_date, cint, date_diff, getdate, now_datetime, today
+from frappe.utils.file_lock import LockTimeoutError
+from frappe.utils.synchronization import filelock
 
 from app_apis import chatwoot_connector as cw
 from app_apis import do_not_contact
 from app_apis.contacts import BILINGUAL, format_contacts
-from app_apis.customers import csv_types, type_allowed
-from app_apis.phone import normalise
+from app_apis.customers import csv_types
+from app_apis.phone import saudi_mobile
 
 LOGGER = "app_apis"
+SETTINGS = "app_apis"
+LOG = "App Apis Reminder Log"
+TEMPLATE_DT = "App Apis WhatsApp Template"
 
 # The vehicle master, and the columns read off it. Named here because they
 # belong to the site rather than to this app -- one place to edit if a column is
@@ -105,6 +119,7 @@ VEHICLE_DOCTYPE = "Customer Vehicle"
 VEHICLE_FIELDS = (
 	"name", "customer", "license_plate", "e_license_plate", "plate_num",
 	"driver_mobile", "subscription_expiry_date", "device_statues", "paying",
+	"deletion_date",
 )
 
 # Only a device that is actually fitted and still on the car is worth chasing.
@@ -112,6 +127,9 @@ VEHICLE_FIELDS = (
 # Installation` subscription has not lapsed, it ended, and messaging about it
 # reads as a bill for something the customer already cancelled.
 LIVE_STATUS = "Installed"
+
+# Items on a Sales Invoice that mean "this vehicle's subscription was renewed".
+RENEWAL_ITEM_CODES = ("Subscription renewal", "subscription")
 
 # The two things a reminder can be about. Also the values written to the log's
 # `reminder_type`, so a row says which wording went out without anybody having
@@ -122,10 +140,21 @@ EXPIRED = "Expired"
 # The same two kinds as the Reminder Messages table spells them.
 KIND_LABEL = {EXPIRING: "Expiring soon", EXPIRED: "Already expired"}
 
-# How many plates a message lists before it stops and says "and N more". The
-# largest fleet here holds 146; a WhatsApp bubble with 146 lines in it is not a
-# reminder, it is a denial of service on somebody's phone.
+# How many plates a message lists before it stops and says "and N more". A
+# reminder is one vehicle now, so this only matters to a message written for
+# the old per-customer list.
 MAX_PLATES_LISTED = 8
+
+# A vehicle that failed this many times today is passed over until tomorrow.
+MAX_FAILED_TRIES_PER_DAY = 2
+
+# A round must end well inside the "long" queue's 25-minute job limit.
+ROUND_MAX_SECONDS = 20 * 60
+
+LOCK_NAME = "app_apis_subscription_reminders"
+
+# Run notes are also posted here, as a history next to the one in the settings.
+NOTE_SCRIPT = "App Apis - Subscription Reminders"
 
 # What the shipped messages say. Same shape as the ticket templates in
 # chatwoot_connector: a greeting, the facts once under emoji that need no
@@ -174,11 +203,16 @@ DEFAULTS = {
 	"subscription_reminder_enabled": 0,
 	"subscription_reminder_dry_run": 1,
 	"subscription_reminder_hour": 9,
+	"subscription_reminder_end_hour": 21,
 	"subscription_reminder_weekday": "Every day",
 	"subscription_reminder_days_before": 50,
 	"subscription_reminder_days_after": 90,
 	"subscription_reminder_repeat_days": 7,
 	"subscription_reminder_batch_size": 50,
+	"subscription_reminder_per_round": 50,
+	"subscription_reminder_max_per_customer": 6,
+	"subscription_reminder_stop_after_failures": 3,
+	"subscription_reminder_template_inbox": 0,
 	"subscription_reminder_customer_types": "",
 	"subscription_reminder_phone_source": "Customer, then vehicle",
 }
@@ -218,39 +252,96 @@ def settings() -> dict:
 	return out
 
 
+def _variables_text(raw) -> str:
+	"""A Template Variables value with every empty variable filled with {plate}.
+
+	"{{1}} = " is what an operator leaves when the template has one variable and
+	it is the plate; Meta refuses an empty parameter, so it is filled in rather
+	than failing every send.
+	"""
+	lines = []
+	for line in str(raw or "").split("\n"):
+		if "=" in line and not line.split("=", 1)[1].strip():
+			line = line.split("=", 1)[0].rstrip() + " = {plate}"
+		if line.strip():
+			lines.append(line.strip())
+	return "\n".join(lines) or "{{1}} = {plate}"
+
+
 def message_rows(cfg: dict) -> dict:
 	"""{EXPIRING/EXPIRED: row} for every kind the Reminder Messages table sends.
 
 	A kind with no ticked row is a kind nobody is messaged about -- unticking
 	"Already expired" is how "warn before, never chase after" is spelled. The
-	first ticked row of a kind wins.
+	first ticked row of a kind wins. A row needs a Message, or -- with Use
+	WhatsApp Templates on -- a WhatsApp Template: a template-only row is the
+	normal shape, because that is what is actually delivered.
 	"""
 	kind_of = {label: kind for kind, label in KIND_LABEL.items()}
+	use_templates = bool(cint(cfg["doc"].get("chatwoot_use_templates")))
 	rows = {}
 	for row in cfg["doc"].get("subscription_messages") or []:
 		kind = kind_of.get(str(row.get("kind") or "").strip())
+		if not kind or kind in rows or not cint(row.get("enabled")):
+			continue
 		message = str(row.get("message") or "").strip()
-		if kind and kind not in rows and cint(row.get("enabled")) and message:
-			rows[kind] = {
-				"message": message,
-				"whatsapp_template": str(row.get("whatsapp_template") or "").strip(),
-				"template_variables": str(row.get("template_variables") or ""),
-			}
+		template = str(row.get("whatsapp_template") or "").strip() if use_templates else ""
+		if not message and not template:
+			continue
+		rows[kind] = {
+			"message": message,
+			"whatsapp_template": template,
+			"template_variables": _variables_text(row.get("template_variables")) if template else "",
+			"template_title": "",
+		}
 	return rows
 
 
-def due_now(cfg: dict, when=None) -> tuple[bool, str]:
-	"""Is this the hour the operator asked for? Returns (yes, why not).
+def usable_rows(cfg: dict) -> tuple[dict, list[str]]:
+	"""`message_rows`, minus any kind whose template cannot be sent from here.
 
-	The scheduler ticks hourly and this decides whether the tick is the one that
-	matters, which keeps the schedule a setting an operator can change from the
-	desk rather than a cron string in hooks.py that needs a deploy.
+	Returns (rows, problems). A template that is not in the synced list, or that
+	belongs to a different Chatwoot inbox than "Template Inbox ID" (Meta approves
+	templates per phone number and refuses one sent from a number that does not
+	own it), takes its whole kind out for this round: sending that kind as plain
+	text instead would be a different message from the one the operator chose.
+	"""
+	rows = message_rows(cfg)
+	problems = []
+	inbox = cint(cfg["subscription_reminder_template_inbox"])
+	for kind in list(rows):
+		name = rows[kind]["whatsapp_template"]
+		if not name:
+			continue
+		rec = frappe.db.get_value(TEMPLATE_DT, name, ["title", "inbox_id"], as_dict=True)
+		if not rec:
+			problems.append('"%s": template %s is not in the synced template list' % (KIND_LABEL[kind], name))
+			del rows[kind]
+		elif inbox and cint(rec.inbox_id) != inbox:
+			problems.append('"%s": template %s belongs to inbox %s, not inbox %s' % (
+				KIND_LABEL[kind], rec.title or name, rec.inbox_id, inbox))
+			del rows[kind]
+		else:
+			rows[kind]["template_title"] = rec.title or name
+	return rows, problems
+
+
+def due_now(cfg: dict, when=None) -> tuple[bool, str]:
+	"""Is this an hour a round may run in? Returns (yes, why not).
+
+	The scheduler ticks hourly and this decides whether the tick matters, which
+	keeps the schedule a setting an operator can change from the desk rather
+	than a cron string in hooks.py that needs a deploy. A round runs on every
+	tick from the start hour until the end hour (exclusive); an end hour at or
+	before the start hour still allows the start hour itself, so a mistyped
+	setting means one round a day, never none.
 	"""
 	when = when or now_datetime()
 
-	hour = cint(cfg["subscription_reminder_hour"])
-	if when.hour != hour:
-		return False, f"not the configured hour (now {when.hour:02d}:00, want {hour:02d}:00)"
+	start = cint(cfg["subscription_reminder_hour"])
+	end = max(cint(cfg["subscription_reminder_end_hour"]), start + 1)
+	if not (start <= when.hour < end):
+		return False, f"not a sending hour (now {when.hour:02d}:00, want {start:02d}:00 to {end:02d}:00)"
 
 	wanted = cfg["subscription_reminder_weekday"]
 	if wanted and wanted != "Every day":
@@ -267,7 +358,8 @@ def due_now(cfg: dict, when=None) -> tuple[bool, str]:
 
 
 def vehicles_in_window(cfg: dict) -> list[dict]:
-	"""Every live vehicle whose subscription expires inside the reminder window.
+	"""Every live vehicle whose subscription expires inside the reminder window,
+	in the order they should be messaged.
 
 	The window runs from `days_before` in the FUTURE back to `days_after` in the
 	past, so one query covers both the warning and the chase:
@@ -279,8 +371,13 @@ def vehicles_in_window(cfg: dict) -> list[dict]:
 	Bounded at both ends on purpose. The forward bound is the whole point of the
 	feature -- a customer who hears about it 50 days out can renew without
 	losing a day of tracking. The backward bound is what stops the first live run
-	messaging the 1,490 customers whose subscription died over a year ago and
-	who are, by any reasonable reading, no longer customers.
+	messaging customers whose subscription died over a year ago and who are, by
+	any reasonable reading, no longer customers. 0 means "no bound" on the
+	backward side.
+
+	Order: still running first, nearest expiry first; then expired, newest lapse
+	first. `today` is the app's, not the database's -- see TIME in the module
+	docstring.
 	"""
 	days_before = cint(cfg["subscription_reminder_days_before"])
 	days_after = cint(cfg["subscription_reminder_days_after"])
@@ -288,26 +385,24 @@ def vehicles_in_window(cfg: dict) -> list[dict]:
 	conditions = [
 		"device_statues = %(status)s",
 		"ifnull(subscription_expiry_date, '') != ''",
-		"subscription_expiry_date <= date_add(curdate(), interval %(days_before)s day)",
+		"ifnull(customer, '') != ''",
+		"subscription_expiry_date <= date_add(%(app_today)s, interval %(days_before)s day)",
 	]
-	# 0 is the honest way to say "no bound", and it has to be spellable: an
-	# operator who genuinely wants every lapsed subscription should not have to
-	# type 99999. Note it means something different on each side -- no forward
-	# bound is "only chase what has already expired".
 	if days_after > 0:
 		conditions.append(
-			"subscription_expiry_date >= date_sub(curdate(), interval %(days_after)s day)"
+			"subscription_expiry_date >= date_sub(%(app_today)s, interval %(days_after)s day)"
 		)
 
 	return frappe.db.sql(
 		"""select {fields} from `tab{dt}`
 		   where {where}
-		   order by customer, subscription_expiry_date""".format(
+		   order by (subscription_expiry_date < %(app_today)s),
+		            abs(datediff(subscription_expiry_date, %(app_today)s)), customer, name""".format(
 			fields=", ".join("`%s`" % f for f in VEHICLE_FIELDS),
 			dt=VEHICLE_DOCTYPE,
 			where=" and ".join(conditions),
 		),
-		{"status": LIVE_STATUS, "days_before": days_before, "days_after": days_after},
+		{"status": LIVE_STATUS, "days_before": days_before, "days_after": days_after, "app_today": today()},
 		as_dict=True,
 	)
 
@@ -323,164 +418,254 @@ def _plate(vehicle: dict) -> str:
 
 def _days_to_expiry(vehicle: dict) -> int:
 	"""Positive = days still to run. Negative = days since it lapsed."""
-	return (getdate(vehicle["subscription_expiry_date"]) - getdate(today())).days
+	return date_diff(vehicle["subscription_expiry_date"], today())
 
 
-def _recipient_phone(customer: str, vehicles: list[dict], cfg: dict) -> tuple[str, str]:
-	"""Where this customer's reminder should go. Returns (phone, source).
+def _count(reasons: dict, why: str):
+	reasons[why] = reasons.get(why, 0) + 1
 
-	A subscription is a billing matter, so the Customer's own number leads. The
-	per-vehicle `driver_mobile` is a fallback and a configurable one: it is the
-	driver of that particular truck, and a haulage firm would not thank anybody
-	for sending a renewal notice to whoever happens to be behind the wheel.
 
-	Both are run through app_apis.phone.normalise, which is the same rule the
-	rest of the app uses -- most of these numbers are stored as a bare "+966" or
-	as a local "507320980", and neither is deliverable as written.
+def _today_counts(dry_run: int) -> tuple[int, dict, dict]:
+	"""What today's rounds have already done: (sent, per customer, failures per vehicle).
+
+	Only Sent rows count towards the limits (and Dry run rows while dry-running,
+	so a dry run walks down the list instead of showing the same first fifty
+	every hour). Failed rows, and Skipped rows that were an attempt (they carry a
+	code), count per vehicle -- see MAX_FAILED_TRIES_PER_DAY.
 	"""
-	source = cfg["subscription_reminder_phone_source"]
-
-	# Numbers whose owner has asked to be left alone. Skipped and stepped over
-	# rather than failing the customer: the reminder often lands on a DRIVER's
-	# number, and one driver opting out should not cost their employer the
-	# renewal notice for a fleet of forty.
-	blocked = do_not_contact.blocked_phones(do_not_contact.REMINDERS)
-
-	if source != "Vehicle only":
-		phone = normalise(frappe.db.get_value("Customer", customer, "mobile_no"))
-		if phone and phone not in blocked:
-			return phone, "Customer.mobile_no"
-		if source == "Customer only":
-			return "", ""
-
-	# First usable driver number, in the order the vehicles came back -- which
-	# is by expiry date, so it is the number attached to the most urgent one.
-	for vehicle in vehicles:
-		phone = normalise(vehicle.get("driver_mobile"))
-		if phone and phone not in blocked:
-			return phone, "%s.driver_mobile" % _plate(vehicle)
-
-	return "", ""
+	sent = 0
+	per_customer = {}
+	failures = {}
+	for r in frappe.db.sql(
+		"select customer, plates, status, code from `tab%s` where creation >= %%(d)s "
+		"and status in ('Sent', 'Dry run', 'Failed', 'Skipped')" % LOG,
+		{"d": today() + " 00:00:00"},
+		as_dict=True,
+	):
+		if r.status == "Sent" or (dry_run and r.status == "Dry run"):
+			sent += 1
+			per_customer[r.customer] = per_customer.get(r.customer, 0) + 1
+		elif r.status in ("Failed", "Skipped") and cint(r.code):
+			for plate in str(r.plates or "").split(","):
+				if plate.strip():
+					key = "%s||%s" % (r.customer, plate.strip())
+					failures[key] = failures.get(key, 0) + 1
+	return sent, per_customer, failures
 
 
-def recently_messaged(customer: str, days: int) -> str:
-	"""When this customer was last successfully messaged, or "".
+def _recently_reminded(repeat_days: int, dry_run: int) -> set:
+	"""{"customer||plate"} for every vehicle reminded inside the repeat window.
 
-	Reads Sent rows only. A Failed row means nobody was reached and a Skipped
-	row means nothing was attempted; holding the next run off for a week on
-	either would turn one bad afternoon into a silent week.
+	Reads Sent rows only (and Dry run rows while dry-running). A Failed row means
+	nobody was reached; holding the next attempt off for a week on it would turn
+	one bad afternoon into a silent week. Blind to WHICH of the two messages was
+	sent: someone warned on Monday that their subscription runs out should not
+	get "it has expired" on Tuesday because the date rolled over.
 
-	Deliberately blind to WHICH of the two messages was sent. A customer who was
-	warned on Monday that their subscription runs out should not get an "it has
-	expired" message on Tuesday just because the date rolled over -- from their
-	side that is the same subject twice in two days.
+	At least one day even when set to 0: with hourly rounds, "no repeat window"
+	would mean the same message every hour.
 	"""
-	if days <= 0:
-		return ""
+	since = str(add_to_date(now_datetime(), days=-max(repeat_days, 1)))
+	recent = set()
+	for r in frappe.db.sql(
+		"select customer, plates from `tab%s` where "
+		"((status = 'Sent' and sent_on >= %%(since)s) "
+		" or (%%(dry)s = 1 and status = 'Dry run' and creation >= %%(since)s))" % LOG,
+		{"since": since, "dry": cint(dry_run)},
+		as_dict=True,
+	):
+		for plate in str(r.plates or "").split(","):
+			if plate.strip():
+				recent.add("%s||%s" % (r.customer or "", plate.strip()))
+	return recent
 
-	row = frappe.db.sql(
-		"""select sent_on from `tabApp Apis Reminder Log`
-		   where customer = %(customer)s and status = 'Sent'
-		     and sent_on >= date_sub(now(), interval %(days)s day)
-		   order by sent_on desc limit 1""",
-		{"customer": customer, "days": days},
-	)
-	return str(row[0][0]) if row else ""
+
+def _renewal_state(days_before: int, days_after: int) -> tuple[dict, dict]:
+	"""Vehicles whose renewal is already paid for: ({vehicle: [renewals]}, {vehicle: [invoices]}).
+
+	A Subscription Renewal that has not been applied yet is a customer who has
+	paid and is waiting for their date to move; an invoice for the renewal item
+	posted since the start of this expiry's reminder window is the same customer
+	a little later. Reminding either is the single most annoying message this
+	feature can send.
+	"""
+	pending = {}
+	if frappe.db.exists("DocType", "Subscription Renewal"):
+		for r in frappe.db.sql(
+			"select rv.vehicle, r.name, ifnull(rv.new_end_date, r.new_end_date) as new_end "
+			"from `tabSubscription Renewal` r join `tabSubscription Renewal Vehicle` rv on rv.parent = r.name "
+			"where r.docstatus < 2 and ifnull(r.update_completed, 0) = 0",
+			as_dict=True,
+		):
+			pending.setdefault(r.vehicle, []).append(r)
+
+	invoiced = {}
+	if frappe.get_meta("Sales Invoice Item").get_field("customer_vehicle"):
+		for r in frappe.db.sql(
+			"select i.customer_vehicle as vehicle, inv.name, inv.posting_date "
+			"from `tabSales Invoice` inv join `tabSales Invoice Item` i on i.parent = inv.name "
+			"where inv.docstatus = 1 and inv.posting_date >= date_sub(%(app_today)s, interval %(back)s day) "
+			"and i.item_code in %(items)s and ifnull(i.customer_vehicle, '') != ''",
+			{"back": days_before + days_after + 1, "app_today": today(), "items": RENEWAL_ITEM_CODES},
+			as_dict=True,
+		):
+			invoiced.setdefault(r.vehicle, []).append(r)
+	return pending, invoiced
 
 
-def plan(cfg: dict | None = None) -> list[dict]:
-	"""Who would be messaged this run, and why anybody would not be.
+def plan(cfg: dict | None = None, budget: int | None = None, rows: dict | None = None) -> dict:
+	"""Who would be messaged this round, and why anybody would not be.
 
-	Returns one entry per customer, `send` True or False with a `reason`. The
-	whole decision is made here and nothing is written, so the desk preview and
-	the live run are guaranteed to agree about what is about to happen.
+	Returns {"due": [entry ...], "passed": {reason: count}, "in_window",
+	"expiring_soon", "already_expired", "sent_today", "budget"}. `due` is one
+	entry per VEHICLE, most urgent first, and never longer than the round's
+	budget: `budget` (the per-round cap) cut down by what is left of today's
+	limit. The whole decision is made here and nothing is written, so the desk
+	preview and the live round are guaranteed to agree about what is about to
+	happen.
 	"""
 	cfg = cfg or settings()
+	if rows is None:
+		rows = usable_rows(cfg)[0]
+	dry_run = cint(cfg["subscription_reminder_dry_run"])
+	days_before = cint(cfg["subscription_reminder_days_before"])
+	days_after = cint(cfg["subscription_reminder_days_after"])
+	repeat_days = cint(cfg["subscription_reminder_repeat_days"])
+	daily_limit = cint(cfg["subscription_reminder_batch_size"])
+	per_customer_cap = cint(cfg["subscription_reminder_max_per_customer"])
+	phone_source = cfg["subscription_reminder_phone_source"]
 
-	# A vehicle whose kind is not ticked never enters the plan -- not in the
-	# count, not in the plate list, not as the "most urgent" one -- so with only
-	# Expiring soon ticked, a fleet with one truck already dark and ten
-	# expiring next month hears about the ten and nothing else.
-	sending = message_rows(cfg)
-	vehicles = [
-		v for v in vehicles_in_window(cfg)
-		if (EXPIRED if _days_to_expiry(v) < 0 else EXPIRING) in sending
-	]
+	vehicles = vehicles_in_window(cfg)
+	out = {"due": [], "passed": {}, "in_window": len(vehicles), "expiring_soon": 0,
+	       "already_expired": 0, "sent_today": 0, "budget": 0}
+	for v in vehicles:
+		if _days_to_expiry(v) < 0:
+			out["already_expired"] += 1
+		else:
+			out["expiring_soon"] += 1
 
-	# Group first, decide second: the per-customer rules (phone, repeat window,
-	# customer type) cannot be answered while still walking rows.
-	grouped = {}
-	for vehicle in vehicles:
-		grouped.setdefault(vehicle["customer"], []).append(vehicle)
+	sent_today, customer_today, failed_today = _today_counts(dry_run)
+	out["sent_today"] = sent_today
+
+	room = cint(budget) if budget is not None else len(vehicles)
+	if daily_limit > 0:
+		room = min(room, daily_limit - sent_today)
+	out["budget"] = max(room, 0)
+	if room <= 0 or not vehicles or not rows:
+		return out
+
+	passed = out["passed"]
+	due = out["due"]
 
 	allowed_types = csv_types(cfg["subscription_reminder_customer_types"])
-	repeat_days = cint(cfg["subscription_reminder_repeat_days"])
-	entries = []
+	all_types = (not allowed_types) or ("all" in allowed_types) or ("*" in allowed_types)
 
-	for customer, own in sorted(grouped.items()):
-		# Soonest first, so the message leads with the most urgent vehicle and
-		# {expiry}/{days} describe that one.
-		own.sort(key=lambda v: getdate(v["subscription_expiry_date"]))
-		soonest = own[0]
-		days_left = _days_to_expiry(soonest)
+	customers = {}
+	names = sorted({v.customer for v in vehicles})
+	for i in range(0, len(names), 500):
+		for c in frappe.db.sql(
+			"select name, customer_name, mobile_no, customer_type from `tabCustomer` where name in %(n)s",
+			{"n": tuple(names[i:i + 500])},
+			as_dict=True,
+		):
+			customers[c.name] = c
 
-		entry = {
-			"customer": customer,
-			"customer_name": frappe.db.get_value("Customer", customer, "customer_name") or customer,
-			"vehicles": own,
-			"count": len(own),
-			"plates": [_plate(v) for v in own],
-			"expiry": str(getdate(soonest["subscription_expiry_date"])),
-			"days_to_expiry": days_left,
-			# Decided by the most urgent vehicle, not by the majority: a fleet
-			# with one truck already dark and ten expiring next month needs to
-			# hear about the dark one today.
-			"kind": EXPIRED if days_left < 0 else EXPIRING,
-			"send": False,
-			"reason": "",
-			"phone": "",
-			"phone_source": "",
-		}
+	drivers = {}
+	for v in vehicles:
+		drivers.setdefault(v.customer, []).append(v.driver_mobile)
 
-		# First question, before customer type and before the repeat window:
-		# somebody who asked to be left alone is left alone, and no other
-		# setting on this form gets a vote.
-		asked = do_not_contact.check(customer=customer, scope=do_not_contact.REMINDERS)
-		if asked["blocked"]:
-			entry["reason"] = asked["reason"]
-			entries.append(entry)
+	blocked_phones = do_not_contact.blocked_phones(do_not_contact.REMINDERS)
+	recent = _recently_reminded(repeat_days, dry_run)
+	pending_renewals, renewal_invoices = _renewal_state(days_before, days_after)
+
+	seen = set()
+	for v in vehicles:
+		if len(due) >= room:
+			break
+
+		days = _days_to_expiry(v)
+		kind = EXPIRED if days < 0 else EXPIRING
+		if kind not in rows:
 			continue
 
-		if not type_allowed(customer, allowed_types):
-			entry["reason"] = _("Customer type is not in the reminder list.")
-			entries.append(entry)
+		c = customers.get(v.customer) or {}
+		if not all_types and str(c.get("customer_type") or "").strip().lower() not in allowed_types:
+			_count(passed, "customer type not in the list")
 			continue
 
-		last = recently_messaged(customer, repeat_days)
-		if last:
-			entry["reason"] = _("Already reminded on {0}; the repeat window is {1} days.").format(
-				last[:16], repeat_days
+		plate = _plate(v)
+		key = "%s||%s" % (v.customer, plate)
+		if key in recent:
+			continue
+		if failed_today.get(key, 0) >= MAX_FAILED_TRIES_PER_DAY:
+			_count(passed, "failed %s times today (tried again tomorrow)" % MAX_FAILED_TRIES_PER_DAY)
+			continue
+		if per_customer_cap > 0 and customer_today.get(v.customer, 0) >= per_customer_cap:
+			_count(passed, "waiting because their customer already has %s today" % per_customer_cap)
+			continue
+		if do_not_contact.check(customer=v.customer, scope=do_not_contact.REMINDERS)["blocked"]:
+			_count(passed, "excluded / do not contact")
+			continue
+		if v.deletion_date:
+			_count(passed, "Installed but has a Deletion Date")
+			continue
+
+		expiry = getdate(v.subscription_expiry_date)
+		paid = any(
+			r.new_end and getdate(r.new_end) > expiry
+			for r in pending_renewals.get(v.name) or []
+		)
+		if not paid:
+			cycle_start = getdate(add_days(expiry, -days_before))
+			paid = any(
+				r.posting_date and getdate(r.posting_date) >= cycle_start
+				for r in renewal_invoices.get(v.name) or []
 			)
-			entries.append(entry)
+		if paid:
+			_count(passed, "already renewed")
 			continue
 
-		phone, source = _recipient_phone(customer, own, cfg)
+		# A subscription is a billing matter, so the Customer's own number leads;
+		# the driver's number is a fallback, and a configurable one. Numbers whose
+		# owner asked to be left alone are stepped over rather than failing the
+		# vehicle: one driver opting out should not cost their employer the notice.
+		phone = source = ""
+		tries = []
+		if phone_source != "Vehicle only":
+			tries.append((c.get("mobile_no"), "Customer.mobile_no"))
+		if phone_source != "Customer only":
+			tries.append((v.driver_mobile, "%s.driver_mobile" % plate))
+			for other in drivers.get(v.customer) or []:
+				tries.append((other, "driver_mobile (another vehicle)"))
+		for raw, label in tries:
+			p = saudi_mobile(raw)
+			if p and p not in blocked_phones:
+				phone, source = p, label
+				break
 		if not phone:
-			entry["reason"] = _("No usable phone number on the Customer or their vehicles.")
-			entries.append(entry)
+			_count(passed, "no +9665 number")
 			continue
+		if (phone + "||" + plate) in seen:
+			continue
+		seen.add(phone + "||" + plate)
+		customer_today[v.customer] = customer_today.get(v.customer, 0) + 1
 
-		entry["phone"] = phone
-		entry["phone_source"] = source
-		entry["send"] = True
-		entries.append(entry)
+		due.append({
+			"customer": v.customer,
+			"customer_name": c.get("customer_name") or v.customer,
+			"vehicle": v.name,
+			"vehicles": [v],
+			"count": 1,
+			"plates": [plate],
+			"expiry": str(expiry),
+			"days_to_expiry": days,
+			"kind": kind,
+			"template_title": rows[kind].get("template_title") or "",
+			"phone": phone,
+			"phone_source": source,
+		})
 
-	# Due first, and among those the most urgent first -- already-expired before
-	# expiring-soon, oldest lapse before newest. A run capped by batch_size
-	# should spend its budget on the customers who need it most, not on whoever
-	# sorts first alphabetically.
-	entries.sort(key=lambda e: (not e["send"], e["days_to_expiry"], e["customer"]))
-	return entries
+	return out
 
 
 # --------------------------------------------------------------------------
@@ -518,18 +703,19 @@ def context(entry: dict) -> dict:
 		# which side of the date it is on, and "expired -14 days ago" is not a
 		# sentence anybody wants to send a customer.
 		"days": str(abs(days)),
-		"company": frappe.defaults.get_user_default("Company") or "",
+		"company": frappe.db.get_single_value("Global Defaults", "default_company")
+		or frappe.defaults.get_user_default("Company") or "",
 		"contacts": format_contacts(BILINGUAL),
 	}
 
 
-def message_for(entry: dict, cfg: dict | None = None) -> str:
-	"""The exact text this customer would receive, for their kind of reminder."""
+def message_for(entry: dict, cfg: dict | None = None, rows: dict | None = None) -> str:
+	"""The exact text this vehicle's customer would receive as plain text."""
 	cfg = cfg or settings()
-	row = message_rows(cfg).get(entry.get("kind") or EXPIRED)
+	row = (rows if rows is not None else message_rows(cfg)).get(entry.get("kind") or EXPIRED)
 	# Reuses the connector's renderer, so a whole-line placeholder that comes
 	# out empty drops its line here exactly as it does in a ticket message.
-	return cw._render(row["message"], context(entry)) if row else ""
+	return cw._render(row["message"], context(entry)) if row and row["message"] else ""
 
 
 # --------------------------------------------------------------------------
@@ -541,35 +727,37 @@ def _log(entry: dict, status: str, cfg: dict, reason: str = "",
          message: str = "", result: dict | None = None):
 	"""Record one outcome. Guarded: a logging failure must not lose a send.
 
-	Every row carries the full body and the plate list, because the dry run is
-	the review step -- an operator deciding whether to go live is reading these
+	Every row carries the full body and the plate, because the dry run is the
+	review step -- an operator deciding whether to go live is reading these
 	rows, and a row that does not say what would have been sent is no use to
 	them.
 	"""
 	result = result or {}
 	try:
-		row = frappe.new_doc("App Apis Reminder Log")
+		row = frappe.new_doc(LOG)
 		row.customer = entry["customer"]
 		row.customer_name = entry["customer_name"]
 		row.phone = entry.get("phone") or ""
 		row.phone_source = entry.get("phone_source") or ""
 		row.status = status
 		row.reminder_type = entry.get("kind") or ""
-		if result.get("via") == "template":
-			row.sent_as = f"WhatsApp template: {result.get('whatsapp_template') or ''}"
-		elif result.get("via") == "text":
+		via = result.get("via") or ("template" if entry.get("template_title") else "")
+		if via == "template":
+			row.sent_as = "WhatsApp template: %s" % (
+				entry.get("template_title") or result.get("whatsapp_template") or "")
+		elif via == "text":
 			row.sent_as = "Text"
 		row.dry_run = cint(cfg["subscription_reminder_dry_run"])
 		row.vehicle_count = entry["count"]
 		row.plates = ", ".join(entry["plates"][:50])
 		row.expiry = entry["expiry"] or None
 		row.days_to_expiry = entry["days_to_expiry"]
-		row.reason = reason
+		row.reason = str(reason or "")[:500]
 		row.message = message
 		row.code = cint(result.get("code"))
 		row.conversation_id = str(result.get("conversation_id") or "")
 		row.message_id = str(result.get("message_id") or "")
-		# Only a real, delivered-to-Chatwoot send stamps this: `recently_messaged`
+		# Only a real, delivered-to-Chatwoot send stamps this: the repeat window
 		# reads it, so a dry run stamping it would make the next live run think
 		# everybody had already been told.
 		row.sent_on = now_datetime() if status == "Sent" else None
@@ -581,13 +769,164 @@ def _log(entry: dict, status: str, cfg: dict, reason: str = "",
 		)
 
 
+def _store_note(note: str):
+	"""Keep the round's one-line summary: on the settings form, and as a comment
+	on the trigger's Server Script so the history is readable. Never raises."""
+	try:
+		frappe.db.set_value(SETTINGS, SETTINGS, "subscription_reminder_last_run", note[:1000],
+		                    update_modified=False)
+		if frappe.db.exists("Server Script", NOTE_SCRIPT):
+			frappe.get_doc({
+				"doctype": "Comment",
+				"comment_type": "Info",
+				"reference_doctype": "Server Script",
+				"reference_name": NOTE_SCRIPT,
+				"content": note.replace("&", "&amp;").replace("<", "&lt;"),
+			}).insert(ignore_permissions=True)
+	except Exception:
+		frappe.logger(LOGGER).error("subscription reminder: could not store the run note", exc_info=True)
+
+
+def _round(cfg: dict, rows: dict, problems: list, limit: int | None, ready: bool) -> dict:
+	"""One round: plan, send, log. Holds the lock; see `run`."""
+	dry_run = cint(cfg["subscription_reminder_dry_run"])
+	per_round = cint(cfg["subscription_reminder_per_round"])
+	if per_round < 1:
+		per_round = DEFAULTS["subscription_reminder_per_round"]
+	if limit:
+		per_round = min(per_round, cint(limit))
+	stop_after = cint(cfg["subscription_reminder_stop_after_failures"])
+	if stop_after < 1:
+		stop_after = DEFAULTS["subscription_reminder_stop_after_failures"]
+	daily_limit = cint(cfg["subscription_reminder_batch_size"])
+	use_templates = bool(cint(cfg["doc"].get("chatwoot_use_templates")))
+
+	found = plan(cfg, budget=per_round, rows=rows)
+	due = found["due"]
+	passed = found["passed"]
+
+	sent = failed = 0
+	in_a_row = 0
+	stopped = ""
+	started = time.monotonic()
+
+	for entry in due:
+		row = rows[entry["kind"]]
+		ctx = context(entry)
+		body = cw._render(row["message"], ctx) if row["message"] else ""
+
+		if dry_run:
+			if row["whatsapp_template"]:
+				note = _("Dry run: nothing was sent. It would go as WhatsApp template {0}.").format(
+					row["template_title"] or row["whatsapp_template"])
+			else:
+				note = _("Dry run: nothing was sent.")
+			_log(entry, "Dry run", cfg, reason=note, message=body)
+			continue
+
+		# A row with a template is ALWAYS sent as that template ("force"): the
+		# 24-hour window is closed for almost everyone a renewal reminder goes
+		# to, and a message that is text for one customer and a template for the
+		# next is harder to reason about than one that is always the template.
+		# A row without one goes as text while the window is open, else -409.
+		fallback = None
+		if use_templates:
+			fallback = {
+				"template": row["whatsapp_template"],
+				"variables": row["template_variables"],
+				"ctx": ctx,
+				"force": bool(row["whatsapp_template"]),
+			}
+		text = body or _("Subscription reminder: {0}").format(row["template_title"] or entry["kind"])
+
+		try:
+			result = cw._send(
+				text,
+				phone=entry["phone"],
+				name=entry["customer_name"],
+				context={"customer": entry["customer_name"], "template": "subscription_reminder"},
+				template_fallback=fallback,
+				confirm=True,
+			) or {}
+		except Exception as e:
+			result = {"ok": False, "code": -500, "msg": "Send raised an error: %s" % str(e)[:400]}
+
+		if result.get("ok"):
+			sent += 1
+			in_a_row = 0
+			reason = _("WhatsApp accepted it") if result.get("delivery") != "pending" \
+				else _("Sent; WhatsApp's confirmation was still pending")
+			_log(entry, "Sent", cfg, reason=reason, message=result.get("message") or body, result=result)
+		else:
+			failed += 1
+			in_a_row += 1
+			# -409: the window was closed and there was no usable template, so
+			# nothing was posted. Not a failure of the send, but the same fix is
+			# needed for every vehicle behind it, so it counts towards the stop.
+			status = "Skipped" if result.get("code") == -409 else "Failed"
+			_log(entry, status, cfg, reason=str(result.get("msg") or "")[:500], message=body, result=result)
+
+		# Committed per message: a round that is killed half-way must not lose
+		# the rows the repeat window and the daily limit are read from.
+		frappe.db.commit()
+
+		if in_a_row >= stop_after:
+			stopped = " Stopped early after %s failures in a row (last: %s)." % (
+				in_a_row, str(result.get("msg") or "")[:200])
+			break
+		if time.monotonic() - started > ROUND_MAX_SECONDS:
+			stopped = " Stopped early: the round reached its %s-minute limit." % (ROUND_MAX_SECONDS // 60)
+			break
+
+	sent_total = found["sent_today"] + sent + (len(due) if dry_run else 0)
+	if due:
+		note = "%s round at %s -- sent %s, failed %s of %s. Today: %s sent%s.%s%s" % (
+			"DRY RUN (nothing sent)" if dry_run else "LIVE",
+			str(now_datetime())[:16],
+			sent, failed, len(due),
+			sent_total,
+			(" of %s" % daily_limit) if daily_limit > 0 else "",
+			stopped,
+			(" Passed over while filling this round (not logged): " +
+			 "; ".join("%s %s" % (passed[k], k) for k in passed) + ".") if passed else "",
+		)
+		if problems:
+			note += " Left out: " + "; ".join(problems) + "."
+		_store_note(note)
+	frappe.db.commit()
+
+	summary = {
+		"ok": True,
+		"ran": True,
+		"dry_run": bool(dry_run),
+		"vehicles_in_window": found["in_window"],
+		"expiring_soon": found["expiring_soon"],
+		"already_expired": found["already_expired"],
+		"planned": len(due),
+		"sent": sent,
+		"failed": failed,
+		"sent_today": sent_total,
+		"daily_limit": daily_limit,
+		"stopped_early": stopped.strip(),
+		"passed_over": passed,
+		"problems": problems,
+		"chatwoot_ready": ready,
+	}
+	frappe.logger(LOGGER).warning("subscription reminders: %s" % summary)
+	return summary
+
+
 def run(force: bool = False, limit: int | None = None) -> dict:
-	"""One pass: scan, decide, send, log. The scheduler's entry point.
+	"""One round: scan, decide, send, log. The scheduler's entry point.
 
 	`force` skips the hour/weekday gate for a manual run from the desk; it does
-	NOT skip the enabled switch, the dry-run switch, or the repeat window. Those
-	three are the safety of this feature, and a convenience argument must not be
-	able to turn them off.
+	NOT skip the enabled switch, the dry-run switch, the repeat window or the
+	daily limit. Those are the safety of this feature, and a convenience
+	argument must not be able to turn them off.
+
+	Two rounds never overlap: a manual run while the hourly one is still going
+	(or an hourly one that outlived its hour) would otherwise message the same
+	vehicles twice, because neither has logged them yet.
 	"""
 	cfg = settings()
 
@@ -599,98 +938,26 @@ def run(force: bool = False, limit: int | None = None) -> dict:
 		if not due:
 			return {"ok": True, "ran": False, "reason": why}
 
-	rows = message_rows(cfg)
+	rows, problems = usable_rows(cfg)
 	if not rows:
-		return {"ok": True, "ran": False, "reason": "No ticked row in Reminder Messages -- nothing to send."}
-	use_templates = cint(cfg["doc"].get("chatwoot_use_templates"))
+		reason = "No usable row in Reminder Messages -- nothing to send."
+		if problems:
+			reason += " " + "; ".join(problems) + "."
+		_store_note("Did not run: " + reason)
+		frappe.db.commit()
+		return {"ok": True, "ran": False, "reason": reason}
 
 	ready, why = cw._ready(cw.active_settings())
-	dry_run = cint(cfg["subscription_reminder_dry_run"])
-	if not ready and not dry_run:
+	if not ready and not cint(cfg["subscription_reminder_dry_run"]):
 		# A dry run still has something useful to say with Chatwoot down, so it
 		# is allowed to proceed; a live run has nothing to send through.
 		return {"ok": False, "ran": False, "reason": why}
 
-	entries = plan(cfg)
-	due_entries = [e for e in entries if e["send"]]
-	batch = cint(limit) if limit else cint(cfg["subscription_reminder_batch_size"])
-	if batch > 0:
-		held_back = max(0, len(due_entries) - batch)
-		due_entries = due_entries[:batch]
-	else:
-		held_back = 0
-
-	sent = failed = no_template = 0
-	for entry in due_entries:
-		row = rows[entry["kind"]]
-		ctx = context(entry)
-		body = cw._render(row["message"], ctx)
-
-		if dry_run:
-			note = _("Dry run: nothing was sent.")
-			if use_templates and row["whatsapp_template"]:
-				title = frappe.db.get_value("App Apis WhatsApp Template", row["whatsapp_template"], "title")
-				note += " " + _("Outside the 24-hour window it would go as WhatsApp template {0}.").format(
-					title or row["whatsapp_template"])
-			_log(entry, "Dry run", cfg, reason=note, message=body)
-			continue
-
-		# Outside the 24-hour window only a template is delivered -- see the
-		# module docstring. Confirmed either way, so Sent means WhatsApp took it.
-		fallback = None
-		if use_templates:
-			fallback = {"template": row["whatsapp_template"], "variables": row["template_variables"], "ctx": ctx}
-		result = cw._send(
-			body,
-			phone=entry["phone"],
-			name=entry["customer_name"],
-			context={"customer": entry["customer_name"], "template": "subscription_reminder"},
-			template_fallback=fallback,
-			confirm=True,
-		) or {}
-
-		if result.get("ok"):
-			sent += 1
-			_log(entry, "Sent", cfg, message=result.get("message") or body, result=result)
-		elif result.get("code") == -409:
-			# Window closed and no usable template: declined, nothing posted.
-			no_template += 1
-			_log(entry, "Skipped", cfg, reason=str(result.get("msg") or "")[:500], message=body, result=result)
-		else:
-			failed += 1
-			_log(entry, "Failed", cfg, reason=str(result.get("msg") or "")[:500],
-			     message=body, result=result)
-
-	# Everything that was NOT going to be messaged is logged once too, so the
-	# log answers "why did my customer not get this" without anybody having to
-	# re-run the scan by hand. Capped: hundreds of customers with no phone number
-	# would otherwise write hundreds of rows every single pass.
-	skipped_logged = 0
-	for entry in entries:
-		if entry["send"] or skipped_logged >= 25:
-			continue
-		_log(entry, "Skipped", cfg, reason=entry["reason"])
-		skipped_logged += 1
-
-	frappe.db.commit()
-
-	summary = {
-		"ok": True,
-		"ran": True,
-		"dry_run": bool(dry_run),
-		"customers_in_window": len(entries),
-		"expiring_soon": len([e for e in entries if e["kind"] == EXPIRING]),
-		"already_expired": len([e for e in entries if e["kind"] == EXPIRED]),
-		"due": len([e for e in entries if e["send"]]),
-		"attempted": len(due_entries),
-		"sent": sent,
-		"failed": failed,
-		"skipped_no_template": no_template,
-		"held_back_by_batch_size": held_back,
-		"chatwoot_ready": ready,
-	}
-	frappe.logger(LOGGER).warning("subscription reminders: %s" % summary)
-	return summary
+	try:
+		with filelock(LOCK_NAME, timeout=0):
+			return _round(cfg, rows, problems, limit, ready)
+	except LockTimeoutError:
+		return {"ok": True, "ran": False, "reason": "Another reminder round is still running."}
 
 
 def hourly():
@@ -710,7 +977,7 @@ def hourly():
 
 @frappe.whitelist()
 def preview(limit: int = 20) -> dict:
-	"""What the next run would do, without doing any of it.
+	"""What the next round would do, without doing any of it.
 
 	System Manager only: this reports customer names and phone numbers across
 	the whole book, which is a much broader read than any one ticket.
@@ -718,56 +985,62 @@ def preview(limit: int = 20) -> dict:
 	frappe.only_for("System Manager")
 
 	cfg = settings()
-	entries = plan(cfg)
-	due = [e for e in entries if e["send"]]
+	rows, problems = usable_rows(cfg)
+	shown = cint(limit) or 20
+	round_cap = cint(cfg["subscription_reminder_per_round"]) or DEFAULTS["subscription_reminder_per_round"]
+	found = plan(cfg, budget=round_cap, rows=rows)
 	ready, why = cw._ready(cw.active_settings())
 	is_due, not_due_why = due_now(cfg)
 
-	rows = []
-	for entry in (due or entries)[:cint(limit) or 20]:
-		rows.append({
+	out_rows = []
+	for entry in found["due"][:shown]:
+		out_rows.append({
 			"customer": entry["customer"],
 			"customer_name": entry["customer_name"],
 			"phone": entry["phone"],
 			"phone_source": entry["phone_source"],
 			"kind": entry["kind"],
-			"vehicles": entry["count"],
-			"plates": entry["plates"][:MAX_PLATES_LISTED],
+			"vehicles": 1,
+			"plates": entry["plates"],
 			"expiry": entry["expiry"],
 			"days_to_expiry": entry["days_to_expiry"],
-			"send": entry["send"],
-			"reason": entry["reason"],
-			"message": message_for(entry, cfg) if entry["send"] else "",
+			"sent_as": ("WhatsApp template: " + entry["template_title"]) if entry["template_title"] else "Text",
+			"message": message_for(entry, cfg, rows),
 		})
 
 	return {
 		"ok": True,
 		"enabled": bool(cint(cfg["subscription_reminder_enabled"])),
 		"dry_run": bool(cint(cfg["subscription_reminder_dry_run"])),
-		"kinds_sent": [KIND_LABEL[k] for k in message_rows(cfg)],
+		"kinds_sent": [KIND_LABEL[k] for k in rows],
+		"problems": problems,
 		"due_now": is_due,
 		"not_due_reason": not_due_why,
 		"chatwoot_ready": ready,
 		"chatwoot_reason": why,
-		"customers_in_window": len(entries),
-		"expiring_soon": len([e for e in entries if e["kind"] == EXPIRING]),
-		"already_expired": len([e for e in entries if e["kind"] == EXPIRED]),
-		"due": len(due),
-		"batch_size": cint(cfg["subscription_reminder_batch_size"]),
+		"vehicles_in_window": found["in_window"],
+		"expiring_soon": found["expiring_soon"],
+		"already_expired": found["already_expired"],
+		"this_round": len(found["due"]),
+		"round_budget": found["budget"],
+		"sent_today": found["sent_today"],
+		"daily_limit": cint(cfg["subscription_reminder_batch_size"]),
+		"passed_over": found["passed"],
 		"repeat_days": cint(cfg["subscription_reminder_repeat_days"]),
 		"window": "from %s days before expiry to %s days after" % (
 			cfg["subscription_reminder_days_before"],
 			cfg["subscription_reminder_days_after"] or "no limit",
 		),
-		"rows": rows,
+		"rows": out_rows,
 	}
 
 
 @frappe.whitelist()
 def run_now(limit: int | None = None) -> dict:
-	"""Run a pass immediately, ignoring the hour and weekday.
+	"""Run a round immediately, ignoring the hour and weekday.
 
-	Still obeys `enabled`, `dry_run` and the repeat window -- see `run`.
+	Still obeys `enabled`, `dry_run`, the repeat window and the daily limit --
+	see `run`.
 	"""
 	frappe.only_for("System Manager")
 	return run(force=True, limit=cint(limit) if limit else None)

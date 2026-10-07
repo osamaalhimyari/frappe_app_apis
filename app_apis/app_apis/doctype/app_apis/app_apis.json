@@ -10,8 +10,8 @@
   "pilot_base_url",
   "pilot_node",
   "pilot_fallback_username",
+  "pilot_password_list",
   "col_pilot_a",
-  "pilot_password",
   "pilot_request_timeout",
   "pilot_stale_after_minutes",
   "col_pilot_wsl_divider",
@@ -27,8 +27,8 @@
   "pilot2_base_url",
   "pilot2_node",
   "pilot2_fallback_username",
+  "pilot2_password_list",
   "col_pilot2_a",
-  "pilot2_password",
   "pilot2_request_timeout",
   "pilot2_stale_after_minutes",
   "col_pilot2_admin_divider",
@@ -107,14 +107,20 @@
   "subscription_reminder_enabled",
   "subscription_reminder_dry_run",
   "subscription_reminder_hour",
+  "subscription_reminder_end_hour",
   "subscription_reminder_weekday",
   "subscription_reminder_batch_size",
+  "subscription_reminder_per_round",
+  "subscription_reminder_max_per_customer",
   "col_subscription_a",
   "subscription_reminder_repeat_days",
   "subscription_reminder_days_before",
   "subscription_reminder_days_after",
   "subscription_reminder_customer_types",
   "subscription_reminder_phone_source",
+  "subscription_reminder_stop_after_failures",
+  "subscription_reminder_template_inbox",
+  "subscription_reminder_last_run",
   "subscription_messages",
   "sec_excluded",
   "excluded_customers"
@@ -151,10 +157,10 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Shared password. site_config overrides it.",
-   "fieldname": "pilot_password",
-   "fieldtype": "Password",
-   "label": "Pilot Password"
+   "fieldname": "pilot_password_list",
+   "fieldtype": "Table",
+   "label": "Pilot Passwords",
+   "options": "App Apis Pilot Password"
   },
   {
    "default": "20",
@@ -693,10 +699,17 @@
   },
   {
    "default": "9",
-   "description": "Server hour, 0–23. The scan runs once on this hour.",
+   "description": "Server hour, 0–23. The first hourly round of the day.",
    "fieldname": "subscription_reminder_hour",
    "fieldtype": "Int",
    "label": "Run At Hour"
+  },
+  {
+   "default": "21",
+   "description": "Server hour, 0–23. Rounds run every hour from Run At Hour up to, not including, this hour.",
+   "fieldname": "subscription_reminder_end_hour",
+   "fieldtype": "Int",
+   "label": "Stop Sending At Hour"
   },
   {
    "default": "Every day",
@@ -708,10 +721,24 @@
   },
   {
    "default": "50",
-   "description": "Most customers messaged per run. 0 = no cap.",
+   "description": "Most messages sent per DAY, across all rounds. 0 = no cap.",
    "fieldname": "subscription_reminder_batch_size",
    "fieldtype": "Int",
-   "label": "Max Per Run"
+   "label": "Max Per Day"
+  },
+  {
+   "default": "50",
+   "description": "Most messages one hourly round sends, one after the other. Each waits 3–10 seconds for WhatsApp, and a round must end within 25 minutes: keep it at 100 or less.",
+   "fieldname": "subscription_reminder_per_round",
+   "fieldtype": "Int",
+   "label": "Max Per Round"
+  },
+  {
+   "default": "6",
+   "description": "Most messages to the same customer in one day; the rest of their vehicles wait for tomorrow. 0 = no cap.",
+   "fieldname": "subscription_reminder_max_per_customer",
+   "fieldtype": "Int",
+   "label": "Max Per Customer Per Day"
   },
   {
    "fieldname": "col_subscription_a",
@@ -719,7 +746,7 @@
   },
   {
    "default": "7",
-   "description": "Days before the same customer may be reminded again.",
+   "description": "Days before the same VEHICLE may be reminded again (at least 1).",
    "fieldname": "subscription_reminder_repeat_days",
    "fieldtype": "Int",
    "label": "Don't Repeat Within (days)"
@@ -739,7 +766,28 @@
    "options": "Customer, then vehicle\nCustomer only\nVehicle only"
   },
   {
-   "description": "One row per kind; untick Send to stop that kind (e.g. send Expiring soon only). With Use WhatsApp Templates on, a customer outside the 24-hour window gets the row’s WhatsApp Template instead of its Message.",
+   "default": "3",
+   "description": "This many failures in a row end the round (WhatsApp throttling, Chatwoot down…). The next round tries again.",
+   "fieldname": "subscription_reminder_stop_after_failures",
+   "fieldtype": "Int",
+   "label": "Stop Round After Failures"
+  },
+  {
+   "default": "0",
+   "description": "0 = any inbox. Otherwise a reminder's WhatsApp Template must belong to this Chatwoot inbox id (Meta refuses a template sent from a number that does not own it).",
+   "fieldname": "subscription_reminder_template_inbox",
+   "fieldtype": "Int",
+   "label": "Template Inbox ID"
+  },
+  {
+   "description": "What the last round did.",
+   "fieldname": "subscription_reminder_last_run",
+   "fieldtype": "Small Text",
+   "label": "Last Round",
+   "read_only": 1
+  },
+  {
+   "description": "One row per kind; untick Send to stop that kind (e.g. send Expiring soon only). One message per VEHICLE. With Use WhatsApp Templates on, a row with a WhatsApp Template is always sent as that template (Template Variables fill {{1}}, {{2}}…; an empty one gets the plate); a row without one is sent as its Message only inside WhatsApp’s 24-hour window.",
    "fieldname": "subscription_messages",
    "fieldtype": "Table",
    "label": "Reminder Messages",
@@ -801,10 +849,10 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Shared password for this estate. site_config pilot2_passwords overrides it.",
-   "fieldname": "pilot2_password",
-   "fieldtype": "Password",
-   "label": "Pilot Password (2)"
+   "fieldname": "pilot2_password_list",
+   "fieldtype": "Table",
+   "label": "Pilot Passwords (2)",
+   "options": "App Apis Pilot Password"
   },
   {
    "default": "20",
