@@ -8,14 +8,21 @@
 # of calling Lebara each time. Only rows that changed are written. Afterwards
 # the Fleet Audit's SIM columns are refreshed from the new list.
 # Skips quietly while Lebara is disabled or not logged in.
+# Quiet hours: no scheduled sync from 23:00 to 06:00 (site time zone); the
+# 06:00 run is the first of the day. "Sync now" is not affected.
 # =============================================================================
 
 SETTINGS = "app_apis"
+QUIET_FROM = 23   # first hour with no sync
+QUIET_TO = 6      # first hour that syncs again
+
+hour = frappe.utils.now_datetime().hour
+quiet = hour >= QUIET_FROM or hour < QUIET_TO
 
 enabled = frappe.utils.cint(frappe.db.get_single_value(SETTINGS, "lebara_enabled"))
 status = frappe.db.get_single_value(SETTINGS, "lebara_session_status")
 
-if enabled and status == "Logged In":
+if enabled and status == "Logged In" and not quiet:
     try:
         frappe.call("lebara", action="sync_sims")
         frappe.call("app_apis.fleet_audit.refresh_sim_data")

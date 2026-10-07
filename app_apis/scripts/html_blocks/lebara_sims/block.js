@@ -57,7 +57,7 @@
 			el.title = s.last_error || (s.last_refresh ? __("Last refresh") + ": " + s.last_refresh : "");
 			$(".lb-login").style.display = ok || !s.enabled ? "none" : "";
 			$(".lb-synced").textContent = s.sims_synced_at
-				? __("SIM list synced {0} · {1} SIMs · refreshes every hour", [s.sims_synced_at.slice(0, 16), (s.sims_count || 0).toLocaleString()])
+				? __("SIM list synced {0} · {1} SIMs · refreshes hourly, 6 am to 11 pm", [s.sims_synced_at.slice(0, 16), (s.sims_count || 0).toLocaleString()])
 				: __("SIM list not synced yet — click Sync now");
 			$(".lb-synced").title = s.sims_sync_note || "";
 			return ok;
