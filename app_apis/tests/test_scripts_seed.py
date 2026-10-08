@@ -118,3 +118,18 @@ class TestExpiredSubscriptions(unittest.TestCase):
 	def test_carry_keeps_the_live_switch(self):
 		out = scripts.carry_settings("LIVE = 1   # armed here\n", "LIVE = 0   # shipped\nx = 2\n", names=["LIVE"])
 		self.assertEqual(out, "LIVE = 1   # shipped\nx = 2\n")
+
+
+class TestDeleteSetsStatus(unittest.TestCase):
+	def test_status_rule_is_in_the_shipped_script(self):
+		with open(os.path.join(SCRIPTS, "server", "vehicle_upload_api.py")) as f:
+			source = f.read()
+		self.assertIn("def after_platform_delete", source)
+		# every box in the Platforms section is counted
+		for box in ("ch_pilot_wsl", "ch_pilot_tow", "ch_pilot_sfda", "ch_pilot_tracking_only", "ch_trakzee",
+		            "ch_sarp", "ch_fmsi_medicine", "ch_fmsi_balady"):
+			self.assertIn('"' + box + '"', source)
+		# only a platform delete triggers it, never the WASL-only delete or the SIM suspend
+		self.assertIn('target in ("pilot_wsl", "pilot2", "im")', source)
+		# written with db.set_value: a document save would run the Customer Vehicle save scripts
+		self.assertIn("frappe.db.set_value(VEH_DT, vehicle_name, updates)", source)

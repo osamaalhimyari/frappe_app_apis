@@ -413,6 +413,13 @@ async function run_tool(row, tool) {
 			if (ok) {
 				if (tool.flag) row[tool.flag] = 0;                  // gone from that platform
 				if (tool.key === "sim") row.sim_status = "Suspend";
+				// no other system left: the server set the vehicle's Device Statues to Deleted, so it
+				// no longer belongs in this list (which only holds Installed vehicles)
+				if (r2.device_status_changed) {
+					state.rows = (state.rows || []).filter((x) => x !== row);
+					state.total = Math.max(0, (state.total || 0) - 1);
+					state.returned = Math.max(0, (state.returned || 0) - 1);
+				}
 			}
 			frappe.msgprint({
 				title: ok ? tool.done : "Not done", indicator: ok ? "green" : "red",

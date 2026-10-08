@@ -1546,6 +1546,54 @@ DELETE_LABELS = {"pilot_wsl": "Pilot (WSL)", "pilot2": "Pilot 2", "im": "IM (Tra
                  "wasl": "WASL only (Pilot vehicle kept)", "sim": "SIM (suspend)"}
 DELETE_TARGET_KEYS = ("pilot_wsl", "pilot2", "im", "wasl", "sim")
 
+# After a vehicle is deleted from a PLATFORM (Pilot WSL, Pilot 2 or IM) the vehicle's Device Statues
+# becomes "Deleted" when no other system is left. "Left" is read from the Platforms section tick
+# boxes on the Customer Vehicle: the box of the platform just deleted from is unticked first (Pilot 2
+# has no box -- it is recognised by email_pilot2), then if no box is still ticked the status is set.
+# This runs for the form's Delete button and for the Expired Subscriptions block alike, because both
+# call this script. WASL-only deletes and SIM suspends never change the status.
+PLATFORM_CHECKS = [["ch_pilot_wsl", "Pilot WSL"], ["ch_pilot_tow", "Pilot Towing"], ["ch_pilot_sfda", "Pilot SFDA"],
+                   ["ch_pilot_tracking_only", "Pilot Tracking Only"], ["ch_trakzee", "IM Tracking"],
+                   ["ch_sarp", "SARP"], ["ch_fmsi_medicine", "FMSI Medicine"], ["ch_fmsi_balady", "FMSI Balady"]]
+DELETE_UNTICKS = {"pilot_wsl": "ch_pilot_wsl", "im": "ch_trakzee"}      # pilot2 has no box
+STATUS_DELETED = "Deleted"
+
+
+def after_platform_delete(vehicle_name, key):
+    """Untick the platform just deleted from; set Device Statues to Deleted if nothing else is ticked.
+    Written with db.set_value on purpose: saving the document would run the Customer Vehicle save
+    scripts, which rewrite subscription expiry dates and Serial No warranty dates.
+    Returns {"changed": bool, "note": str}."""
+    names = [c[0] for c in PLATFORM_CHECKS] + ["device_statues", "deletion_date"]
+    now = frappe.db.get_value(VEH_DT, vehicle_name, names, as_dict=True)
+    if not now:
+        return {"changed": False, "note": "the vehicle record could not be read, so its status was not touched"}
+    box = DELETE_UNTICKS.get(key)
+    updates = {}
+    if box and frappe.utils.cint(now.get(box)):
+        updates[box] = 0
+    left = []
+    for c in PLATFORM_CHECKS:
+        on = frappe.utils.cint(now.get(c[0]))
+        if c[0] == box:
+            on = 0
+        if on:
+            left.append(c[1])
+    changed = False
+    if left:
+        note = "Device Statues left as it is -- still ticked in Platforms: " + ", ".join(left)
+    elif str(now.get("device_statues") or "") == STATUS_DELETED:
+        note = "Device Statues was already Deleted"
+    else:
+        updates["device_statues"] = STATUS_DELETED
+        if not now.get("deletion_date"):
+            updates["deletion_date"] = frappe.utils.nowdate()
+        changed = True
+        note = "Device Statues set to Deleted (no other platform is ticked in Platforms)"
+    if updates:
+        frappe.db.set_value(VEH_DT, vehicle_name, updates)
+    return {"changed": changed, "note": note}
+
 
 def delete_word(key):
     return SUSPEND_WORD if key == "sim" else DELETE_WORD
@@ -2118,6 +2166,15 @@ elif action in ("delete_plan", "delete"):
             drow = delete_find(veh, target)
         else:
             drow = delete_one(veh, target, str(args.get("pin") or ""))
+            out["device_status_changed"] = False
+            if drow.get("verdict") == "deleted" and target in ("pilot_wsl", "pilot2", "im"):
+                try:
+                    st = after_platform_delete(vehicle_name, target)
+                    drow["result"] = str(drow["result"]) + " | " + st["note"]
+                    out["device_status_changed"] = bool(st["changed"])
+                except Exception as e:
+                    drow["result"] = (str(drow["result"]) + " | deleted on the platform, but the vehicle's "
+                                      "Device Statues could not be updated: " + str(e)[:160])
             trail = (str(frappe.session.user) + " -- delete " + drow["label"] + " -> " +
                      str(drow["verdict"] or "no verdict") + " -- " + str(drow["result"])[:300])
             frappe.get_doc({"doctype": "Comment", "comment_type": "Comment", "reference_doctype": VEH_DT,
