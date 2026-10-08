@@ -125,6 +125,10 @@ class TestDeleteSetsStatus(unittest.TestCase):
 		with open(os.path.join(SCRIPTS, "server", "vehicle_upload_api.py")) as f:
 			source = f.read()
 		self.assertIn("def after_platform_delete", source)
+		# the four Pilot boxes are ONE system, judged by a live look at the other Pilot estate
+		self.assertIn("def pilot_still_there", source)
+		self.assertIn('["ch_pilot_tracking_only", "Pilot Tracking Only"]', source)
+		self.assertNotIn("PLATFORM_CHECKS", source)
 		# every box in the Platforms section is counted
 		for box in ("ch_pilot_wsl", "ch_pilot_tow", "ch_pilot_sfda", "ch_pilot_tracking_only", "ch_trakzee",
 		            "ch_sarp", "ch_fmsi_medicine", "ch_fmsi_balady"):

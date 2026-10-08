@@ -1546,58 +1546,95 @@ DELETE_LABELS = {"pilot_wsl": "Pilot (WSL)", "pilot2": "Pilot 2", "im": "IM (Tra
                  "wasl": "WASL only (Pilot vehicle kept)", "sim": "SIM (suspend)"}
 DELETE_TARGET_KEYS = ("pilot_wsl", "pilot2", "im", "wasl", "sim")
 
-# After a vehicle is deleted from a PLATFORM (Pilot WSL, Pilot 2 or IM) the vehicle's Device Statues
-# becomes "Deleted" when no other system is left. "Left" is read from the Platforms section tick
-# boxes on the Customer Vehicle: the box of the platform just deleted from is unticked first (Pilot 2
-# has no box -- it is recognised by email_pilot2), then if no box is still ticked the status is set.
-# This runs for the form's Delete button and for the Expired Subscriptions block alike, because both
-# call this script. WASL-only deletes and SIM suspends never change the status.
-PLATFORM_CHECKS = [["ch_pilot_wsl", "Pilot WSL"], ["ch_pilot_tow", "Pilot Towing"], ["ch_pilot_sfda", "Pilot SFDA"],
-                   ["ch_pilot_tracking_only", "Pilot Tracking Only"], ["ch_trakzee", "IM Tracking"],
-                   ["ch_sarp", "SARP"], ["ch_fmsi_medicine", "FMSI Medicine"], ["ch_fmsi_balady", "FMSI Balady"]]
+# After a vehicle is deleted from a PLATFORM (Pilot WSL, Pilot 2 or IM) its Device Statues becomes
+# "Deleted", with today's Deletion Date, when no other SYSTEM is left. Systems, as the Platforms section
+# ticks them:
+#   Pilot  = Pilot WSL, Pilot Towing, Pilot SFDA and Pilot Tracking Only. These are flavours of the one
+#            Pilot system, not four systems. Pilot WSL and Pilot 2 are its two estates.
+#   IM     = IM Tracking
+#   SARP, FMSI Medicine and FMSI Balady are systems of their own (this script cannot delete from those,
+#            so a tick there always keeps the vehicle alive).
+# Pilot is "left" only if the vehicle is still on the OTHER Pilot estate -- looked up live, because the
+# Pilot ticks are often stale. When Pilot is gone from both estates the Pilot ticks are cleared with it.
+# This runs for the form's Delete button and for the Expired Subscriptions block alike, because both call
+# this script. WASL-only deletes and SIM suspends never change the status.
+PILOT_BOXES = [["ch_pilot_wsl", "Pilot WSL"], ["ch_pilot_tow", "Pilot Towing"], ["ch_pilot_sfda", "Pilot SFDA"],
+               ["ch_pilot_tracking_only", "Pilot Tracking Only"]]
+OTHER_BOXES = [["ch_trakzee", "IM Tracking"], ["ch_sarp", "SARP"], ["ch_fmsi_medicine", "FMSI Medicine"],
+               ["ch_fmsi_balady", "FMSI Balady"]]
 DELETE_UNTICKS = {"pilot_wsl": "ch_pilot_wsl", "im": "ch_trakzee"}      # pilot2 has no box
 STATUS_DELETED = "Deleted"
 
 
-def after_platform_delete(vehicle_name, key):
-    """Untick the platform just deleted from; set Device Statues to Deleted if nothing else is ticked.
+def pilot_still_there(vehicle_name, imei, deleted_key):
+    """Is the vehicle still on a Pilot estate other than the one just deleted from?  Live lookups.
+    -> {"state": "yes" | "no" | "unknown", "where": text}   ("unknown" is treated as "yes": never guess a deletion)"""
+    mine = frappe.db.get_value(VEH_DT, vehicle_name, ["email_pilot2"], as_dict=True) or {}
+    for k in ("pilot_wsl", "pilot2"):
+        if k == deleted_key:
+            continue
+        if k == "pilot2" and not str(mine.get("email_pilot2") or "").strip():
+            continue                      # no Pilot 2 account on the vehicle: it is not there
+        got = panel_find(imei, TARGETS[k]["account"])
+        if got["state"] == "yes":
+            return {"state": "yes", "where": TARGETS[k]["label"]}
+        if got["state"] != "no":
+            return {"state": "unknown", "where": TARGETS[k]["label"] + " could not be checked: " + str(got["detail"])[:90]}
+    return {"state": "no", "where": ""}
+
+
+def after_platform_delete(vehicle_name, key, imei):
+    """Untick what is gone; set Device Statues to Deleted (and the Deletion Date) if no system is left.
     Written with db.set_value on purpose: saving the document would run the Customer Vehicle save
     scripts, which rewrite subscription expiry dates and Serial No warranty dates.
     Returns {"changed": bool, "note": str}."""
-    names = [c[0] for c in PLATFORM_CHECKS] + ["device_statues", "deletion_date"]
+    names = [c[0] for c in PILOT_BOXES] + [c[0] for c in OTHER_BOXES] + ["device_statues", "deletion_date"]
     now = frappe.db.get_value(VEH_DT, vehicle_name, names, as_dict=True)
     if not now:
         return {"changed": False, "note": "the vehicle record could not be read, so its status was not touched"}
     box = DELETE_UNTICKS.get(key)
     updates = {}
+    unticked = []
     if box and frappe.utils.cint(now.get(box)):
         updates[box] = 0
+        unticked.append(box)
+
+    pilot = pilot_still_there(vehicle_name, imei, key)
+    if pilot["state"] == "no":
+        # gone from every Pilot estate: the Pilot ticks (including Towing / SFDA / Tracking Only) go with it
+        for c in PILOT_BOXES:
+            if frappe.utils.cint(now.get(c[0])) and c[0] not in updates:
+                updates[c[0]] = 0
+                unticked.append(c[0])
+
     left = []
-    for c in PLATFORM_CHECKS:
-        on = frappe.utils.cint(now.get(c[0]))
-        if c[0] == box:
-            on = 0
-        if on:
+    if pilot["state"] != "no":
+        left.append("Pilot (" + pilot["where"] + ")")
+    for c in OTHER_BOXES:
+        if frappe.utils.cint(now.get(c[0])) and c[0] != box:
             left.append(c[1])
+
     changed = False
+    cleared = ""
+    if unticked:
+        cleared = "unticked " + ", ".join(unticked) + "; "
     if left:
-        note = "Device Statues left as it is -- still ticked in Platforms: " + ", ".join(left)
+        note = cleared + "Device Statues left as it is -- still on: " + ", ".join(left)
     elif str(now.get("device_statues") or "") == STATUS_DELETED:
         # already Deleted: only make sure the Deletion Date is not left empty
         if now.get("deletion_date"):
-            note = "Device Statues was already Deleted (Deletion Date " + str(now.get("deletion_date")) + ")"
+            note = cleared + "Device Statues was already Deleted (Deletion Date " + str(now.get("deletion_date")) + ")"
         else:
             updates["deletion_date"] = frappe.utils.nowdate()
-            note = "Device Statues was already Deleted; Deletion Date was empty, set to today"
+            note = cleared + "Device Statues was already Deleted; Deletion Date was empty, set to today"
     else:
         # the Deletion Date goes in together with the status, never one without the other
         updates["device_statues"] = STATUS_DELETED
         if not now.get("deletion_date"):
             updates["deletion_date"] = frappe.utils.nowdate()
         changed = True
-        note = ("Device Statues set to Deleted, Deletion Date " +
-                str(updates.get("deletion_date") or now.get("deletion_date")) +
-                " (no other platform is ticked in Platforms)")
+        note = (cleared + "Device Statues set to Deleted, Deletion Date " +
+                str(updates.get("deletion_date") or now.get("deletion_date")) + " (no other system is left)")
     if updates:
         frappe.db.set_value(VEH_DT, vehicle_name, updates)
     return {"changed": changed, "note": note}
@@ -2177,7 +2214,7 @@ elif action in ("delete_plan", "delete"):
             out["device_status_changed"] = False
             if drow.get("verdict") == "deleted" and target in ("pilot_wsl", "pilot2", "im"):
                 try:
-                    st = after_platform_delete(vehicle_name, target)
+                    st = after_platform_delete(vehicle_name, target, str(drow.get("imei") or ""))
                     drow["result"] = str(drow["result"]) + " | " + st["note"]
                     out["device_status_changed"] = bool(st["changed"])
                 except Exception as e:
