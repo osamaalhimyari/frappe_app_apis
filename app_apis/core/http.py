@@ -33,6 +33,8 @@ SETTINGS = "app_apis"
 ALLOWED_ROLES = ("System Manager",)
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128 Safari/537.36"
 MAX_TEXT = 200_000
+HARD_MAX_TEXT = 5_000_000   # the most a caller may ask for with max_text
+MAX_MATCHES = 20
 
 
 # --------------------------------------------------------------------------
@@ -104,7 +106,25 @@ def _parse(value, default=None):
 	return value
 
 
-def _result(r: requests.Response) -> dict:
+def _limit(max_text) -> int:
+	n = frappe.utils.cint(max_text) or MAX_TEXT
+	return max(1, min(n, HARD_MAX_TEXT))
+
+
+def _matches(text: str, find: str, width: int = 200) -> list[str]:
+	"""Up to MAX_MATCHES snippets of `text` around each occurrence of `find`."""
+	out = []
+	start = 0
+	while find and len(out) < MAX_MATCHES:
+		i = text.find(find, start)
+		if i < 0:
+			break
+		out.append(text[max(0, i - width) : i + len(find) + width])
+		start = i + len(find)
+	return out
+
+
+def _result(r: requests.Response, max_text=None, find=None) -> dict:
 	ctype = r.headers.get("content-type", "")
 	out = {
 		"ok": r.status_code < 400,
@@ -122,7 +142,13 @@ def _result(r: requests.Response) -> dict:
 		except ValueError:
 			pass
 	if out["json"] is None:
-		out["text"] = r.text[:MAX_TEXT]
+		out["text"] = r.text[: _limit(max_text)]
+		out["text_length"] = len(r.text)          # the whole body, even when `text` is cut
+		out["truncated"] = len(r.text) > len(out["text"])
+	if find:
+		# searched in the FULL body, so a hit past the cut-off is still found
+		out["matches"] = _matches(r.text, str(find))
+		out["found"] = bool(out["matches"])
 	return out
 
 
@@ -144,6 +170,8 @@ def request(
 	allow_redirects=1,
 	csrf_cookie=None,
 	csrf_header="X-CSRF-TOKEN",
+	max_text=None,
+	find=None,
 ):
 	"""One HTTP request inside the named cookie jar; the jar is saved after.
 
@@ -151,6 +179,11 @@ def request(
 	data            form body (dict) -- sent as x-www-form-urlencoded
 	csrf_cookie     name of a cookie whose URL-decoded value is sent in
 	                `csrf_header` (Serenity / ASP.NET double-submit pattern)
+	max_text        characters of the body to return in `text` (default 200,000, at most
+	                5,000,000). `text_length` is always the full length, `truncated` says
+	                whether `text` was cut.
+	find            a string to search for in the FULL body: the result gets `found` and
+	                `matches` (snippets around each hit), whatever `max_text` is
 
 	Returns {ok, status, url, history, content_type, headers, json, text}:
 	`json` is the parsed body when it is JSON, otherwise `text` holds the body.
@@ -176,7 +209,7 @@ def request(
 	except requests.RequestException as e:
 		return {"ok": False, "status": 0, "url": url, "error": str(e)[:500], "json": None, "text": ""}
 	_save(jar, s)
-	return _result(r)
+	return _result(r, max_text, find)
 
 
 class _Forms(HTMLParser):

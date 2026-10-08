@@ -43,5 +43,29 @@
     "allow_guest": 0,
     "disabled": 0,
     "file": "wasl_link_api.py"
+  },
+  {
+    "name": "vehicle_upload_api",
+    "script_type": "API",
+    "api_method": "vehicle_upload_api",
+    "allow_guest": 0,
+    "disabled": 0,
+    "file": "vehicle_upload_api.py",
+    "managed": true,
+    "carry": [
+      "LIVE_TARGETS"
+    ]
+  },
+  {
+    "name": "expired_devices_api",
+    "script_type": "API",
+    "api_method": "expired_devices_api",
+    "allow_guest": 0,
+    "disabled": 0,
+    "file": "expired_devices_api.py",
+    "managed": true,
+    "carry": [
+      "LIVE"
+    ]
   }
 ]

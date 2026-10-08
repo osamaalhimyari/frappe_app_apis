@@ -54,6 +54,14 @@
   "im_token_ttl_minutes",
   "im_ignition_poll_seconds",
   "im_ignition_window_minutes",
+  "sec_im_upload",
+  "im_admin_id",
+  "im_default_reseller_id",
+  "col_im_up",
+  "im_reseller_ids",
+  "im_sim_provider",
+  "sec_im_models",
+  "im_models",
   "sec_lebara",
   "lebara_enabled",
   "lebara_base_url",
@@ -359,6 +367,57 @@
    "fieldname": "im_ignition_window_minutes",
    "fieldtype": "Int",
    "label": "IM Ignition Test Window (minutes)"
+  },
+  {
+   "fieldname": "sec_im_upload",
+   "fieldtype": "Section Break",
+   "label": "IM Upload (Add Vehicle)",
+   "collapsible": 1,
+   "description": "Used by the vehicle_upload_api Server Script when it creates a vehicle on IM. Blank = the value written in the script."
+  },
+  {
+   "fieldname": "im_admin_id",
+   "fieldtype": "Data",
+   "label": "IM Admin ID",
+   "description": "object_admin_entity_id (the IM admin the vehicles are created under).",
+   "default": "1213"
+  },
+  {
+   "fieldname": "im_default_reseller_id",
+   "fieldtype": "Data",
+   "label": "IM Default Reseller ID",
+   "description": "object_reseller_entity_id when an account row has no reseller.",
+   "default": "3237"
+  },
+  {
+   "fieldname": "col_im_up",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "im_reseller_ids",
+   "fieldtype": "Data",
+   "label": "IM Resellers To Scan",
+   "description": "Comma-separated reseller ids whose companies are searched when an email is not in the table below. Example: 3237,3267",
+   "default": "3237,3267"
+  },
+  {
+   "fieldname": "im_sim_provider",
+   "fieldtype": "Data",
+   "label": "IM SIM Provider ID",
+   "description": "sim_provide on the Add Vehicle form.",
+   "default": "2"
+  },
+  {
+   "fieldname": "sec_im_models",
+   "fieldtype": "Section Break",
+   "label": "IM Device Models (ERP Device Type → IM model)",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "im_models",
+   "fieldtype": "Table",
+   "label": "IM Device Models",
+   "options": "App Apis IM Model"
   },
   {
    "fieldname": "sec_lebara",
@@ -873,7 +932,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-05 12:00:00.000000",
+ "modified": "2026-10-08 13:00:00.000000",
  "modified_by": "Administrator",
  "module": "App Apis",
  "name": "app_apis",

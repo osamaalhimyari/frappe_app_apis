@@ -249,3 +249,81 @@ def link_vehicle(vehicle, form, register=1):
                     "content": "WASL link: " + state + " -- " + frappe.utils.escape_html(out["msg"])
                     }).insert(ignore_permissions=True)
     return out
+
+
+# ---------------------------------------------------------------- delete from WASL only
+DELETE_WORD = "DELETE"
+
+
+def _wasl_call(sess, url, cmd, agent_id, timeout):
+    """One wasl.php command as the Pilot window sends it. -> (parsed json or {}, http status)."""
+    r = sess.post(url, data={"cmd": cmd, "agentid": agent_id}, timeout=timeout)
+    body = _json(r)
+    return (body if isinstance(body, dict) else {}), r.status_code
+
+
+@frappe.whitelist(methods=["POST"])
+def wasl_delete(vehicle, confirm="", dry_run=1):
+    """Delete a vehicle from the WASL database ONLY. The Pilot vehicle is not touched.
+
+    It is Pilot's own WASL window > Delete ("Delete vehicle from wasl database"):
+    wasl.php cmd=vehicledelete&agentid=<id>, inside a "log in as account" session, so the
+    Pilot vehicle has to exist for WASL to be reachable. Open to any signed-in user; the
+    typed word is the guard.
+
+    dry_run=1 (default) only looks: it reports whether the vehicle is on Pilot and asks WASL's
+    own Inquiry (cmd=vehiclecheck) what it knows. dry_run=0 needs confirm=DELETE.
+
+    -> {state: found|missing|unknown, found, deleted, agent_id, detail, wasl_status, msg}
+    """
+    if frappe.session.user == "Guest":
+        frappe.throw("Sign in first.", frappe.PermissionError)
+    dry = frappe.utils.cint(dry_run)
+    if not dry and _s(confirm) != DELETE_WORD:
+        frappe.throw("Not deleted: type " + DELETE_WORD + " to confirm.")
+    doc = frappe.get_doc(VEH_DT, vehicle)
+    imei = _s(doc.device_serial)
+    out = {"state": "unknown", "found": False, "deleted": False, "imei": imei, "agent_id": "",
+           "detail": "", "wasl_status": "", "msg": ""}
+    if not imei:
+        out["detail"] = "the vehicle has no Device Serial, so there is nothing to look for"
+        return out
+
+    with requests.Session() as sess:
+        try:
+            adm = _admin(sess)
+            row = _find_agent(sess, adm, imei)
+        except Exception as e:
+            text = _plain(str(e))[:300]
+            out["state"] = "missing" if "not on Pilot" in text else "unknown"
+            out["detail"] = ("not on Pilot, and WASL can only be reached through the Pilot vehicle -- " + text
+                             if out["state"] == "missing" else text)
+            return out
+        out["agent_id"] = _s(row.get("agent_id"))
+        try:
+            site = _user_session(sess, adm, _s(row.get("account_id")))
+        except Exception as e:
+            out["detail"] = "could not open the Pilot account session -- " + _plain(str(e))[:300]
+            return out
+        url = site + "ax/mod/wasl/wasl.php"
+
+        chk, status = _wasl_call(sess, url, "vehiclecheck", out["agent_id"], REGISTER_TIMEOUT)
+        out["wasl_status"] = _plain(chk.get("msg"))[:500] or ("HTTP " + str(status))
+        out["state"] = "found"
+        out["found"] = True
+        out["detail"] = "Pilot vehicle " + _s(row.get("vehiclenumber")) + " (agent " + out["agent_id"] + \
+                        "). WASL inquiry: " + out["wasl_status"]
+        if dry:
+            return out
+
+        res, status = _wasl_call(sess, url, "vehicledelete", out["agent_id"], REGISTER_TIMEOUT)
+        out["deleted"] = bool(res.get("result"))
+        out["msg"] = _plain(res.get("msg"))[:500] or ("HTTP " + str(status))
+        after, _status = _wasl_call(sess, url, "vehiclecheck", out["agent_id"], REGISTER_TIMEOUT)
+        out["after_status"] = _plain(after.get("msg"))[:500]
+
+    frappe.get_doc({"doctype": "Comment", "comment_type": "Info",
+                    "reference_doctype": VEH_DT, "reference_name": vehicle,
+                    "content": "WASL delete (Pilot vehicle kept): " + ("done" if out["deleted"] else "failed") +
+                               " -- " + frappe.utils.escape_html(out["msg"])}).insert(ignore_permissions=True)
+    return out

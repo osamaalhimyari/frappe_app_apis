@@ -1,0 +1,7 @@
+{
+  "name": "Expired Subscriptions",
+  "roles": [
+    "System Manager"
+  ],
+  "managed": true
+}

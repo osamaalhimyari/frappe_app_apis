@@ -1,0 +1,54 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-10-08 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "device_type",
+  "im_model_id",
+  "note"
+ ],
+ "fields": [
+  {
+   "columns": 4,
+   "description": "The ERP Device Type name, e.g. FMC920.",
+   "fieldname": "device_type",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "ERP Device Type",
+   "reqd": 1
+  },
+  {
+   "columns": 3,
+   "description": "gps_device_model_id on the IM Add Vehicle form (the Device Type dropdown).",
+   "fieldname": "im_model_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "IM Model ID",
+   "reqd": 1
+  },
+  {
+   "columns": 3,
+   "fieldname": "note",
+   "fieldtype": "Data",
+   "label": "Note"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "App Apis IM Model",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "states": [],
+ "track_changes": 1
+}

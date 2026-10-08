@@ -59,3 +59,10 @@ app_apis.patches.subscription_messages_to_table
 # bottom for each customer account (row 1 = the old password), with the working one
 # remembered per account. Post-sync: the child doctype has to exist first.
 app_apis.patches.pilot_passwords_to_table
+# The IM upload script keeps its ids in the IM section of the settings now, not in
+# its own source. Fills the model table from data/im_models.json; never
+# overwrites a row or a setting an operator has already filled.
+app_apis.patches.seed_im_upload_settings
+# The IM upload finds a vehicle's IM company from its IM Platform email and caches the
+# ids on the Customer. Creates those three Customer fields if the site lacks them.
+app_apis.patches.add_im_customer_cache_fields

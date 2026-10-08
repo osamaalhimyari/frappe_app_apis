@@ -1,0 +1,8 @@
+[
+ {"device_type": "FMC130", "im_model_id": "1436"},
+ {"device_type": "FMC130 Static", "im_model_id": "2736"},
+ {"device_type": "FMC130-Trace", "im_model_id": "2439"},
+ {"device_type": "FMB120", "im_model_id": "345"},
+ {"device_type": "FMB125", "im_model_id": "369"},
+ {"device_type": "FMC920", "im_model_id": "1787"}
+]

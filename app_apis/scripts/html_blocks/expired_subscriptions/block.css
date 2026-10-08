@@ -1,0 +1,173 @@
+.exp { font-size: 12px; }
+
+.exp .exp-head {
+	display: flex; justify-content: space-between; align-items: flex-end;
+	flex-wrap: wrap; gap: 10px; margin-bottom: 12px;
+}
+.exp .exp-title { margin: 0; font-size: 18px; }
+.exp .exp-sub { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+.exp .exp-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.exp .exp-upload { margin: 0; cursor: pointer; }
+
+.exp .exp-tiles { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.exp .exp-money { margin-bottom: 12px; }
+.exp .exp-tile {
+	flex: 1 1 130px; min-width: 130px; padding: 9px 12px;
+	border: 1px solid var(--border-color); border-radius: var(--border-radius-md);
+	background: var(--fg-color);
+}
+.exp .exp-tile .n { font-size: 20px; font-weight: 600; line-height: 1.2; }
+.exp .exp-money .exp-tile .n { font-size: 17px; }
+.exp .exp-tile .l {
+	font-size: 10px; letter-spacing: .5px; text-transform: uppercase;
+	color: var(--text-muted); margin-top: 2px;
+}
+.exp .exp-tile.warn .n { color: var(--red-600, #c0341d); }
+.exp .exp-tile.good { border-color: var(--green-300, #a7d7c0); }
+.exp .exp-tile.good .n { color: var(--green-700, #0f6b45); }
+
+.exp .exp-invoices { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.exp .exp-chip {
+	display: inline-flex; align-items: center; gap: 6px;
+	padding: 3px 8px; border: 1px solid var(--border-color);
+	border-radius: var(--border-radius-md); background: var(--fg-color);
+}
+.exp .exp-chip b { font-weight: 600; }
+.exp .exp-chip .x { cursor: pointer; color: var(--text-muted); }
+.exp .exp-chip .x:hover { color: var(--red-600, #c0341d); }
+.exp .exp-chip .ok-mark { color: var(--green-600, #16794c); font-weight: 600; }
+.exp .exp-chip .off-mark { color: var(--red-600, #c0341d); font-weight: 600; }
+
+/* price by model */
+.exp .exp-models:not(:empty) {
+	border: 1px solid var(--border-color); border-radius: var(--border-radius-md);
+	background: var(--fg-color); padding: 10px 12px; margin-bottom: 12px;
+}
+.exp .exp-panel-title {
+	font-size: 10px; letter-spacing: .5px; text-transform: uppercase;
+	color: var(--text-muted); margin-bottom: 6px;
+}
+.exp .exp-panel-wrap { overflow-x: auto; }
+.exp .exp-mtable { border-collapse: collapse; font-size: 12px; width: 100%; }
+.exp .exp-mtable th {
+	text-align: right; white-space: nowrap; padding: 4px 10px; font-weight: 600;
+	font-size: 11px; color: var(--text-muted); border-bottom: 1px solid var(--border-color);
+}
+.exp .exp-mtable th:first-child { text-align: left; }
+.exp .exp-mtable td { padding: 4px 10px; white-space: nowrap; }
+.exp .exp-mtable tr.exp-foot td {
+	border-top: 1px solid var(--border-color); font-weight: 600;
+}
+
+.exp .exp-filters { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+.exp .exp-filters input, .exp .exp-filters select {
+	height: 26px; font-size: 12px; padding: 2px 6px;
+	border: 1px solid var(--border-color); border-radius: 4px;
+	background: var(--control-bg); color: var(--text-color);
+}
+.exp .exp-filters .exp-search { flex: 1 1 260px; min-width: 180px; }
+.exp .exp-count { font-size: 11px; color: var(--text-muted); margin-left: auto; }
+
+/* a scrollbar above the table as well as the one under it */
+.exp .exp-scrolltop {
+	overflow-x: auto; overflow-y: hidden; display: none;
+	border: 1px solid var(--border-color); border-bottom: 0;
+	border-radius: var(--border-radius-md) var(--border-radius-md) 0 0;
+	background: var(--control-bg);
+}
+.exp .exp-scrolltop > div { height: 1px; }
+.exp .exp-scrolltop + .exp-wrap { border-radius: 0 0 var(--border-radius-md) var(--border-radius-md); }
+
+/* the table scrolls both ways; the first column and the two header rows stay put */
+.exp .exp-wrap {
+	overflow: auto; max-height: 62vh;
+	border: 1px solid var(--border-color); border-radius: var(--border-radius-md);
+}
+.exp table.exp-table { border-collapse: separate; border-spacing: 0; font-size: 12px; min-width: 100%; }
+.exp thead th {
+	position: sticky; top: 0; z-index: 3; text-align: left; white-space: nowrap;
+	padding: 7px 10px; background: var(--control-bg); color: var(--text-muted);
+	font-weight: 600; font-size: 11px; border-bottom: 1px solid var(--border-color);
+}
+.exp thead tr.exp-fr th { top: 30px; z-index: 3; padding: 4px 6px; }
+.exp thead tr.exp-fr input, .exp thead tr.exp-fr select {
+	width: 100%; min-width: 74px; height: 22px; font-size: 11px; padding: 1px 5px;
+	border: 1px solid var(--border-color); border-radius: 4px;
+	background: var(--fg-color); color: var(--text-color);
+}
+.exp tbody td {
+	padding: 6px 10px; border-bottom: 1px solid var(--border-color);
+	vertical-align: top; white-space: nowrap; background: var(--fg-color);
+}
+.exp tbody tr:hover td { background: var(--control-bg); }
+.exp td.sticky, .exp th:first-child { position: sticky; left: 0; z-index: 2; }
+.exp thead th:first-child { z-index: 4; }
+.exp td.sticky { box-shadow: 1px 0 0 var(--border-color); }
+.exp .num { font-family: monospace; }
+.exp .right { text-align: right; }
+.exp .muted { color: var(--text-muted); }
+.exp .mid { text-align: center; font-size: 13px; }
+.exp .mid.yes { color: var(--green-600, #16794c); font-weight: 600; }
+.exp .mid.yes.own { text-decoration: underline; text-underline-offset: 3px; }
+.exp .mid .amt {
+	display: block; font-family: monospace; font-size: 10px;
+	color: var(--text-muted); font-weight: 400;
+}
+
+.exp .pill {
+	display: inline-block; padding: 1px 7px; border-radius: 999px;
+	font-size: 10px; font-weight: 600; letter-spacing: .3px;
+}
+.exp .pill.ok { background: var(--green-100, #e4f5ec); color: var(--green-700, #0f6b45); }
+.exp .pill.off { background: var(--orange-100, #fdf0e0); color: var(--orange-700, #955300); }
+.exp .pill.bad { background: var(--red-100, #fbe5e2); color: var(--red-700, #a4281a); }
+.exp .pill.na { background: var(--control-bg); color: var(--text-muted); }
+
+.exp .exp-more { margin-top: 8px; font-size: 11px; color: var(--text-muted); }
+.exp .exp-busy { font-size: 11px; color: var(--text-muted); }
+
+.exp .exp-chip.older { border-style: dashed; color: var(--text-muted); }
+
+/* the row actions */
+.exp .exp-days { margin: 0; font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; }
+.exp .exp-days-input { width: 64px; }
+.exp .act { display: flex; gap: 4px; }
+.exp .act button {
+	font-size: 11px; padding: 1px 7px; height: 22px; line-height: 1;
+	border: 1px solid var(--border-color); border-radius: 4px;
+	background: var(--fg-color); color: var(--text-color); cursor: pointer; white-space: nowrap;
+}
+.exp .act button:hover:not(:disabled) { background: var(--red-100, #fbe5e2); border-color: var(--red-300, #f0b4ab); }
+.exp .act button:disabled { opacity: .4; cursor: default; }
+.exp tbody tr.kept td { background: var(--control-bg); color: var(--text-muted); }
+.exp .days-badge { font-weight: 600; }
+.exp .days-badge.old { color: var(--red-600, #c0341d); }
+
+/* pressing a plate, IMEI or customer opens the record */
+.exp .exp-link { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--text-muted, #8d99a6); }
+.exp .exp-link:hover { color: var(--primary, #2490ef); border-bottom-color: var(--primary, #2490ef); }
+
+/* the row tools in the last column */
+.exp button.dots {
+	border: 1px solid var(--border-color); background: var(--control-bg, transparent); color: var(--text-color);
+	border-radius: 6px; width: 30px; height: 26px; line-height: 1; font-size: 18px; cursor: pointer; padding: 0;
+}
+.exp button.dots:hover { background: var(--gray-100, #f1f1f3); }
+
+/* the menu the dots open: one floating element, so the scrolling table never clips it */
+.exp-menu {
+	position: fixed; z-index: 1050; min-width: 220px; padding: 4px;
+	background: var(--card-bg, #fff); color: var(--text-color);
+	border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, .18);
+	display: flex; flex-direction: column;
+}
+.exp-menu button {
+	text-align: left; border: 0; background: transparent; color: inherit; font-size: 13px;
+	padding: 7px 10px; border-radius: 6px; cursor: pointer; white-space: nowrap;
+}
+.exp-menu button:hover:not(:disabled) { background: var(--gray-100, #f1f1f3); }
+.exp-menu button.warn { color: var(--orange-700, #9a3412); }
+.exp-menu button.danger { color: var(--red-700, #b42318); }
+.exp-menu button.danger:hover:not(:disabled) { background: var(--red-100, #fbe5e2); }
+.exp-menu button:disabled { opacity: .4; cursor: default; }
+.exp-menu-sep { height: 1px; margin: 4px 2px; background: var(--border-color); }
