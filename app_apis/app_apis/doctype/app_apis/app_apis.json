@@ -117,7 +117,6 @@
   "subscription_reminder_days_before",
   "subscription_reminder_days_after",
   "subscription_reminder_customer_types",
-  "subscription_reminder_phone_source",
   "subscription_reminder_stop_after_failures",
   "subscription_reminder_template_inbox",
   "subscription_reminder_last_run",
@@ -756,14 +755,6 @@
    "fieldname": "subscription_reminder_customer_types",
    "fieldtype": "Data",
    "label": "Customer Types"
-  },
-  {
-   "default": "Customer, then vehicle",
-   "description": "Vehicle's is the driver's.",
-   "fieldname": "subscription_reminder_phone_source",
-   "fieldtype": "Select",
-   "label": "Phone Source",
-   "options": "Customer, then vehicle\nCustomer only\nVehicle only"
   },
   {
    "default": "3",

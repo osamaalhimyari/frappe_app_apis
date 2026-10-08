@@ -64,6 +64,13 @@ queue cannot starve everything behind it); and a vehicle with no Saudi mobile
 number (+9665XXXXXXXX -- a number that cannot be one is not used and the next
 one is tried).
 
+WHICH NUMBER
+An Individual is the driver, so the vehicle's driver_mobile is used first and
+the Customer's mobile_no only if that is missing or unusable. A Company gets
+the Customer's mobile_no only: its drivers are employees, never the person to
+bill. It is a Company if EITHER the Customer Type is not Individual OR Paying
+is "Company" (the vehicle's, else the customer's).
+
 Those are counted rather than logged because they repeat every hour: logging
 them would write the same few hundred rows a day.
 
@@ -214,7 +221,6 @@ DEFAULTS = {
 	"subscription_reminder_stop_after_failures": 3,
 	"subscription_reminder_template_inbox": 0,
 	"subscription_reminder_customer_types": "",
-	"subscription_reminder_phone_source": "Customer, then vehicle",
 }
 
 WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
@@ -407,6 +413,16 @@ def vehicles_in_window(cfg: dict) -> list[dict]:
 	)
 
 
+def is_individual(customer, vehicle=None) -> bool:
+	"""True only when nothing says "company". Either signal is enough to make it
+	a company: the Customer Type is anything but Individual, or Paying is
+	"Company" -- on the vehicle, else on the customer if the vehicle has none."""
+	if str((customer or {}).get("customer_type") or "").strip().lower() != "individual":
+		return False
+	paying = str((vehicle or {}).get("paying") or (customer or {}).get("paying") or "").strip().lower()
+	return paying != "company"
+
+
 def _plate(vehicle: dict) -> str:
 	"""The plate to print. Arabic first -- it is the one stamped on the metal."""
 	for field in ("license_plate", "e_license_plate", "plate_num"):
@@ -533,7 +549,6 @@ def plan(cfg: dict | None = None, budget: int | None = None, rows: dict | None =
 	repeat_days = cint(cfg["subscription_reminder_repeat_days"])
 	daily_limit = cint(cfg["subscription_reminder_batch_size"])
 	per_customer_cap = cint(cfg["subscription_reminder_max_per_customer"])
-	phone_source = cfg["subscription_reminder_phone_source"]
 
 	vehicles = vehicles_in_window(cfg)
 	out = {"due": [], "passed": {}, "in_window": len(vehicles), "expiring_soon": 0,
@@ -564,15 +579,11 @@ def plan(cfg: dict | None = None, budget: int | None = None, rows: dict | None =
 	names = sorted({v.customer for v in vehicles})
 	for i in range(0, len(names), 500):
 		for c in frappe.db.sql(
-			"select name, customer_name, mobile_no, customer_type from `tabCustomer` where name in %(n)s",
+			"select name, customer_name, mobile_no, customer_type, paying from `tabCustomer` where name in %(n)s",
 			{"n": tuple(names[i:i + 500])},
 			as_dict=True,
 		):
 			customers[c.name] = c
-
-	drivers = {}
-	for v in vehicles:
-		drivers.setdefault(v.customer, []).append(v.driver_mobile)
 
 	blocked_phones = do_not_contact.blocked_phones(do_not_contact.REMINDERS)
 	recent = _recently_reminded(repeat_days, dry_run)
@@ -625,18 +636,18 @@ def plan(cfg: dict | None = None, budget: int | None = None, rows: dict | None =
 			_count(passed, "already renewed")
 			continue
 
-		# A subscription is a billing matter, so the Customer's own number leads;
-		# the driver's number is a fallback, and a configurable one. Numbers whose
-		# owner asked to be left alone are stepped over rather than failing the
-		# vehicle: one driver opting out should not cost their employer the notice.
+		# Who gets the message depends on who the customer is. An individual IS
+		# the driver, so the vehicle's own number comes first and the customer's
+		# is the fallback. A company's drivers are employees, not the person who
+		# pays, so only the customer's number is ever used. Numbers whose owner
+		# asked to be left alone are stepped over rather than failing the vehicle.
 		phone = source = ""
 		tries = []
-		if phone_source != "Vehicle only":
-			tries.append((c.get("mobile_no"), "Customer.mobile_no"))
-		if phone_source != "Customer only":
+		if is_individual(c, v):
 			tries.append((v.driver_mobile, "%s.driver_mobile" % plate))
-			for other in drivers.get(v.customer) or []:
-				tries.append((other, "driver_mobile (another vehicle)"))
+			tries.append((c.get("mobile_no"), "Customer.mobile_no"))
+		else:
+			tries.append((c.get("mobile_no"), "Customer.mobile_no"))
 		for raw, label in tries:
 			p = saudi_mobile(raw)
 			if p and p not in blocked_phones:

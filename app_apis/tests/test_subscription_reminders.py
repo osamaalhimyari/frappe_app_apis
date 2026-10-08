@@ -100,7 +100,7 @@ class Planning(unittest.TestCase):
 		renewals = renewals or ({}, {})
 		customers = customers if customers is not None else {
 			v.customer: frappe._dict(name=v.customer, customer_name=v.customer.title(),
-			                         mobile_no="", customer_type="Company")
+			                         mobile_no="", customer_type="Individual")
 			for v in vehicles
 		}
 		db = mock.Mock()
@@ -204,23 +204,57 @@ class Planning(unittest.TestCase):
 		self.assertEqual(self.plates(found), ["OK"])
 		self.assertEqual(len(found["passed"]), 3)
 
-	def test_blocked_phone_is_stepped_over_to_the_next_number(self):
+	def test_blocked_phone_is_stepped_over_to_the_next_vehicle(self):
 		vs = [vehicle("A", "c1", 1, mobile="0501111111"), vehicle("B", "c1", 2, mobile="0502222222")]
 		found = self.plan(vs, blocked_phones={"+966501111111"})
+		self.assertEqual(self.plates(found), ["B"])
 		self.assertEqual(found["due"][0]["phone"], "+966502222222")
-		self.assertEqual(found["due"][0]["phone_source"], "driver_mobile (another vehicle)")
 
-	def test_customer_number_leads_unless_vehicle_only(self):
-		customers = {"c1": frappe._dict(name="c1", customer_name="C1", mobile_no="0509999999", customer_type="")}
-		v = [vehicle("A", "c1", 1, mobile="0501111111")]
-		self.assertEqual(self.plan(v, customers=customers)["due"][0]["phone"], "+966509999999")
-		found = self.plan(v, customers=customers, config=cfg(subscription_reminder_phone_source="Vehicle only"))
+	def test_individual_uses_vehicle_number_then_customer_number(self):
+		customers = {"c1": frappe._dict(name="c1", customer_name="C1", mobile_no="0509999999", customer_type="Individual")}
+		found = self.plan([vehicle("A", "c1", 1, mobile="0501111111")], customers=customers)
 		self.assertEqual(found["due"][0]["phone"], "+966501111111")
+		self.assertEqual(found["due"][0]["phone_source"], "A.driver_mobile")
+		found = self.plan([vehicle("A", "c1", 1, mobile="+966")], customers=customers)
+		self.assertEqual(found["due"][0]["phone"], "+966509999999")
+		self.assertEqual(found["due"][0]["phone_source"], "Customer.mobile_no")
+		found = self.plan([vehicle("A", "c1", 1, mobile="0501111111")], customers=customers,
+		                  blocked_phones={"+966501111111"})
+		self.assertEqual(found["due"][0]["phone"], "+966509999999")
+
+	def test_company_uses_only_the_customer_number(self):
+		customers = {"c1": frappe._dict(name="c1", customer_name="C1", mobile_no="0509999999", customer_type="Company")}
+		found = self.plan([vehicle("A", "c1", 1, mobile="0501111111")], customers=customers)
+		self.assertEqual(found["due"][0]["phone"], "+966509999999")
+		self.assertEqual(found["due"][0]["phone_source"], "Customer.mobile_no")
+		customers["c1"].mobile_no = ""
+		found = self.plan([vehicle("A", "c1", 1, mobile="0501111111")], customers=customers)
+		self.assertEqual(found["due"], [])
+		self.assertEqual(found["passed"], {"no +9665 number": 1})
+
+	def test_paying_company_makes_an_individual_a_company(self):
+		customers = {"c1": frappe._dict(name="c1", customer_name="C1", mobile_no="0509999999", customer_type="Individual")}
+		v = vehicle("A", "c1", 1, mobile="0501111111")
+		v["paying"] = "Company"
+		found = self.plan([v], customers=customers)
+		self.assertEqual(found["due"][0]["phone"], "+966509999999")
+		v["paying"] = ""
+		customers["c1"]["paying"] = "Company"
+		self.assertEqual(self.plan([v], customers=customers)["due"][0]["phone"], "+966509999999")
+		v["paying"] = "Individuals"
+		customers["c1"]["paying"] = ""
+		self.assertEqual(self.plan([v], customers=customers)["due"][0]["phone"], "+966501111111")
+
+	def test_company_customer_type_wins_over_paying_individuals(self):
+		customers = {"c1": frappe._dict(name="c1", customer_name="C1", mobile_no="0509999999", customer_type="Company")}
+		v = vehicle("A", "c1", 1, mobile="0501111111")
+		v["paying"] = "Individuals"
+		self.assertEqual(self.plan([v], customers=customers)["due"][0]["phone"], "+966509999999")
 
 	def test_customer_types(self):
 		customers = {
 			"c1": frappe._dict(name="c1", customer_name="C1", mobile_no="", customer_type="Individual"),
-			"c2": frappe._dict(name="c2", customer_name="C2", mobile_no="", customer_type="Company"),
+			"c2": frappe._dict(name="c2", customer_name="C2", mobile_no="0508888888", customer_type="Company"),
 		}
 		vs = [vehicle("A", "c1", 1), vehicle("B", "c2", 2)]
 		found = self.plan(vs, customers=customers, config=cfg(subscription_reminder_customer_types="company"))
