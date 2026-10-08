@@ -223,14 +223,42 @@ def after_migrate():
 	seed_quietly()
 
 
+def ensure_site_data():
+	"""Create or fill what the shipped scripts need in the database, every install and every migrate.
+
+	These used to be patches only. A patch does not run on a FRESH install (Frappe marks every
+	patch as done when an app is installed), so a new site would have lacked the Customer cache
+	fields and the IM settings. Both functions are idempotent: they add what is missing and never
+	overwrite what an operator has set.
+	"""
+	from app_apis.patches import add_im_customer_cache_fields, seed_im_upload_settings
+
+	for label, step in (("Customer IM cache fields", add_im_customer_cache_fields.execute),
+	                    ("IM upload settings", seed_im_upload_settings.execute)):
+		try:
+			step()
+		except Exception:
+			frappe.log_error(title="app_apis: " + label + " failed")
+			print("app_apis: WARNING -", label, "could not be set up; see the Error Log")
+
+	# every shipped API/scheduler script is a Server Script, and Frappe runs none of them unless
+	# the site allows it. Say so loudly rather than leave the app looking installed but dead.
+	if not frappe.conf.get("server_script_enabled"):
+		print("app_apis: WARNING - server_script_enabled is off for this site, so the Server Scripts "
+		      "(vehicle_upload_api, expired_devices_api, ...) will not run. Turn it on with:\n"
+		      "    bench --site <site> set-config server_script_enabled true")
+
+
 def seed_quietly():
 	"""Seed as Administrator; a bad script must not fail install or migrate."""
+	user = frappe.session.user if getattr(frappe.local, "session", None) else None
 	try:
-		user = frappe.session.user if getattr(frappe.local, "session", None) else None
 		frappe.set_user("Administrator")
 		changed = seed()
 		if changed:
 			print("app_apis: scripts created/updated:", ", ".join(changed))
+		ensure_site_data()
+		frappe.db.commit()
 	except Exception:
 		frappe.log_error(title="app_apis: seeding scripts failed")
 	finally:

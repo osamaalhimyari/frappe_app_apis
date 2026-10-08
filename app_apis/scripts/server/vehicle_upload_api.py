@@ -1583,13 +1583,21 @@ def after_platform_delete(vehicle_name, key):
     if left:
         note = "Device Statues left as it is -- still ticked in Platforms: " + ", ".join(left)
     elif str(now.get("device_statues") or "") == STATUS_DELETED:
-        note = "Device Statues was already Deleted"
+        # already Deleted: only make sure the Deletion Date is not left empty
+        if now.get("deletion_date"):
+            note = "Device Statues was already Deleted (Deletion Date " + str(now.get("deletion_date")) + ")"
+        else:
+            updates["deletion_date"] = frappe.utils.nowdate()
+            note = "Device Statues was already Deleted; Deletion Date was empty, set to today"
     else:
+        # the Deletion Date goes in together with the status, never one without the other
         updates["device_statues"] = STATUS_DELETED
         if not now.get("deletion_date"):
             updates["deletion_date"] = frappe.utils.nowdate()
         changed = True
-        note = "Device Statues set to Deleted (no other platform is ticked in Platforms)"
+        note = ("Device Statues set to Deleted, Deletion Date " +
+                str(updates.get("deletion_date") or now.get("deletion_date")) +
+                " (no other platform is ticked in Platforms)")
     if updates:
         frappe.db.set_value(VEH_DT, vehicle_name, updates)
     return {"changed": changed, "note": note}

@@ -133,3 +133,33 @@ class TestDeleteSetsStatus(unittest.TestCase):
 		self.assertIn('target in ("pilot_wsl", "pilot2", "im")', source)
 		# written with db.set_value: a document save would run the Customer Vehicle save scripts
 		self.assertIn("frappe.db.set_value(VEH_DT, vehicle_name, updates)", source)
+		# the Deletion Date goes in with the status, and is filled even for a vehicle that is already Deleted
+		self.assertEqual(source.count('updates["deletion_date"] = frappe.utils.nowdate()'), 2)
+
+
+class TestInstallHooks(unittest.TestCase):
+	"""A patch does not run on a fresh install, so install AND migrate must both do the DB setup."""
+
+	def test_install_and_migrate_both_seed_and_ensure_site_data(self):
+		from unittest import mock
+
+		for hook in (scripts.after_install, scripts.after_migrate):
+			with mock.patch.object(scripts, "seed", return_value=["x"]) as seed, \
+					mock.patch.object(scripts, "ensure_site_data") as ensure, \
+					mock.patch.object(scripts.frappe, "set_user"), \
+					mock.patch.object(scripts.frappe, "db", mock.MagicMock()):
+				hook()
+			seed.assert_called_once()
+			ensure.assert_called_once()
+
+	def test_one_failing_step_does_not_stop_the_other(self):
+		from unittest import mock
+
+		from app_apis.patches import add_im_customer_cache_fields, seed_im_upload_settings
+
+		with mock.patch.object(add_im_customer_cache_fields, "execute", side_effect=RuntimeError("boom")), \
+				mock.patch.object(seed_im_upload_settings, "execute") as second, \
+				mock.patch.object(scripts.frappe, "log_error"), \
+				mock.patch.object(scripts.frappe, "conf", {"server_script_enabled": 1}):
+			scripts.ensure_site_data()
+		second.assert_called_once()
