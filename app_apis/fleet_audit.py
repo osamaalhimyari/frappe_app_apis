@@ -1093,6 +1093,111 @@ def refresh_sim_data() -> dict:
 # Item), which is what `sim_item` holds on the snapshot.
 SUSPENDED_PRICE = 2.0
 SIM_TYPE_DT = "SIM Type"
+
+# What counts as a WASTED SIM is decided by the Server Script WASTE_SCRIPT, so it can be changed on the site
+# without touching this app (see scripts/server/fleet_audit_waste.py). These are only the fallback when that
+# script is missing, disabled or answers nonsense -- the rule this app shipped with.
+WASTE_SCRIPT = "fleet_audit_waste"
+WASTE_FLAG = "app_apis_fleet_waste"
+WASTE_DEFAULTS = {
+	"suspended_price": SUSPENDED_PRICE,
+	"erp_statuses": ["Deleted"],
+	"expired_days": 0,
+	"verdicts": [],
+}
+
+
+def _waste_clean(raw) -> dict:
+	"""The script's answer, checked field by field. A field that is missing or the wrong shape keeps its
+	default; one bad line in a hand-edited script must not make every number on the page wrong or throw."""
+	out = {k: (list(v) if isinstance(v, list) else v) for k, v in WASTE_DEFAULTS.items()}
+	if not isinstance(raw, dict):
+		return out
+	for key in ("erp_statuses", "verdicts"):
+		val = raw.get(key)
+		if isinstance(val, str):
+			val = val.split(",")
+		if isinstance(val, (list, tuple)):
+			out[key] = [str(x).strip() for x in val if str(x).strip()]
+	if "expired_days" in raw:
+		days = raw.get("expired_days")
+		if days is None:
+			out["expired_days"] = None
+		else:
+			try:
+				days = int(days)
+				if days >= 0:
+					out["expired_days"] = days
+			except (TypeError, ValueError):
+				pass
+	if "suspended_price" in raw:
+		try:
+			price = float(raw.get("suspended_price"))
+			if price >= 0:
+				out["suspended_price"] = price
+		except (TypeError, ValueError):
+			pass  # flt("abc") would be 0.0 and silently make every suspended SIM free
+	return out
+
+
+def waste_config() -> dict:
+	"""{suspended_price, erp_statuses, expired_days, verdicts}: from the Server Script when it is there and
+	enabled, else the shipped rule. Read once per request, so an edit applies on the very next page load."""
+	cached = getattr(frappe.local, "app_apis_waste_cfg", None)
+	if cached is not None:
+		return cached
+	raw = None
+	try:
+		row = frappe.db.get_value("Server Script", WASTE_SCRIPT, ["disabled", "script_type"], as_dict=True)
+		if row and not cint(row.disabled) and row.script_type == "API":
+			# an API script's answer is the flags of its own sandbox, handed back by execute_method
+			answer = frappe.get_doc("Server Script", WASTE_SCRIPT).execute_method()
+			raw = (answer or {}).get(WASTE_FLAG)
+	except Exception:
+		frappe.log_error(title="app_apis: fleet_audit_waste script failed")
+	cfg = _waste_clean(raw)
+	frappe.local.app_apis_waste_cfg = cfg
+	return cfg
+
+
+def _waste_sql(cfg: dict):
+	"""(sql, params): the 0/1 expression that is true for a vehicle whose billed SIM is wasted.
+
+	Built only from the snapshot's own column names and bound parameters -- nothing from the script is ever
+	pasted into the SQL text."""
+	parts, params = [], []
+	statuses = [s for s in cfg.get("erp_statuses") or [] if s]
+	if statuses:
+		parts.append("erp_status in (%s)" % ", ".join(["%s"] * len(statuses)))
+		params += statuses
+	days = cfg.get("expired_days")
+	if days is not None:
+		parts.append("(subscription_expiry is not null and subscription_expiry < "
+		             "date_sub(curdate(), interval %s day))")
+		params.append(cint(days))
+	verdicts = [v for v in cfg.get("verdicts") or [] if v]
+	if verdicts:
+		parts.append("verdict in (%s)" % ", ".join(["%s"] * len(verdicts)))
+		params += verdicts
+	if not parts:
+		return "0", []
+	return "case when " + " or ".join(parts) + " then 1 else 0 end", params
+
+
+def waste_hint(cfg: dict = None) -> str:
+	"""The rule in words, for the tile tooltip."""
+	cfg = cfg or waste_config()
+	bits = []
+	if cfg.get("erp_statuses"):
+		bits.append("the ERP status is " + " / ".join(cfg["erp_statuses"]))
+	if cfg.get("expired_days") is not None:
+		d = cint(cfg["expired_days"])
+		bits.append("the subscription has expired" if not d else "the subscription expired over %d days ago" % d)
+	if cfg.get("verdicts"):
+		bits.append("the audit verdict is " + " / ".join(cfg["verdicts"]))
+	if not bits:
+		return "No waste rule is set."
+	return "Still billing while " + ", or ".join(bits) + "."
 SIM_TYPE_FIELD = "custom_sim_type"
 
 # carrier key -> (price column on SIM Type, substrings that identify it)
@@ -1163,7 +1268,7 @@ def _sim_price(sim_type: str, sim_item: str, sim_status: str, prices: dict):
 	"""
 	status = (sim_status or "").strip()
 	if status == "Suspend":
-		return SUSPENDED_PRICE
+		return waste_config()["suspended_price"]
 	if status != "Active":
 		return 0.0
 	entry = prices.get((sim_type or "").strip())
@@ -1180,20 +1285,18 @@ def _billed_groups():
 
 	One grouped scan shared by the widgets and by the cost history, so the two
 	can never disagree about what a month cost. Only Active and Suspend are
-	billed, so only they are counted; `wasted` is how many of the group sit
-	behind a device the ERP has deleted or whose subscription has run out.
+	billed, so only they are counted; `wasted` is how many of the group match
+	the waste rule -- by default a device the ERP has deleted or whose
+	subscription has run out, changeable in the fleet_audit_waste Server Script.
 	"""
+	waste_sql, params = _waste_sql(waste_config())
 	return frappe.db.sql(
-		"""
-		select ifnull(sim_type, ''), ifnull(sim_item, ''), ifnull(sim_status, ''), count(*),
-		       sum(case when erp_status = 'Deleted'
-		                  or (subscription_expiry is not null and subscription_expiry < curdate())
-		                then 1 else 0 end)
-		from `tab%s`
-		where sim_status in ('Active', 'Suspend')
-		group by 1, 2, 3
-		"""
-		% SNAPSHOT_DT
+		"select ifnull(sim_type, ''), ifnull(sim_item, ''), ifnull(sim_status, ''), count(*), "
+		"sum(" + waste_sql + ") "
+		"from `tab" + SNAPSHOT_DT + "` "
+		"where sim_status in ('Active', 'Suspend') "
+		"group by 1, 2, 3",
+		params,
 	) or []
 
 
@@ -1212,9 +1315,10 @@ def _money_summary() -> dict:
 	SUSPENDED_PRICE whatever it is on.
 
 	WASTE is a SIM still being paid for while the thing it was bought for is
-	gone: the ERP marks the device Deleted, OR its subscription has expired, AND
-	the SIM is still Active or Suspend. Those are the only two SIM states that
-	cost anything, so they are the only two that can be wasted.
+	gone. What "gone" means is the fleet_audit_waste Server Script's call (by
+	default: the ERP marks the device Deleted, OR its subscription has expired),
+	AND the SIM is still Active or Suspend. Those are the only two SIM states
+	that cost anything, so they are the only two that can be wasted.
 	"""
 	prices = _sim_prices()
 
@@ -1252,12 +1356,13 @@ def _money_summary() -> dict:
 		tiles.append(t)
 
 	t = {"plan": "", "label": "Suspended", "status": "Suspend"}
-	t.update(totals(lambda pl, ca, st: st == "Suspend", flat=SUSPENDED_PRICE))
+	t.update(totals(lambda pl, ca, st: st == "Suspend", flat=waste_config()["suspended_price"]))
 	tiles.append(t)
 
 	return {
 		"currency": frappe.defaults.get_global_default("currency") or "SAR",
-		"suspended_price": SUSPENDED_PRICE,
+		"suspended_price": waste_config()["suspended_price"],
+		"waste_hint": waste_hint(),
 		"tiles": tiles,
 	}
 
@@ -1290,7 +1395,7 @@ def _record_cost_history(when=None) -> dict:
 	for plan, carrier, status, n, w in _billed_groups():
 		n, w = cint(n), cint(w)
 		price = (
-			SUSPENDED_PRICE if status == "Suspend"
+			waste_config()["suspended_price"] if status == "Suspend"
 			else _sim_price(plan, carrier, status, prices)
 		)
 		# An unpriced group is still recorded -- with priced=0 and cost 0 -- so

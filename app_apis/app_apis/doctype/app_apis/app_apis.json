@@ -57,10 +57,8 @@
   "sec_im_upload",
   "im_admin_id",
   "im_default_reseller_id",
-  "col_im_up",
   "im_reseller_ids",
   "im_sim_provider",
-  "sec_im_models",
   "im_models",
   "sec_lebara",
   "lebara_enabled",
@@ -102,14 +100,14 @@
   "chatwoot2_webhook_secret",
   "chatwoot2_request_timeout",
   "sec_auto_messages",
+  "chatwoot_use_templates",
+  "sync_whatsapp_templates",
   "auto_message_enabled",
   "auto_message_customer_types",
   "show_vehicle_customer_types",
   "technician_message_enabled",
   "auto_message_rules",
   "excluded_technicians",
-  "chatwoot_use_templates",
-  "sync_whatsapp_templates",
   "contact_numbers",
   "sec_subscription_reminders",
   "subscription_reminder_enabled",
@@ -129,6 +127,8 @@
   "subscription_reminder_template_inbox",
   "subscription_reminder_last_run",
   "subscription_messages",
+  "sec_custom_messages",
+  "custom_messages",
   "sec_excluded",
   "excluded_customers"
  ],
@@ -372,8 +372,7 @@
    "fieldname": "sec_im_upload",
    "fieldtype": "Section Break",
    "label": "IM Upload (Add Vehicle)",
-   "collapsible": 1,
-   "description": "Used by the vehicle_upload_api Server Script when it creates a vehicle on IM. Blank = the value written in the script."
+   "collapsible": 1
   },
   {
    "fieldname": "im_admin_id",
@@ -390,10 +389,6 @@
    "default": "3237"
   },
   {
-   "fieldname": "col_im_up",
-   "fieldtype": "Column Break"
-  },
-  {
    "fieldname": "im_reseller_ids",
    "fieldtype": "Data",
    "label": "IM Resellers To Scan",
@@ -406,12 +401,6 @@
    "label": "IM SIM Provider ID",
    "description": "sim_provide on the Add Vehicle form.",
    "default": "2"
-  },
-  {
-   "fieldname": "sec_im_models",
-   "fieldtype": "Section Break",
-   "label": "IM Device Models (ERP Device Type → IM model)",
-   "collapsible": 1
   },
   {
    "fieldname": "im_models",
@@ -858,6 +847,18 @@
    "label": "Keep Chasing After (days)"
   },
   {
+   "fieldname": "sec_custom_messages",
+   "fieldtype": "Section Break",
+   "label": "Custom Messages",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "custom_messages",
+   "fieldtype": "Table",
+   "label": "Custom Messages",
+   "options": "App Apis Custom Message"
+  },
+  {
    "collapsible": 1,
    "fieldname": "sec_excluded",
    "fieldtype": "Section Break",
@@ -925,14 +926,14 @@
    "collapsible": 1,
    "fieldname": "col_chatwoot_alt_divider",
    "fieldtype": "Section Break",
-   "label": "Connection 2 (Alternative)"
+   "label": "Chatwoot Connection 2 (Alternative)"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-08 13:00:00.000000",
+ "modified": "2026-10-10 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "App Apis",
  "name": "app_apis",

@@ -2176,6 +2176,18 @@ def which_targets(v, asked):
     return picked
 
 
+# ---------------------------------------------------------------- events for code built on the core
+def notify_core(event, platform, vehicle, imei, detail):
+    """Tell app_apis.core.events handlers (registered by other apps in hooks.py) what this script just
+    did, so work done with the buttons is heard exactly like work done through app_apis.core.platforms.
+    Reporting is best effort: it must never change the outcome of the action it reports."""
+    try:
+        frappe.call("app_apis.core.api.notify", event=event, platform=platform, vehicle=vehicle,
+                    imei=imei, detail=detail)
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------- run
 if not allowed and action not in ("delete_plan", "delete", "sim_check"):
     # upload / verify / im_sync stay with these roles; delete and the SIM check are open to
@@ -2231,6 +2243,15 @@ elif action in ("delete_plan", "delete"):
         drow.pop("company", None)
         drow.pop("branch", None)
         out["results"].append(drow)
+        if action == "delete" and drow.get("verdict") in ("deleted", "done"):
+            if target == "wasl":
+                notify_core("after_wasl", "pilot_wsl", vehicle_name, out["imei"],
+                            {"action": "delete", "result": str(drow.get("result"))[:300]})
+            elif target in ("pilot_wsl", "pilot2", "im"):
+                notify_core("after_delete", target, vehicle_name, out["imei"],
+                            {"result": {"verdict": drow.get("verdict"), "ok": bool(drow.get("ok")),
+                                        "result": str(drow.get("result"))[:300],
+                                        "status_changed": bool(out.get("device_status_changed"))}})
         out["ok"] = bool(drow["found"]) if action == "delete_plan" else bool(drow["ok"])
 
 elif action == "sim_check":
@@ -2316,6 +2337,11 @@ else:
                 else:
                     row = send_one(veh, key)
                 out["results"].append(row)
+                if (action == "upload" and row.get("verdict") == "uploaded" and not row.get("blocked")
+                        and "already registered" not in str(row.get("result") or "")):
+                    notify_core("after_create", key, vehicle_name, str(veh.get("device_serial") or ""),
+                                {"result": {"verdict": "uploaded", "ok": True,
+                                            "result": str(row.get("result") or "")[:300]}})
                 if not row.get("ok"):
                     every_ok = False
                 if row.get("blocked"):

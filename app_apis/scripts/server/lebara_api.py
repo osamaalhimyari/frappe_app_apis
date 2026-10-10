@@ -33,7 +33,8 @@
 #   sim_history      msisdn                  every SMS to and from one SIM, newest first
 #   sent_check       msisdn, after_id, message   has the SMS just sent reached Lebara's list yet?
 #                                            -> {sent: row|None, reply: row|None}
-#   sync_sims                                every SIM into the "Lebara SIM" list (hourly job)
+#   sync_sims                                every SIM into the "Lebara SIM" list (hourly job;
+#                                            runs app_apis.core.lebara.sync_sims)
 #   sync_now                                 sync_sims in the background, for a button
 #   latest_sms       take (opt, 50)
 #   replies_after    msisdn, after_id        device replies newer than a sent SMS Id
@@ -416,80 +417,11 @@ def sent_check():
     return {"sent": sent, "reply": reply}
 
 
-def lebara_dt(value):
-    """2026-09-16T10:20:57.000 -> 2026-09-16 10:20:57 (KSA time, as Lebara stores it)."""
-    value = str(value or "").replace("T", " ")[:19]
-    return value or None
-
-
-def erp_vehicles():
-    """Customer Vehicles keyed by SIM ICCID and by device IMEI. ICCID is the
-    reliable key (sim_serial holds the ICCID; ~98% match). IMEI is the fallback
-    for vehicles with no ICCID, using the IMEI Lebara's network reports."""
-    by_iccid = {}
-    by_imei = {}
-    for v in frappe.db.sql(
-        "select name, customer, device_serial, sim_serial, license_plate, e_license_plate, plate_num "
-        "from `tabCustomer Vehicle` where ifnull(sim_serial, '') != '' or ifnull(device_serial, '') != '' "
-        "order by modified", as_dict=True):
-        plate = ""
-        for f in ["license_plate", "e_license_plate", "plate_num"]:
-            if not plate and str(v.get(f) or "").strip():
-                plate = str(v.get(f)).strip()
-        rec = {"erp_vehicle": v.name, "erp_customer": v.customer or "", "erp_plate": plate or v.name,
-               "erp_imei": str(v.device_serial or "").strip()}
-        # ordered by modified: the most recently edited vehicle wins a shared key
-        if str(v.sim_serial or "").strip():
-            by_iccid[str(v.sim_serial).strip()] = rec
-        if rec["erp_imei"]:
-            by_imei[rec["erp_imei"]] = rec
-    return {"iccid": by_iccid, "imei": by_imei}
-
-
 def sync_sims():
-    started = frappe.utils.now_datetime()
-    erp = erp_vehicles()
-    rows = []
-    for e in list_sims():
-        rows.append({
-            "subscriber_id": cint(e.get("Id")),
-            "msisdn": str(e.get("Msisdn") or ""),
-            "iccid": str(e.get("ICCID") or ""),
-            "imsi": str(e.get("IMSI") or ""),
-            "status_code": cint(e.get("SubscriberStatusM2M1")),
-            "status": e.get("StatusText") or "",
-            "group_name": str(e.get("GroupName") or ""),
-            "sub_customer": str(e.get("SubCustomerName") or ""),
-            "activation_date": lebara_dt(e.get("ActivationDate")),
-            "last_connection": lebara_dt(e.get("LastConnectionDate")),
-            "this_month_mb": frappe.utils.flt(e.get("ThisMonthUsage")),
-            "last_month_mb": frappe.utils.flt(e.get("LastMonthUsage")),
-            "in_data_session": cint(e.get("InDataSession")),
-            "imei": str(e.get("IMEI") or ""),
-        })
-        row = rows[len(rows) - 1]
-        hit = erp["iccid"].get(row["iccid"])
-        how = "ICCID" if hit else ""
-        if not hit and row["imei"]:
-            hit = erp["imei"].get(row["imei"])
-            how = "IMEI" if hit else ""
-        hit = hit or {}
-        row["erp_vehicle"] = hit.get("erp_vehicle") or None
-        row["erp_customer"] = hit.get("erp_customer") or None
-        row["erp_plate"] = hit.get("erp_plate") or ""
-        row["erp_imei"] = hit.get("erp_imei") or ""
-        row["match_by"] = how
-    res = frappe.call("app_apis.core.store.upsert", doctype="Lebara SIM", key="subscriber_id", rows=rows)
-    note = "%s SIMs: %s new, %s changed, %s unchanged (%ss)" % (
-        res.get("total"), res.get("inserted"), res.get("updated"), res.get("unchanged"),
-        frappe.utils.time_diff_in_seconds(frappe.utils.now_datetime(), started))
-    frappe.db.set_value(SETTINGS, SETTINGS, "lebara_sims_synced_at", frappe.utils.now_datetime(),
-                        update_modified=False)
-    frappe.db.set_value(SETTINGS, SETTINGS, "lebara_sims_count", cint(res.get("total")), update_modified=False)
-    frappe.db.set_value(SETTINGS, SETTINGS, "lebara_sims_sync_note", note, update_modified=False)
-    frappe.db.commit()
-    res["note"] = note
-    return res
+    """The work is app_apis.core.lebara.sync_sims (every SIM, the extra usage / IMEI-date columns, the ERP
+    match, a "seen in this sync" stamp). Kept here only so the action name, the hourly job and the
+    Sync now button keep working."""
+    return frappe.call("app_apis.core.api.lebara_sync", what="sims")
 
 
 def list_sms():

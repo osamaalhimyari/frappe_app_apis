@@ -1,0 +1,101 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:imei",
+ "creation": "2026-10-10 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "imei",
+  "state",
+  "wasl_status",
+  "referencekey",
+  "wasl_ts",
+  "agent_id",
+  "account_id",
+  "synced_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "imei",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "IMEI",
+   "read_only": 1,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "description": "linked = status 1 with a WASL reference key (what Pilot itself treats as registered). registered_inactive = a reference key but not active. saved_not_registered = the WASL form is saved on Pilot but WASL has not accepted it.",
+   "fieldname": "state",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "State",
+   "options": "linked\nregistered_inactive\nsaved_not_registered",
+   "read_only": 1
+  },
+  {
+   "fieldname": "wasl_status",
+   "fieldtype": "Data",
+   "label": "WASL Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "referencekey",
+   "fieldtype": "Data",
+   "label": "WASL Reference Key",
+   "read_only": 1
+  },
+  {
+   "fieldname": "wasl_ts",
+   "fieldtype": "Datetime",
+   "label": "WASL Last Change",
+   "read_only": 1
+  },
+  {
+   "fieldname": "agent_id",
+   "fieldtype": "Data",
+   "label": "Pilot Agent ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "account_id",
+   "fieldtype": "Data",
+   "label": "Pilot Account ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "synced_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Synced At",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-10 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "App Apis WASL State",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

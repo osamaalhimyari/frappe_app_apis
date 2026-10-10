@@ -327,3 +327,138 @@ def wasl_delete(vehicle, confirm="", dry_run=1):
                     "content": "WASL delete (Pilot vehicle kept): " + ("done" if out["deleted"] else "failed") +
                                " -- " + frappe.utils.escape_html(out["msg"])}).insert(ignore_permissions=True)
     return out
+
+
+# ---------------------------------------------------------------- the stored WASL snapshot
+# Pilot's admin panel lists every vehicle's WASL registration in one paged call (app/wasl.php
+# get_vehicles). This copies it into "App Apis WASL State" once an hour, keyed by IMEI, so the Customer
+# Vehicle form can say "linked to WASL or not" without a live call per open.
+WASL_STATE_DT = "App Apis WASL State"
+WASL_PAGE = 5000                # the panel refuses more than about 5,000 rows per request (HTTP 500)
+WASL_MAX_PASSES = 10            # a read gives up after this many passes over the list
+STATE_LINKED = "linked"
+STATE_REGISTERED_INACTIVE = "registered_inactive"
+STATE_SAVED = "saved_not_registered"
+
+
+def wasl_state_of(row: dict) -> str:
+    """linked = status 1 with a WASL reference key (what Pilot itself treats as registered)."""
+    key = _s(row.get("referencekey"))
+    if key and _s(row.get("status")) == "1":
+        return STATE_LINKED
+    if key:
+        return STATE_REGISTERED_INACTIVE
+    return STATE_SAVED
+
+
+def wasl_imei_of(row: dict) -> str:
+    """The IMEI is inside the row's object_json ({"imeiNumber": ...})."""
+    raw = row.get("object_json")
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else (raw or {})
+    except ValueError:
+        return ""
+    return _s(data.get("imeiNumber")) if isinstance(data, dict) else ""
+
+
+def _epoch_to_datetime(ts):
+    import datetime
+
+    try:
+        n = int(ts)
+    except (TypeError, ValueError):
+        return None
+    return datetime.datetime.fromtimestamp(n) if n > 0 else None
+
+
+def read_wasl_list(sess, adm) -> tuple:
+    """Every vehicle row on Pilot's WASL list -> ({imei: row}, complete).
+
+    The panel pages this list with no stable order, so one pass over it can repeat some rows and skip
+    others (measured: about 2% skipped per pass). Passes are therefore repeated, merged by row id, until
+    every id the list reports (`totalCount`) has been seen. `complete` says whether that happened; a
+    caller must not treat a missing vehicle as "gone" unless it did. When an IMEI appears on more than
+    one row the newest row (highest id) wins, which is the one Pilot's own window shows."""
+    by_id = {}
+    total = None
+    complete = False
+    for _pass in range(WASL_MAX_PASSES):
+        page = 0
+        while True:
+            page += 1
+            got = _adm_get(sess, adm, "app/wasl.php", {"cmd": "get_vehicles", "page": page,
+                                                        "start": (page - 1) * WASL_PAGE, "limit": WASL_PAGE})
+            rows = (got.get("data") or []) if isinstance(got, dict) else []
+            if isinstance(got, dict) and got.get("totalCount") is not None:
+                total = int(got.get("totalCount"))
+            for r in rows:
+                if isinstance(r, dict) and r.get("id") is not None:
+                    by_id[r["id"]] = r
+            if len(rows) < WASL_PAGE:
+                break
+        if total is not None and len(by_id) >= total:
+            complete = True
+            break
+
+    out = {}
+    for r in by_id.values():
+        if _s(r.get("object_type")) not in ("vehicle", ""):
+            continue
+        imei = wasl_imei_of(r)
+        if not imei:
+            continue
+        old = out.get(imei)
+        if old is None or int(r.get("id") or 0) >= int(old.get("id") or 0):
+            out[imei] = r
+    return out, complete
+
+
+def _upsert_states(rows: dict, now) -> None:
+    cols = ("name", "creation", "modified", "modified_by", "owner", "docstatus", "idx", "imei", "state",
+            "wasl_status", "referencekey", "wasl_ts", "agent_id", "account_id", "synced_at")
+    updates = ", ".join("`%s`=VALUES(`%s`)" % (c, c)
+                        for c in ("modified", "state", "wasl_status", "referencekey", "wasl_ts", "agent_id",
+                                  "account_id", "synced_at"))
+    items = list(rows.items())
+    for i in range(0, len(items), 500):
+        chunk = items[i : i + 500]
+        values = []
+        for imei, r in chunk:
+            values.extend([imei, now, now, "Administrator", "Administrator", 0, 0, imei, wasl_state_of(r),
+                           _s(r.get("status")), _s(r.get("referencekey")) or None,
+                           _epoch_to_datetime(r.get("ts")), _s(r.get("object_id")), _s(r.get("account_id")), now])
+        marks = ", ".join(["(" + ", ".join(["%s"] * len(cols)) + ")"] * len(chunk))
+        frappe.db.sql("insert into `tab%s` (%s) values %s on duplicate key update %s" % (
+            WASL_STATE_DT, ", ".join("`%s`" % c for c in cols), marks, updates), values)
+
+
+@frappe.whitelist()
+def sync_wasl_states() -> dict:
+    """Copy Pilot's WASL list into App Apis WASL State. Hourly (Server Script "App Apis - WASL Status Sync").
+
+    Vehicles are added and updated from every read. A vehicle is REMOVED only after a read that saw the
+    whole list (see read_wasl_list), so a flaky page can never make linked vehicles look unlinked."""
+    frappe.only_for(("System Manager", "Technical"))
+    started = frappe.utils.now_datetime()
+    out = {"ok": False, "rows": 0, "removed": 0, "complete": False, "note": ""}
+    try:
+        with requests.Session() as sess:
+            adm = _admin(sess)
+            rows, complete = read_wasl_list(sess, adm)
+    except Exception as e:
+        out["note"] = "WASL status sync failed: " + _plain(str(e))[:300]
+        frappe.log_error(title="App Apis WASL Status Sync", message=str(e)[:1000])
+        return out
+    _upsert_states(rows, started)
+    out["rows"] = len(rows)
+    out["complete"] = complete
+    if complete:
+        out["removed"] = frappe.db.sql(
+            "select count(*) from `tab%s` where synced_at < %%s" % WASL_STATE_DT, started)[0][0]
+        frappe.db.sql("delete from `tab%s` where synced_at < %%s" % WASL_STATE_DT, started)
+    else:
+        out["note"] = ("the list could not be read completely after %d passes; rows were added/updated, "
+                       "none removed" % WASL_MAX_PASSES)
+    out["ok"] = True
+    frappe.db.commit()
+    return out

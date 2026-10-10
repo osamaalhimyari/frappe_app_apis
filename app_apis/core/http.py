@@ -288,6 +288,41 @@ def form_post(jar, url, fields=None, form_index=0, timeout=60):
 	}
 
 
+def fetch_bytes(jar: str, url: str, method: str = "GET", data=None, timeout: int = 240,
+                max_bytes: int = 60_000_000) -> dict:
+	"""A file download inside the named jar -- for Python callers only (not whitelisted: a spreadsheet
+	has no business crossing the RPC boundary as text).
+
+	Returns {ok, status, content_type, filename, content: bytes, error}. `ok` is False for an HTTP error,
+	for a body larger than `max_bytes` (never read in full), and for a connection failure. The jar is saved
+	afterwards, like `request`, so a refreshed cookie is kept."""
+	_check()
+	s = _load(jar)
+	out = {"ok": False, "status": 0, "content_type": "", "filename": "", "content": b"", "error": ""}
+	try:
+		r = s.request((method or "GET").upper(), url, data=_parse(data), timeout=frappe.utils.cint(timeout) or 240,
+		              stream=True)
+		out["status"] = r.status_code
+		out["content_type"] = r.headers.get("content-type", "")
+		m = re.search(r'filename="?([^";]+)"?', r.headers.get("content-disposition", ""))
+		out["filename"] = m.group(1) if m else ""
+		chunks, size = [], 0
+		for chunk in r.iter_content(65536):
+			size += len(chunk)
+			if size > max_bytes:
+				out["error"] = "response larger than %d bytes" % max_bytes
+				break
+			chunks.append(chunk)
+		else:
+			out["content"] = b"".join(chunks)
+			out["ok"] = r.status_code < 400
+		r.close()
+	except requests.RequestException as e:
+		out["error"] = str(e)[:500]
+	_save(jar, s)
+	return out
+
+
 @frappe.whitelist()
 def jar_info(jar):
 	"""Cookie names, domains and expiry -- never the values."""

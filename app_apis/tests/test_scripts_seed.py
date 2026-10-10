@@ -120,6 +120,26 @@ class TestExpiredSubscriptions(unittest.TestCase):
 		self.assertEqual(out, "LIVE = 1   # shipped\nx = 2\n")
 
 
+class TestFleetAuditWasteScript(unittest.TestCase):
+	def test_script_is_managed_carries_its_settings_and_compiles_in_the_sandbox(self):
+		from frappe.utils.safe_exec import FrappeTransformer
+		from RestrictedPython import compile_restricted
+
+		with open(os.path.join(SCRIPTS, "server_scripts.json")) as f:
+			meta = next(m for m in json.load(f) if m["name"] == "fleet_audit_waste")
+		self.assertTrue(meta["managed"])
+		self.assertEqual(meta["api_method"], "fleet_audit_waste")
+		for name in ("SUSPENDED_PRICE", "WASTE_ERP_STATUSES", "WASTE_EXPIRED_DAYS", "WASTE_VERDICTS"):
+			self.assertIn(name, meta["carry"])
+		with open(os.path.join(SCRIPTS, "server", meta["file"])) as f:
+			source = f.read()
+		compile_restricted(source, "fleet_audit_waste", "exec", policy=FrappeTransformer)
+		old = "WASTE_EXPIRED_DAYS = 30\nWASTE_ERP_STATUSES = [\"Deleted\", \"Scrap\"]\n"
+		out = scripts.carry_settings(old, source, names=meta["carry"])
+		self.assertIn("WASTE_EXPIRED_DAYS = 30", out)
+		self.assertIn('WASTE_ERP_STATUSES = ["Deleted", "Scrap"]', out)
+
+
 class TestDeleteSetsStatus(unittest.TestCase):
 	def test_status_rule_is_in_the_shipped_script(self):
 		with open(os.path.join(SCRIPTS, "server", "vehicle_upload_api.py")) as f:
@@ -167,3 +187,27 @@ class TestInstallHooks(unittest.TestCase):
 				mock.patch.object(scripts.frappe, "conf", {"server_script_enabled": 1}):
 			scripts.ensure_site_data()
 		second.assert_called_once()
+
+
+class TestSystemsSection(unittest.TestCase):
+	def test_hourly_wasl_job_and_form_section_are_shipped_and_managed(self):
+		with open(os.path.join(SCRIPTS, "server_scripts.json")) as f:
+			job = next(m for m in json.load(f) if m["name"] == "App Apis - WASL Status Sync")
+		self.assertEqual(job["script_type"], "Scheduler Event")
+		self.assertEqual(job["event_frequency"], "Hourly Long")
+		self.assertTrue(job["managed"])
+		self.assertTrue(os.path.exists(os.path.join(SCRIPTS, "server", job["file"])))
+		with open(os.path.join(SCRIPTS, "client_script.json")) as f:
+			rows = {r["name"]: r for r in json.load(f)}
+		cs = rows["customer-vehicle-systems"]
+		self.assertTrue(cs["managed"])
+		self.assertEqual((cs["dt"], cs["view"]), ("Customer Vehicle", "Form"))
+		self.assertIn("app_apis.vehicle_systems.get_systems", cs["script"])
+		self.assertIn("var SHOW_SYSTEMS_SECTION =", cs["script"])
+
+	def test_the_section_never_calls_an_outside_system(self):
+		# it must only read what the hourly jobs stored: no platform URL, no live-check method
+		with open(os.path.join(os.path.dirname(SCRIPTS), "vehicle_systems.py")) as f:
+			source = f.read()
+		for forbidden in ("requests.", "make_get_request", "make_post_request", "panel_find", "get_vehicle_live"):
+			self.assertNotIn(forbidden, source)

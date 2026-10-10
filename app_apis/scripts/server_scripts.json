@@ -5,7 +5,8 @@
     "api_method": "lebara",
     "allow_guest": 0,
     "disabled": 0,
-    "file": "lebara_api.py"
+    "file": "lebara_api.py",
+    "managed": true
   },
   {
     "name": "Lebara Keepalive",
@@ -13,14 +14,20 @@
     "event_frequency": "Cron",
     "cron_format": "*/5 * * * *",
     "disabled": 0,
-    "file": "lebara_keepalive.py"
+    "file": "lebara_keepalive.py",
+    "managed": true
   },
   {
     "name": "Lebara SIM Sync",
     "script_type": "Scheduler Event",
     "event_frequency": "Hourly Long",
     "disabled": 0,
-    "file": "lebara_sim_sync.py"
+    "file": "lebara_sim_sync.py",
+    "managed": true,
+    "carry": [
+      "QUIET_FROM",
+      "QUIET_TO"
+    ]
   },
   {
     "name": "App Apis - Subscription Reminders",
@@ -66,6 +73,40 @@
     "managed": true,
     "carry": [
       "LIVE"
+    ]
+  },
+  {
+    "name": "App Apis - WASL Status Sync",
+    "script_type": "Scheduler Event",
+    "event_frequency": "Hourly Long",
+    "disabled": 0,
+    "file": "wasl_status_sync.py",
+    "managed": true
+  },
+  {
+    "name": "fleet_audit_waste",
+    "script_type": "API",
+    "api_method": "fleet_audit_waste",
+    "allow_guest": 0,
+    "disabled": 0,
+    "file": "fleet_audit_waste.py",
+    "managed": true,
+    "carry": [
+      "SUSPENDED_PRICE",
+      "WASTE_ERP_STATUSES",
+      "WASTE_EXPIRED_DAYS",
+      "WASTE_VERDICTS"
+    ]
+  },
+  {
+    "name": "Lebara History Sync",
+    "script_type": "Scheduler Event",
+    "event_frequency": "Hourly Long",
+    "disabled": 0,
+    "file": "lebara_history_sync.py",
+    "managed": true,
+    "carry": [
+      "INVOICE_HOUR"
     ]
   }
 ]

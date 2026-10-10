@@ -39,12 +39,37 @@ def _same(old, new, fieldtype):
 	return cstr(old) == cstr(new)
 
 
+SEEN_FIELD = "synced_at"
+_CHUNK = 2000
+
+
+def mark_seen(doctype, names, when):
+	"""Stamp `synced_at` = `when` on exactly these rows, a few thousand per UPDATE and without touching
+	`modified`. Rows a full read did NOT see keep an older stamp, which is how a mirror tells "Lebara no
+	longer lists this" from "nothing changed"."""
+	names = list(names)
+	for i in range(0, len(names), _CHUNK):
+		part = names[i : i + _CHUNK]
+		frappe.db.sql(
+			"update `tab%s` set `%s` = %%s where name in (%s)"
+			% (doctype, SEEN_FIELD, ", ".join(["%s"] * len(part))),
+			[when, *part],
+		)
+
+
 @frappe.whitelist(methods=["POST"])
-def upsert(doctype, key, rows):
+def upsert(doctype, key, rows, scope=None):
 	"""Insert or update `rows` (list of dicts with fieldnames) by `key` field.
 
 	The doctype must be named by that key field (autoname "field:<key>").
-	Returns {"inserted", "updated", "unchanged", "total"}.
+
+	scope   optional filters ({"period": "2026-09"}) limiting which EXISTING rows are read for the
+	        comparison -- for a table that grows every month and where each call only concerns one slice.
+	        Rows outside the scope are never compared (a key that already exists outside it is skipped on
+	        insert, not duplicated).
+	If the doctype has a `synced_at` field, every row in `rows` is stamped with this run's time.
+
+	Returns {"inserted", "updated", "unchanged", "total", "synced_at"}.
 	"""
 	frappe.only_for("System Manager")
 	meta = frappe.get_meta(doctype)
@@ -59,7 +84,9 @@ def upsert(doctype, key, rows):
 
 	existing = {
 		cstr(r[key]): r
-		for r in frappe.get_all(doctype, fields=["name", *fields], limit_page_length=0)
+		for r in frappe.get_all(
+			doctype, filters=_parse(scope, None) or None, fields=["name", *fields], limit_page_length=0
+		)
 	}
 
 	now = now_datetime()
@@ -91,5 +118,10 @@ def upsert(doctype, key, rows):
 			ignore_duplicates=True,
 		)
 
+	stamp = now
+	if SEEN_FIELD in types:
+		mark_seen(doctype, seen, stamp)
+
 	frappe.db.commit()
-	return {"inserted": len(inserts), "updated": updated, "unchanged": unchanged, "total": len(seen)}
+	return {"inserted": len(inserts), "updated": updated, "unchanged": unchanged, "total": len(seen),
+	        "synced_at": str(stamp)}

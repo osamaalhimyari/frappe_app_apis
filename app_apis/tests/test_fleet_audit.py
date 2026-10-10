@@ -16,7 +16,8 @@ run in a second, and they break silently when they break at all.
 
 import unittest
 
-from app_apis.fleet_audit import _carrier_key, _fold, _sim_price
+from app_apis.fleet_audit import (_carrier_key, _fold, _sim_price, _waste_clean, _waste_sql, waste_hint,
+	WASTE_DEFAULTS)
 
 # Arabic letters, spelled out so the intent survives a diff and an editor that
 # "helpfully" normalises hamzas.
@@ -147,6 +148,44 @@ class TestSimPrice(unittest.TestCase):
 
 	def test_plan_name_is_stripped_before_lookup(self):
 		self.assertEqual(self.price("  Normal  ", "Lebara SIM", "Active"), 6.0)
+
+
+class TestWasteRule(unittest.TestCase):
+	"""What counts as a wasted SIM comes from the fleet_audit_waste Server Script, never from the app."""
+
+	def test_default_rule_is_the_one_the_app_shipped_with(self):
+		sql, params = _waste_sql(_waste_clean(None))
+		self.assertEqual(params, ["Deleted", 0])
+		self.assertIn("erp_status in (%s)", sql)
+		self.assertIn("subscription_expiry < date_sub(curdate(), interval %s day)", sql)
+		self.assertNotIn("verdict", sql)
+
+	def test_script_values_are_bound_never_pasted_into_the_sql(self):
+		cfg = _waste_clean({"erp_statuses": ["Deleted", "x'; drop table t; --"], "expired_days": 30,
+		                    "verdicts": ["Not in ERP"], "suspended_price": 3})
+		sql, params = _waste_sql(cfg)
+		self.assertNotIn("drop", sql)
+		self.assertEqual(params, ["Deleted", "x'; drop table t; --", 30, "Not in ERP"])
+		self.assertEqual(cfg["suspended_price"], 3.0)
+
+	def test_everything_off_means_no_waste_at_all(self):
+		cfg = _waste_clean({"erp_statuses": [], "expired_days": None, "verdicts": []})
+		self.assertEqual(_waste_sql(cfg), ("0", []))
+		self.assertEqual(waste_hint(cfg), "No waste rule is set.")
+
+	def test_a_broken_script_answer_keeps_the_defaults(self):
+		for bad in (None, "x", 7, [], {"expired_days": "soon", "suspended_price": "abc", "erp_statuses": 5}):
+			self.assertEqual(_waste_clean(bad), WASTE_DEFAULTS, bad)
+		self.assertEqual(_waste_clean({"expired_days": -3})["expired_days"], 0)
+		self.assertEqual(_waste_clean({"erp_statuses": "Deleted, Scrap"})["erp_statuses"], ["Deleted", "Scrap"])
+
+	def test_hint_reads_the_rule_back_in_words(self):
+		self.assertEqual(waste_hint(_waste_clean({"expired_days": 30, "erp_statuses": ["Deleted"]})),
+		                 "Still billing while the ERP status is Deleted, or the subscription expired over 30 days ago.")
+
+	def test_the_defaults_are_not_shared_between_calls(self):
+		_waste_clean(None)["erp_statuses"].append("Scrap")
+		self.assertEqual(WASTE_DEFAULTS["erp_statuses"], ["Deleted"])
 
 
 if __name__ == "__main__":

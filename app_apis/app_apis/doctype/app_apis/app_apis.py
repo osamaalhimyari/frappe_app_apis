@@ -44,7 +44,53 @@ class app_apis(Document):
 		self._validate_pilot_admin2()
 		self._validate_chatwoot()
 		self._validate_whatsapp_templates()
+		self._validate_custom_messages()
 		self._normalise_excluded_customers()
+
+	def _validate_custom_messages(self):
+		"""Custom Messages: every row needs a code that is usable and unique, and something to send.
+
+		The code is what a script asks for, so it is tidied here (trimmed, upper-cased) and two rows may
+		not share one -- the script would get whichever came first and nobody would know why. A row must
+		carry a Message, a Template, or both. A named template must be one this app can send."""
+		seen = {}
+		problems = []
+		for row in self.get("custom_messages") or []:
+			code = (row.get("code") or "").strip().upper()
+			row.code = code
+			where = _("Custom Messages row {0}").format(row.idx)
+			if not code:
+				problems.append(_("{0}: the code is empty.").format(where))
+				continue
+			if not all(c.isalnum() or c in "-_" for c in code):
+				problems.append(_("{0}: the code {1} may contain only letters, digits, - and _.").format(
+					where, frappe.utils.escape_html(code)))
+			if code in seen:
+				problems.append(_("{0}: the code {1} is already used in row {2}.").format(
+					where, frappe.utils.escape_html(code), seen[code]))
+			seen[code] = row.idx
+			template = (row.get("whatsapp_template") or "").strip()
+			if not (row.get("message") or "").strip() and not template:
+				problems.append(_("{0} ({1}): give it a Message, a Template, or both.").format(
+					where, frappe.utils.escape_html(code)))
+			if template and frappe.utils.cint(self.chatwoot_use_templates):
+				from app_apis import whatsapp_templates as wt
+
+				tpl = frappe.db.get_value(wt.DOCTYPE, template, ["title", "supported", "unsupported_reason", "params"], as_dict=True)
+				if not tpl:
+					problems.append(_("{0} ({1}): template {2} is not in the synced list. Press Sync Templates from Chatwoot.").format(
+						where, frappe.utils.escape_html(code), frappe.utils.escape_html(template)))
+				elif not frappe.utils.cint(tpl.supported):
+					problems.append(_("{0} ({1}): {2} cannot be sent ({3}).").format(
+						where, frappe.utils.escape_html(code), tpl.title, tpl.unsupported_reason or _("not approved")))
+				else:
+					params = wt.params_list(tpl.params)
+					gaps = wt.missing(params, wt.variables(row.get("template_variables"), params))
+					if gaps:
+						problems.append(_("{0} ({1}): {2} needs a value for {3} in Template Variables.").format(
+							where, frappe.utils.escape_html(code), tpl.title, ", ".join("{{%s}}" % g for g in gaps)))
+		if problems:
+			frappe.throw("<br>".join(problems), title=_("Custom Messages"))
 
 	def _keep_lebara_session_state(self):
 		"""The Lebara session fields are written by the "Lebara API" Server

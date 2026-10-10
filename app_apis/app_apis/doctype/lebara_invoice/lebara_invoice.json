@@ -1,0 +1,193 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:period",
+ "creation": "2026-10-10 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "in_create": 1,
+ "links": [],
+ "modified": "2026-10-10 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "Lebara Invoice",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "delete": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Support Team"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Technical"
+  }
+ ],
+ "row_format": "Dynamic",
+ "search_fields": "period,invoice_number",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "period",
+ "track_changes": 0,
+ "field_order": [
+  "period",
+  "invoice_number",
+  "invoice_date",
+  "col_a",
+  "billing_year",
+  "billing_month",
+  "synced_at",
+  "sec_money",
+  "previous_balance",
+  "monthly_fee",
+  "off_bundle_usage",
+  "adjustment",
+  "other_service",
+  "col_b",
+  "total_payments",
+  "vat",
+  "total",
+  "sec_lines",
+  "lines_count",
+  "lines_total"
+ ],
+ "fields": [
+  {
+   "fieldname": "period",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "label": "Period",
+   "unique": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "bold": 1,
+   "description": "Billing month, YYYY-MM."
+  },
+  {
+   "fieldname": "invoice_number",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "label": "Invoice Number",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "invoice_date",
+   "fieldtype": "Date",
+   "read_only": 1,
+   "label": "Invoice Date",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "col_a",
+   "fieldtype": "Column Break",
+   "read_only": 1
+  },
+  {
+   "fieldname": "billing_year",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "label": "Year"
+  },
+  {
+   "fieldname": "billing_month",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "label": "Month"
+  },
+  {
+   "fieldname": "synced_at",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "label": "Synced At"
+  },
+  {
+   "fieldname": "sec_money",
+   "fieldtype": "Section Break",
+   "read_only": 1
+  },
+  {
+   "fieldname": "previous_balance",
+   "fieldtype": "Currency",
+   "read_only": 1,
+   "label": "Previous Balance"
+  },
+  {
+   "fieldname": "monthly_fee",
+   "fieldtype": "Currency",
+   "read_only": 1,
+   "label": "Monthly Fee",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "off_bundle_usage",
+   "fieldtype": "Currency",
+   "read_only": 1,
+   "label": "Off-bundle Usage"
+  },
+  {
+   "fieldname": "adjustment",
+   "fieldtype": "Currency",
+   "read_only": 1,
+   "label": "Adjustment"
+  },
+  {
+   "fieldname": "other_service",
+   "fieldtype": "Currency",
+   "read_only": 1,
+   "label": "Other Service"
+  },
+  {
+   "fieldname": "col_b",
+   "fieldtype": "Column Break",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_payments",
+   "fieldtype": "Currency",
+   "read_only": 1,
+   "label": "Total Payments"
+  },
+  {
+   "fieldname": "vat",
+   "fieldtype": "Currency",
+   "read_only": 1,
+   "label": "VAT"
+  },
+  {
+   "fieldname": "total",
+   "fieldtype": "Currency",
+   "read_only": 1,
+   "label": "Total",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "sec_lines",
+   "fieldtype": "Section Break",
+   "read_only": 1
+  },
+  {
+   "fieldname": "lines_count",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "label": "SIMs on the Invoice"
+  },
+  {
+   "fieldname": "lines_total",
+   "fieldtype": "Currency",
+   "read_only": 1,
+   "label": "Sum of SIM Amounts",
+   "description": "Equals Monthly Fee plus Off-bundle Usage; a gap is shown here, not hidden."
+  }
+ ]
+}

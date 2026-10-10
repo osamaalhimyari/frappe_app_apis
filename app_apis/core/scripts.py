@@ -241,6 +241,25 @@ def ensure_site_data():
 			frappe.log_error(title="app_apis: " + label + " failed")
 			print("app_apis: WARNING -", label, "could not be set up; see the Error Log")
 
+	# the first copy of Pilot's WASL list, so the vehicle form has something to show before the first
+	# hourly run. Queued rather than run here: a migrate must never wait on an outside system.
+	try:
+		if frappe.db.exists("DocType", "App Apis WASL State") and not frappe.db.count("App Apis WASL State"):
+			frappe.enqueue("app_apis.wasl.sync_wasl_states", queue="long", enqueue_after_commit=True)
+	except Exception:
+		frappe.log_error(title="app_apis: first WASL status sync could not be queued")
+
+	# the first copy of Lebara's action history and the latest invoice, so a dashboard has data before the
+	# first hourly run. Queued for the same reason; it does nothing while Lebara is off or logged out
+	# (run_scheduled skips quietly), and the hourly "Lebara History Sync" script picks it up later.
+	for doctype, what in (("Lebara Transaction", "transactions"), ("Lebara Invoice", "invoice")):
+		try:
+			if frappe.db.exists("DocType", doctype) and not frappe.db.count(doctype):
+				frappe.enqueue("app_apis.core.lebara.run_scheduled", what=what, queue="long",
+				               enqueue_after_commit=True)
+		except Exception:
+			frappe.log_error(title="app_apis: first Lebara %s sync could not be queued" % what)
+
 	# every shipped API/scheduler script is a Server Script, and Frappe runs none of them unless
 	# the site allows it. Say so loudly rather than leave the app looking installed but dead.
 	if not frappe.conf.get("server_script_enabled"):

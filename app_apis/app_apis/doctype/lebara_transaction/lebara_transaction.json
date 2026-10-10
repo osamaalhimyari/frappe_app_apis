@@ -1,0 +1,185 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:transaction_id",
+ "creation": "2026-10-10 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "in_create": 1,
+ "links": [],
+ "modified": "2026-10-10 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "App Apis",
+ "name": "Lebara Transaction",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "delete": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Support Team"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Technical"
+  }
+ ],
+ "row_format": "Dynamic",
+ "search_fields": "msisdn,iccid",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "msisdn",
+ "track_changes": 0,
+ "field_order": [
+  "transaction_id",
+  "subscriber_id",
+  "msisdn",
+  "iccid",
+  "col_a",
+  "trans_type",
+  "trans_type_text",
+  "trans_status",
+  "trans_status_text",
+  "sec_when",
+  "add_date",
+  "trans_date",
+  "col_b",
+  "add_by",
+  "add_by_name",
+  "batch_id",
+  "trans_result",
+  "synced_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "transaction_id",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "label": "Transaction Id",
+   "unique": 1
+  },
+  {
+   "fieldname": "subscriber_id",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "label": "Subscriber Id",
+   "search_index": 1
+  },
+  {
+   "fieldname": "msisdn",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "label": "MSISDN",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "bold": 1
+  },
+  {
+   "fieldname": "iccid",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "label": "ICCID",
+   "search_index": 1
+  },
+  {
+   "fieldname": "col_a",
+   "fieldtype": "Column Break",
+   "read_only": 1
+  },
+  {
+   "fieldname": "trans_type",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "label": "Type Code"
+  },
+  {
+   "fieldname": "trans_type_text",
+   "fieldtype": "Select",
+   "read_only": 1,
+   "label": "Type",
+   "options": "\nActivate SIM\nSuspend SIM\nResume SIM\nDeactivate SIM",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "trans_status",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "label": "Status Code"
+  },
+  {
+   "fieldname": "trans_status_text",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "label": "Status",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "sec_when",
+   "fieldtype": "Section Break",
+   "read_only": 1
+  },
+  {
+   "fieldname": "add_date",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "label": "Requested",
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "trans_date",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "label": "Processed"
+  },
+  {
+   "fieldname": "col_b",
+   "fieldtype": "Column Break",
+   "read_only": 1
+  },
+  {
+   "fieldname": "add_by",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "label": "Requested By (id)"
+  },
+  {
+   "fieldname": "add_by_name",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "label": "Requested By"
+  },
+  {
+   "fieldname": "batch_id",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "label": "Batch"
+  },
+  {
+   "fieldname": "trans_result",
+   "fieldtype": "Small Text",
+   "read_only": 1,
+   "label": "Result"
+  },
+  {
+   "fieldname": "synced_at",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "label": "Synced At"
+  }
+ ]
+}
