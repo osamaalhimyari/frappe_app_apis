@@ -30,6 +30,8 @@
   "erp_vehicle",
   "erp_plate",
   "erp_customer",
+  "serial_no",
+  "serial_item",
   "sec_more",
   "imei_date",
   "last_day_mb",
@@ -250,6 +252,24 @@
    "read_only": 1,
    "search_index": 1,
    "description": "Stamped on every sync that still lists this SIM. A SIM Lebara stops listing keeps its old stamp."
+  },
+  {
+   "fieldname": "serial_no",
+   "fieldtype": "Link",
+   "options": "Serial No",
+   "label": "Serial No",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "description": "The ERP Serial No of this SIM, found automatically on every sync by the rule in the lebara_serial_link Server Script."
+  },
+  {
+   "fieldname": "serial_item",
+   "fieldtype": "Data",
+   "label": "Serial No Item",
+   "read_only": 1,
+   "description": "The ERP Item of that Serial No (the carrier)."
   }
  ],
  "in_create": 1,

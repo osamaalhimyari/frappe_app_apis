@@ -108,5 +108,18 @@
     "carry": [
       "INVOICE_HOUR"
     ]
+  },
+  {
+    "name": "lebara_serial_link",
+    "script_type": "API",
+    "api_method": "lebara_serial_link",
+    "allow_guest": 0,
+    "disabled": 0,
+    "file": "lebara_serial_link.py",
+    "managed": true,
+    "carry": [
+      "MATCH_FIELDS",
+      "ITEM_CODES"
+    ]
   }
 ]

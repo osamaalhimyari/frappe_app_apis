@@ -301,6 +301,48 @@ class TestStoreSeen(unittest.TestCase):
 		self.assertEqual(len(sql.call_args_list[0][0][1]), 2001)
 
 
+class TestSerialLink(unittest.TestCase):
+	INDEX = {"8996606099014667123": "Lebara SIM", "8996606099000000001": "sim_stc", "830033": "Lebara SIM"}
+
+	def test_default_rule_links_by_iccid(self):
+		rule = lebara.clean_serial_rule(None)
+		self.assertEqual(rule, {"match_fields": ["iccid"], "item_codes": []})
+		got = lebara.link_serial({"iccid": "8996606099014667123", "msisdn": "x"}, self.INDEX, rule)
+		self.assertEqual(got, {"serial_no": "8996606099014667123", "serial_item": "Lebara SIM"})
+		none = lebara.link_serial({"iccid": "nope"}, self.INDEX, rule)
+		self.assertEqual(none, {"serial_no": None, "serial_item": None})
+
+	def test_fields_are_tried_in_the_scripts_order(self):
+		rule = lebara.clean_serial_rule({"match_fields": ["msisdn", "iccid"]})
+		row = {"iccid": "8996606099014667123", "msisdn": "830033"}
+		self.assertEqual(lebara.link_serial(row, self.INDEX, rule)["serial_no"], "830033")
+		row["msisdn"] = "unknown"
+		self.assertEqual(lebara.link_serial(row, self.INDEX, rule)["serial_no"], "8996606099014667123")
+
+	def test_a_bad_script_answer_keeps_the_default(self):
+		d = lebara.clean_serial_rule(None)
+		for bad in ("x", 5, [], {"match_fields": ["colour"]}, {"match_fields": []}, {"match_fields": ["iccid", "bogus"]}):
+			self.assertEqual(lebara.clean_serial_rule(bad), d, bad)
+		self.assertEqual(lebara.clean_serial_rule({"match_fields": "MSISDN, iccid"})["match_fields"], ["msisdn", "iccid"])
+		self.assertEqual(lebara.clean_serial_rule({"item_codes": "Lebara SIM, sim_stc"})["item_codes"], ["Lebara SIM", "sim_stc"])
+
+	def test_defaults_are_not_shared_between_calls(self):
+		lebara.clean_serial_rule(None)["match_fields"].append("imsi")
+		self.assertEqual(lebara.SERIAL_DEFAULTS["match_fields"], ["iccid"])
+
+	def test_the_index_query_is_restricted_to_the_rules_items(self):
+		fr = mock.MagicMock()
+		fr.db.sql.return_value = [("A", "Lebara SIM")]
+		with mock.patch.object(lebara, "frappe", fr):
+			self.assertEqual(lebara.serial_index({"item_codes": ["Lebara SIM", "sim_stc"]}), {"A": "Lebara SIM"})
+		sql, params = fr.db.sql.call_args[0]
+		self.assertIn("item_code in (%s, %s)", sql)
+		self.assertEqual(params, ["Lebara SIM", "sim_stc"])
+		with mock.patch.object(lebara, "frappe", fr):
+			lebara.serial_index({"item_codes": []})
+		self.assertNotIn("where", fr.db.sql.call_args[0][0])
+
+
 class TestShippedScripts(unittest.TestCase):
 	def _meta(self, name):
 		with open(os.path.join(SCRIPTS, "server_scripts.json")) as f:
@@ -310,13 +352,14 @@ class TestShippedScripts(unittest.TestCase):
 		from frappe.utils.safe_exec import FrappeTransformer
 		from RestrictedPython import compile_restricted
 
-		for name in ("Lebara API", "Lebara SIM Sync", "Lebara Keepalive", "Lebara History Sync"):
+		for name in ("Lebara API", "Lebara SIM Sync", "Lebara Keepalive", "Lebara History Sync", "lebara_serial_link"):
 			meta = self._meta(name)
 			self.assertTrue(meta["managed"], name)
 			with open(os.path.join(SCRIPTS, "server", meta["file"])) as f:
 				compile_restricted(f.read(), name, "exec", policy=FrappeTransformer)
 		self.assertEqual(self._meta("Lebara SIM Sync")["carry"], ["QUIET_FROM", "QUIET_TO"])
 		self.assertEqual(self._meta("Lebara History Sync")["carry"], ["INVOICE_HOUR"])
+		self.assertEqual(self._meta("lebara_serial_link")["carry"], ["MATCH_FIELDS", "ITEM_CODES"])
 
 	def test_the_sandbox_sync_delegates_to_the_core(self):
 		with open(os.path.join(SCRIPTS, "server", "lebara_api.py")) as f:

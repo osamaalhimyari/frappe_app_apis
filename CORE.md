@@ -138,6 +138,9 @@ demand with `lebara.sync("sims" | "invoice" | "transactions")`):
 
 * `Lebara SIM` — the list, each SIM matched to its ERP vehicle, stamped `synced_at` on every sync that still
   lists it (a SIM Lebara drops keeps its old stamp).
+  Its **Serial No** column is the SIM's own ERP Serial No, linked on every sync by the rule in the
+  `lebara_serial_link` Server Script (`MATCH_FIELDS`, `ITEM_CODES`; default: the Serial No named by the ICCID).
+  Edit that script to change the rule; the app is not touched.
 * `Lebara Invoice` / `Lebara Invoice Line` — one header per month and one line per SIM per month.
 * `Lebara Transaction` — Lebara's own action history, read incrementally (a still-pending one is re-read).
 

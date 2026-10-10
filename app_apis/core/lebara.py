@@ -158,6 +158,43 @@ def match_vehicle(row: dict, erp: dict) -> dict:
 	        "erp_plate": hit.get("erp_plate") or "", "erp_imei": hit.get("erp_imei") or "", "match_by": how}
 
 
+SERIAL_SCRIPT = "lebara_serial_link"
+SERIAL_FLAG = "app_apis_lebara_serial"
+SERIAL_FIELDS = ("iccid", "msisdn", "imsi")
+SERIAL_DEFAULTS = {"match_fields": ["iccid"], "item_codes": []}
+
+
+def clean_serial_rule(raw) -> dict:
+	"""The serial-link script's answer, checked: only known Lebara fields, in the order given, and an
+	item list of plain strings. Anything wrong keeps the default, so one typo in a hand-edited script
+	cannot unlink 25,000 SIMs."""
+	out = {k: list(v) for k, v in SERIAL_DEFAULTS.items()}
+	if not isinstance(raw, dict):
+		return out
+	for key in ("match_fields", "item_codes"):
+		val = raw.get(key)
+		if isinstance(val, str):
+			val = val.split(",")
+		if isinstance(val, (list, tuple)):
+			items = [str(x).strip() for x in val if str(x).strip()]
+			if key == "match_fields":
+				items = [x.lower() for x in items]
+				if not items or any(x not in SERIAL_FIELDS for x in items):
+					continue
+			out[key] = items
+	return out
+
+
+def link_serial(row: dict, index: dict, rule: dict) -> dict:
+	"""{"serial_no", "serial_item"} for one SIM row: the first of the rule's fields whose value is a
+	Serial No name in `index` ({name: item_code}), else both None."""
+	for field in rule.get("match_fields") or []:
+		key = str(row.get(field) or "").strip()
+		if key and key in index:
+			return {"serial_no": key, "serial_item": index[key] or None}
+	return {"serial_no": None, "serial_item": None}
+
+
 def transaction_row(e: dict) -> dict:
 	"""One SubscriberTransaction entity -> the fields of the `Lebara Transaction` doctype."""
 	t, s = cint(e.get("TransTypeM2M1")), e.get("TransStatus")
@@ -711,22 +748,57 @@ def erp_vehicles() -> dict:
 	return {"iccid": by_iccid, "imei": by_imei}
 
 
+def serial_rule() -> dict:
+	"""The linking rule, from the lebara_serial_link Server Script when it is there and enabled, else the
+	built-in one. Read once per request."""
+	cached = getattr(frappe.local, "app_apis_lebara_serial_rule", None)
+	if cached is not None:
+		return cached
+	raw = None
+	try:
+		row = frappe.db.get_value("Server Script", SERIAL_SCRIPT, ["disabled", "script_type"], as_dict=True)
+		if row and not cint(row.disabled) and row.script_type == "API":
+			answer = frappe.get_doc("Server Script", SERIAL_SCRIPT).execute_method()
+			raw = (answer or {}).get(SERIAL_FLAG)
+	except Exception:
+		frappe.log_error(title="app_apis: lebara_serial_link script failed")
+	rule = clean_serial_rule(raw)
+	frappe.local.app_apis_lebara_serial_rule = rule
+	return rule
+
+
+def serial_index(rule: dict) -> dict:
+	"""{Serial No name: Item code} for the Serial Nos the rule allows. One query, names and items only."""
+	items = rule.get("item_codes") or []
+	if items:
+		rows = frappe.db.sql("select name, item_code from `tabSerial No` where item_code in (%s)"
+		                     % ", ".join(["%s"] * len(items)), items)
+	else:
+		rows = frappe.db.sql("select name, item_code from `tabSerial No`")
+	return {r[0]: r[1] for r in rows}
+
+
 def sync_sims() -> dict:
 	"""Every Lebara SIM into the `Lebara SIM` list, with its ERP vehicle. ~30,000 rows in about half a
 	minute; only changed rows are written, and every row still listed is stamped `synced_at`."""
 	started = now_datetime()
 	erp = erp_vehicles()
+	rule = serial_rule()
+	serials = serial_index(rule)
 	rows = []
 	for e in iter_subscribers():
 		row = sim_row(e)
 		row.update(match_vehicle(row, erp))
+		row.update(link_serial(row, serials, rule))
 		rows.append(row)
 	if not rows:
 		raise LebaraError("Lebara returned no SIMs; nothing was changed.")
 	res = store.upsert("Lebara SIM", "subscriber_id", rows)
 	seconds = frappe.utils.time_diff_in_seconds(now_datetime(), started)
-	res["note"] = "%s SIMs: %s new, %s changed, %s unchanged (%ss)" % (
-		res.get("total"), res.get("inserted"), res.get("updated"), res.get("unchanged"), seconds)
+	linked = sum(1 for r in rows if r.get("serial_no"))
+	res["linked_serials"] = linked
+	res["note"] = "%s SIMs: %s new, %s changed, %s unchanged, %s with a Serial No (%ss)" % (
+		res.get("total"), res.get("inserted"), res.get("updated"), res.get("unchanged"), linked, seconds)
 	frappe.db.set_value(SETTINGS, SETTINGS, "lebara_sims_synced_at", now_datetime(), update_modified=False)
 	frappe.db.set_value(SETTINGS, SETTINGS, "lebara_sims_count", cint(res.get("total")), update_modified=False)
 	frappe.db.set_value(SETTINGS, SETTINGS, "lebara_sims_sync_note", res["note"], update_modified=False)
