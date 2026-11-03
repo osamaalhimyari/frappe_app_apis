@@ -98,6 +98,7 @@ from app_apis.vehicle import for_customer as vehicle_for_customer
 from app_apis.vehicle import line as vehicle_line
 from app_apis.vehicle import plate as vehicle_plate
 from app_apis.vehicle import staff_line as vehicle_staff_line
+from app_apis.access import require_login
 
 # Chatwoot's API root. Every path below is relative to /api/v1/accounts/<id>.
 API_ROOT = "/api/v1"
@@ -1221,7 +1222,7 @@ def test_connection(connector: str | None = None) -> dict:
 	webhook mode there is nothing to call until a message is sent, so this just
 	confirms a URL is set and says so.
 	"""
-	frappe.only_for("System Manager")
+	require_login()
 
 	settings = _settings_for(connector)
 
@@ -1272,7 +1273,7 @@ def list_inboxes(connector: str | None = None) -> dict:
 	it. `connector` picks which one's account to read ("1"/"2"/blank=active);
 	webhook mode has no inbox list to give.
 	"""
-	frappe.only_for("System Manager")
+	require_login()
 
 	settings = _settings_for(connector)
 	if settings.get("method") == "webhook":
@@ -1306,7 +1307,7 @@ def sync_inboxes(connector: str | None = None) -> dict:
 	go out on) and leaving the rest switched off for the operator to enable if
 	they want. Existing rows are replaced.
 	"""
-	frappe.only_for("System Manager")
+	require_login()
 
 	settings = _settings_for(connector)
 	if settings.get("method") == "webhook":
@@ -1470,7 +1471,7 @@ def send_message(text: str, phone: str | None = None, conversation_id=None,
 	capability than "message this ticket's customer", so it is gated separately
 	from `send_ticket_message`, which any agent who can read the ticket may use.
 	"""
-	frappe.only_for("System Manager")
+	require_login()
 	return _send(text, phone=phone, conversation_id=conversation_id, name=name, private=private)
 
 

@@ -28,26 +28,7 @@
   "public": 1,
   "quick_lists": [],
   "restrict_to_domain": null,
-  "roles": [
-   {
-    "parent": "Fuel Efficiency",
-    "parentfield": "roles",
-    "parenttype": "Workspace",
-    "role": "System Manager"
-   },
-   {
-    "parent": "Fuel Efficiency",
-    "parentfield": "roles",
-    "parenttype": "Workspace",
-    "role": "Technical"
-   },
-   {
-    "parent": "Fuel Efficiency",
-    "parentfield": "roles",
-    "parenttype": "Workspace",
-    "role": "Support Team"
-   }
-  ],
+  "roles": [],
   "sequence_id": 3.2,
   "shortcuts": [],
   "title": "Fuel Efficiency"

@@ -31,7 +31,6 @@
 LIVE = 0                     # 0 = say what would happen, touch nothing
 GRACE_DAYS = 0               # added to the app's "Days After Expiry"
 ROW_LIMIT = 3000             # rows returned in one list call
-ROLES = ("System Manager", "Technical")
 
 SETTINGS = "app_apis"
 
@@ -51,10 +50,7 @@ args = frappe.form_dict
 action = str(args.get("action") or "list").strip().lower()
 out = {"ok": False, "action": action}
 
-allowed = str(frappe.session.user) == "Administrator"
-for r in frappe.db.sql("select role from `tabHas Role` where parent = %(u)s", {"u": frappe.session.user}, as_dict=True):
-    if str(r.role) in ROLES:
-        allowed = True
+allowed = str(frappe.session.user) != "Guest"
 
 # ---------------------------------------------------------------- settings
 raw = {}

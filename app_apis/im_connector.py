@@ -69,6 +69,7 @@ from zoneinfo import ZoneInfo
 
 import frappe
 from frappe import _
+from app_apis.access import require_login
 
 # Commands, exactly as IM names them in the query string.
 CMD_TOKEN = "generateAccessToken"
@@ -186,7 +187,7 @@ def clear_cache() -> None:
 
 @frappe.whitelist()
 def clear_cache_from_desk() -> dict:
-	frappe.only_for("System Manager")
+	require_login()
 	clear_cache()
 	return {"ok": True}
 
@@ -1022,7 +1023,7 @@ def get_vehicle_live(imei: str) -> dict:
 	Raises (via frappe.throw) when IM produces no row for that IMEI -- same
 	as `get_snapshot`, just without a ticket to blame the lookup on.
 	"""
-	frappe.only_for(["System Manager", "Technical", "Support Team"])
+	require_login()
 
 	imei = str(imei or "").strip()
 	if not imei:
@@ -1266,7 +1267,7 @@ def _extract_points(root, settings: dict) -> list[dict]:
 @frappe.whitelist()
 def test_connection() -> dict:
 	"""Sign in and report the outcome. Used by the button on the app_apis settings form."""
-	frappe.only_for(["System Manager", "Support Team", "Technical"])
+	require_login()
 
 	settings = _settings()
 	started = time.monotonic()
@@ -1413,7 +1414,7 @@ def fetch_fleet(settings: dict | None = None, retry_auth: bool = True) -> dict:
 @frappe.whitelist()
 def list_fleet() -> dict:
 	"""The whole IM fleet, for the desk. READ-ONLY."""
-	frappe.only_for(["System Manager", "Technical", "Support Team"])
+	require_login()
 
 	result = fetch_fleet()
 	if frappe.utils.cint(result.get("code")) != 0:

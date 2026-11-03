@@ -199,11 +199,9 @@ frappe.ui.form.on("app_apis", {
 
 		// frappe hides "Customize" on Singles; this one is customizable
 		// (app_apis.core.customize).
-		if (frappe.user.has_role("System Manager")) {
-			frm.page.add_menu_item(__("Customize"), () =>
-				frappe.set_route("Form", "Customize Form", { doc_type: frm.doctype })
-			);
-		}
+		frm.page.add_menu_item(__("Customize"), () =>
+			frappe.set_route("Form", "Customize Form", { doc_type: frm.doctype })
+		);
 
 		frm.add_custom_button(
 			__("Test IM Connection"),

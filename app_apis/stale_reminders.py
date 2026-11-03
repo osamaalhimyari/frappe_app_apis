@@ -47,6 +47,7 @@ outbound HTTP calls to Chatwoot.
 import frappe
 from frappe import _
 from frappe.utils import add_to_date, cint, getdate, now_datetime, today
+from app_apis.access import require_login
 
 LOGGER = "app_apis"
 TEMPLATE = "stale_reminder"
@@ -426,7 +427,7 @@ def check_now() -> dict:
 	Ignores the hour gate; still obeys the enabled switch, Send Once and the
 	once-a-day guard -- see `run`.
 	"""
-	frappe.only_for("System Manager")
+	require_login()
 	return run(force=True)
 
 
@@ -436,7 +437,7 @@ def preview(limit: int = 60) -> dict:
 
 	System Manager only: it lists staff names and phone numbers.
 	"""
-	frappe.only_for("System Manager")
+	require_login()
 
 	settings = _settings()
 	p = plan(settings)

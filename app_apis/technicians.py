@@ -29,6 +29,7 @@ site without HRMS -- so each lookup is guarded on the doctype existing.
 import frappe
 
 from app_apis.phone import normalise
+from app_apis.access import require_login
 
 # The ticket's own fieldnames. `xticket` belongs to the site rather than to this
 # app, so they are read here and nowhere else.
@@ -162,7 +163,7 @@ def missing_numbers(days: int = ACTIVE_DAYS) -> dict:
 	System Manager only. It reads staff phone numbers across the whole site,
 	which is a wider view than working one ticket earns.
 	"""
-	frappe.only_for("System Manager")
+	require_login()
 
 	rows = frappe.db.sql(
 		"""

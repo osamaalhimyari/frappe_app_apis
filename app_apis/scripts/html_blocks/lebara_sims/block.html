@@ -11,6 +11,8 @@
 		</div>
 	</div>
 
+	<div class="lb-kpis"></div>
+
 	<div class="lb-grid">
 		<div class="lb-list">
 			<div class="lb-filters">
@@ -26,12 +28,16 @@
 				<button type="button" class="btn btn-primary btn-sm lb-search">Search</button>
 				<button type="button" class="btn btn-default btn-sm lb-imeis" title="Paste many device IMEIs from the ERP">Find IMEIs</button>
 				<button type="button" class="btn btn-default btn-sm lb-export" title="Download every SIM matching this search (CSV, opens in Excel)">Export</button>
+				<button type="button" class="btn btn-sm lb-bulk" title="Upload an Excel file: MSISDN or IMEI in the first column, then one or more message columns (one SMS per filled cell)">Bulk SMS</button>
+				<input type="file" class="lb-bulkfile" accept=".xlsx,.xls,.csv" style="display:none">
+				<button type="button" class="btn btn-default btn-sm lb-clear" style="display:none" title="Clear the search, status, IMEI list and widget filter">Clear filters</button>
 			</div>
+			<div class="lb-kpibar" style="display:none"></div>
 			<div class="lb-imeibar" style="display:none"></div>
 			<div class="lb-tablewrap">
 				<table class="lb-table">
-					<thead><tr><th>MSISDN</th><th>Status</th><th>IMEI</th><th>Vehicle</th><th>Customer</th><th>Last connection</th><th class="lb-num">This month MB</th></tr></thead>
-					<tbody class="lb-rows"><tr><td colspan="7" class="lb-empty">…</td></tr></tbody>
+					<thead><tr><th>MSISDN</th><th>Status</th><th>Device Status</th><th>IMEI</th><th>Vehicle</th><th>Customer</th><th>Last connection</th><th class="lb-num">This month MB</th></tr></thead>
+					<tbody class="lb-rows"><tr><td colspan="8" class="lb-empty">…</td></tr></tbody>
 				</table>
 			</div>
 			<div class="lb-pager">

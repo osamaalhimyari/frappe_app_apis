@@ -98,6 +98,7 @@ import time
 
 import frappe
 from frappe import _
+from app_apis.access import require_login
 
 API = "/api/v3"
 
@@ -657,8 +658,6 @@ def _throw_if_failed(result: dict, what: str) -> dict:
 # Accounts and their users are partner-level data about other companies, so
 # they are kept to the two roles that administer this site. Vehicle reads are
 # the same thing Support already sees on a ticket, so Support Team keeps those.
-ADMIN_ROLES = ["System Manager", "Technical"]
-READ_ROLES = ["System Manager", "Technical", "Support Team"]
 
 
 def enabled_admin_accounts() -> list[int]:
@@ -687,7 +686,7 @@ def test_connection(account: int = 1) -> dict:
 	cheapest call that only Basic Auth to the admin host can answer, which
 	makes it the actual test of what this button claims to test.
 	"""
-	frappe.only_for(ADMIN_ROLES)
+	require_login()
 
 	settings = _settings(account)
 	_require_configured(settings)
@@ -721,7 +720,7 @@ def test_connection(account: int = 1) -> dict:
 @frappe.whitelist()
 def get_accounts() -> dict:
 	"""`GET /accounts` -- every account under this partner."""
-	frappe.only_for(ADMIN_ROLES)
+	require_login()
 
 	settings = _settings()
 	_require_configured(settings)
@@ -738,7 +737,7 @@ def get_accounts() -> dict:
 @frappe.whitelist()
 def get_account_users(account_id) -> dict:
 	"""`GET /accounts/users` -- the users inside one account."""
-	frappe.only_for(ADMIN_ROLES)
+	require_login()
 
 	account_id = frappe.utils.cint(account_id)
 	if not account_id:
@@ -763,7 +762,7 @@ def get_account_users(account_id) -> dict:
 @frappe.whitelist()
 def get_vehicles() -> dict:
 	"""`GET /vehicles` -- every vehicle the admin account can see."""
-	frappe.only_for(READ_ROLES)
+	require_login()
 
 	settings = _settings()
 	_require_configured(settings)
@@ -786,7 +785,7 @@ def find_imei_by_plate(plate: str) -> dict:
 	miss rather than thrown, because "no vehicle with that plate" is a normal
 	answer to a lookup, not a broken connection.
 	"""
-	frappe.only_for(READ_ROLES)
+	require_login()
 
 	plate = str(plate or "").strip()
 	if not plate:
@@ -828,7 +827,7 @@ def get_vehicle_status(imei: str, account: int = 0) -> dict:
 	wins -- the caller (a click on a Fleet Audit row) has no way to know in
 	advance which of the two estates a device lives on.
 	"""
-	frappe.only_for(READ_ROLES)
+	require_login()
 
 	imei = str(imei or "").strip()
 	if not imei:
@@ -882,7 +881,7 @@ def get_vehicle_status(imei: str, account: int = 0) -> dict:
 
 @frappe.whitelist()
 def clear_cache_from_desk(account: int = 1) -> dict:
-	frappe.only_for(ADMIN_ROLES)
+	require_login()
 	# clear_cache() sweeps every key under CACHE_PREFIX, which covers both
 	# accounts' tokens -- there is no per-account cache worth keeping separate.
 	clear_cache()
@@ -1230,7 +1229,7 @@ def get_vehicle_live_admin(imei: str) -> dict:
 	Raises (via frappe.throw) when no configured account's estate contains
 	this IMEI at all.
 	"""
-	frappe.only_for(READ_ROLES)
+	require_login()
 
 	imei = str(imei or "").strip()
 	if not imei:
@@ -1266,7 +1265,7 @@ def get_vehicle_live_admin(imei: str) -> dict:
 @frappe.whitelist()
 def test_admin_api(account: int = 1) -> dict:
 	"""Prove the Administrator API works, for the settings-form button."""
-	frappe.only_for(ADMIN_ROLES)
+	require_login()
 
 	settings = _settings(account)
 	_require_configured(settings)

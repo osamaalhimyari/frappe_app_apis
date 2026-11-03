@@ -1,5 +1,4 @@
 {
   "name": "Lebara SIMs",
-  "roles": ["System Manager"],
   "workspace": {"name": "Lebara", "icon": "message", "sequence_id": 50}
 }

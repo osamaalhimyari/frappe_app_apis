@@ -13,9 +13,14 @@
 #   action=delete_plan / delete   remove ONE vehicle from ONE platform (see the delete section)
 #   action=im_sync  fill the Customer IM company/reseller/branch ids from IM (key = email)
 #   action=upload   cmd=vehadd -- register the vehicle. Guarded by LIVE.
+#   action=edit_plan  read the vehicle as Pilot has it now (+ what is empty in Pilot's record)
+#   action=edit_save  change a vehicle already on Pilot (plate, IMEI, SIM, device type, type)
 #
 #   target  = pilot_wsl | pilot2 | im | all
 #   vehicle = Customer Vehicle name
+#   overrides = optional JSON, the Upload dialog's edits per Pilot target, e.g.
+#               {"pilot_wsl": {"vehiclenumber": "...", "type": "7"}} -- see EDIT_KEYS.
+#               They change that one upload only, never the Customer Vehicle record.
 #
 # THE PILOT COMMANDS (docs.pilot-gps.com, Administrator API, verified live)
 #   vehadd        add a vehicle          POST/GET /backend/api.php
@@ -48,7 +53,6 @@
 # /jsp/ProcessDetails.jsp with the vehicle + device + SIM + sensors, then read
 # the IMEI back to confirm. See the IM SETTINGS block below -- the company and
 # branch per platform email, and the device model ids, must be filled in.
-# IM upload needs a System Manager (it uses app_apis.core.http).
 # =============================================================================
 
 # Which targets may really call cmd=vehadd. Anything not listed here resolves
@@ -91,7 +95,6 @@ UPLOAD_VIA = "panel"
 
 STAMP_ALL = 0            # 0 = stamp only the newest Installation ticket
 
-ROLES = ("System Manager", "Technical")
 SETTINGS = "app_apis"
 SCRIPT_NAME = "vehicle_upload_api"
 BACKEND = "/backend/api.php"
@@ -144,6 +147,20 @@ TYPE_ALIASES = {
     "Bus": "Bus",
     "Van": "Van",
 }
+
+# ---------------------------------------------------------------- dialog edits
+# The Upload dialog lets the user correct the Pilot payload before anything is
+# sent. The edits change THIS upload only -- the Customer Vehicle record is not
+# touched -- and they are written into the comment trail. Only these keys are
+# read from `overrides`; anything else in it is ignored.
+EDIT_KEYS = ("vehiclenumber", "uniqid", "msisdn", "configuration", "account_email", "type")
+EDIT_TARGETS = ("pilot_wsl", "pilot2")
+
+# The admin panel's create (fitter.php create_vehicle) has NO vehicle-type field,
+# so every vehicle made through it got the panel's default type (Truck). The type
+# chosen in the dialog is now set right after the create with the Administrator
+# API's cmd=vehedit (agentid + type, from vehtypelist).
+SET_TYPE_AFTER_CREATE = 1     # 0 = leave Pilot's default type
 
 # ---------------------------------------------------------------- IM SETTINGS
 # Add "im" to LIVE_TARGETS (top of this script) only after the first test.
@@ -267,14 +284,23 @@ vehicle_name = str(args.get("vehicle") or "").strip()
 out = {"ok": False, "action": action, "target": target,
        "live_targets": list(LIVE_TARGETS), "results": []}
 
-allowed = str(frappe.session.user) == "Administrator"
-for r in frappe.db.sql("select role from `tabHas Role` where parent = %(u)s",
-                       {"u": frappe.session.user}, as_dict=True):
-    if str(r.role) in ROLES:
-        allowed = True
+allowed = str(frappe.session.user) != "Guest"
 
 # one resolved-lookup cache per request, so a multi-target run reads each list once
 LOOKUPS = {}
+
+# Edits from the Upload dialog, per target: {"pilot_wsl": {"vehiclenumber": "...", "type": "4"}}
+OVERRIDES = {}
+raw_edits = args.get("overrides")
+if isinstance(raw_edits, dict):
+    OVERRIDES = raw_edits
+elif raw_edits:
+    try:
+        OVERRIDES = json.loads(raw_edits)
+    except Exception:
+        OVERRIDES = {}
+if not isinstance(OVERRIDES, dict):
+    OVERRIDES = {}
 
 # The IM section of the app_apis settings (IM Upload / IM Device Models)
 # overrides the values written at the top of this script. A server whose app_apis does
@@ -390,6 +416,11 @@ def backend(cmd, params, account, method="GET"):
     # vehinfo answers with a bare list; the list commands answer with an object
     if isinstance(answer, list):
         return {"code": 0, "msg": "OK", "data": answer}
+    # vehedit answers a bare JSON STRING ("The vehicle data has been changed"), not an
+    # object. Reading it as an object made the script crash right after a good edit,
+    # so the whole upload was reported as failed and its ticket stamp rolled back.
+    if not isinstance(answer, dict):
+        return {"code": 0, "msg": str(answer), "data": []}
     # A missing or bad input comes back as HTTP 200 {"Fail": "..."} with no
     # `code` at all -- which would otherwise read as code 0, a success.
     if answer.get("Fail"):
@@ -510,12 +541,8 @@ def panel_find(imei, account):
     return {"state": "no", "row": {}, "detail": "the panel finds no vehicle with this IMEI"}
 
 
-def resolve_panel_model(devices_type, account):
-    """The panel's device type is a NAME from its own list (fitter.php
-    get_vehicle_types), e.g. "Teltonika FMC920" for the ERP's "FMC920"."""
-    want = str(devices_type or "").strip()
-    if not want:
-        return {"name": "", "why": "the vehicle has no Device Type"}
+def panel_types(account):
+    """The panel's own device-type list (fitter.php get_vehicle_types), read once per request."""
     key = "panel-types@" + str(account)
     if key not in LOOKUPS:
         res = panel_call("app/fitter.php", {"cmd": "get_vehicle_types"}, account)
@@ -527,7 +554,41 @@ def resolve_panel_model(devices_type, account):
             rows = body
         LOOKUPS[key] = {"rows": rows, "err": "" if rows else ("get_vehicle_types failed -- " +
                                                               str(res["text"])[:120])}
-    got = LOOKUPS[key]
+    return LOOKUPS[key]
+
+
+def panel_type_names(account):
+    names = []
+    for r in panel_types(account)["rows"]:
+        name = str(r.get("name") or "") if isinstance(r, dict) else str(r)
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def pick_panel_model(chosen, account):
+    """A device type typed or picked in the dialog. It must be one of the panel's own
+    names, because the panel stores whatever it is sent."""
+    want = str(chosen or "").strip()
+    got = panel_types(account)
+    if got["err"]:
+        return {"name": "", "why": got["err"]}
+    names = panel_type_names(account)
+    if want in names:
+        return {"name": want, "why": ""}
+    for name in names:
+        if norm(name) == norm(want):
+            return {"name": name, "why": ""}
+    return {"name": "", "why": want + " is not one of the panel's device types -- pick one from the list"}
+
+
+def resolve_panel_model(devices_type, account):
+    """The panel's device type is a NAME from its own list (fitter.php
+    get_vehicle_types), e.g. "Teltonika FMC920" for the ERP's "FMC920"."""
+    want = str(devices_type or "").strip()
+    if not want:
+        return {"name": "", "why": "the vehicle has no Device Type"}
+    got = panel_types(account)
     if got["err"]:
         return {"name": "", "why": got["err"]}
     pinned = frappe.utils.cint(MODEL_OVERRIDES.get(want) or 0)
@@ -553,16 +614,14 @@ def resolve_panel_model(devices_type, account):
 
 
 # ---------------------------------------------------------------- sensors
-# Every vehicle created here gets the same six sensors: External Voltage,
-# Ignition, GSM Signal, Temperature (BLE_T1), Humidity (BLE_Humidity1) and
-# weight (IN1, with its calibration table). The list is FIXED here: it is the
-# panel's own "Export sensors" of vehicle 239355 (vehicles.php, cmd=
-# exportSensors), with each sensor's id/plugged_id removed (they belong to that
-# vehicle) and the tag links cleared (tags are per account). It goes in through
-# the panel's own "Import sensors" (vehicles.php, cmd=importSensors), which
-# reads exactly this list format -- the grouped "sensors/tags" file is refused
-# with "Missing required parameter: info".
-SENSOR_TEMPLATE = r'''[{"sensortype":"Dedicated","sensortypeid":1,"sensorinterpret":"External power supply","sensorinterpretid":6,"info":"External Voltage","sensorfieldname":"Vsourse","fieldname":"Vsourse","sensorminvalue":"0.000","sensormaxvalue":"30000.000","minvalue":"0.000","maxvalue":"30000.000","semanticid":6,"typeid":1,"sensordefaultdesc":"Voltage","defaultdescription":"Voltage","defaultactivemodename":null,"activemodename":null,"passivemodename":null,"defaultpassivemodename":null,"measureunit":"V","defaultmeasureunit":"V","checkbox":0,"history":1,"formula":null,"filter":1,"moto":0,"tags":null,"tooltips":0,"maxspeed":5,"bufferlen":null,"json_config":"{\"frame\": \"\", \"smooth\": \"\"}","calibration":[],"multi_calibration":[]},{"sensortype":"Dedicated","sensortypeid":1,"sensorinterpret":"Special sensor","sensorinterpretid":9,"info":"weight","sensorfieldname":"IN1","fieldname":"IN1","sensorminvalue":"1.000","sensormaxvalue":"30000.000","minvalue":"1.000","maxvalue":"30000.000","semanticid":9,"typeid":1,"sensordefaultdesc":"weight","defaultdescription":"weight","defaultactivemodename":null,"activemodename":null,"passivemodename":null,"defaultpassivemodename":null,"measureunit":"kg","defaultmeasureunit":"kg","checkbox":0,"history":1,"formula":null,"filter":0,"moto":0,"tags":null,"tooltips":3,"maxspeed":5,"bufferlen":null,"json_config":null,"calibration":[{"value1":"0","value2":"4179"},{"value1":"1984","value2":"5572"},{"value1":"2123","value2":"6965"},{"value1":"2266","value2":"8358"},{"value1":"2507","value2":"25074"},{"value1":"2532","value2":"11144"},{"value1":"2673","value2":"22288"},{"value1":"2725","value2":"16716"}],"multi_calibration":[]},{"sensortype":"Dip","sensortypeid":3,"sensorinterpret":"Ignition sensor","sensorinterpretid":1,"info":"Ignition sensor","sensorfieldname":"Roaming_Ignition1125","fieldname":"Roaming_Ignition1125","sensorminvalue":"1.000","sensormaxvalue":"1.000","minvalue":"1.000","maxvalue":"1.000","semanticid":1,"typeid":3,"sensordefaultdesc":"Ignition sensor","defaultdescription":"Ignition sensor","defaultactivemodename":"On","activemodename":"On","passivemodename":"Off","defaultpassivemodename":"Off","measureunit":"-","defaultmeasureunit":"-","checkbox":1,"history":1,"formula":null,"filter":1,"moto":1,"tags":null,"tooltips":3,"maxspeed":null,"bufferlen":null,"json_config":null,"calibration":[],"multi_calibration":[]},{"sensortype":"Selector","sensortypeid":8,"sensorinterpret":"GPS antenna sensor","sensorinterpretid":5,"info":"GSM Signal","sensorfieldname":"GSMVal","fieldname":"GSMVal","sensorminvalue":null,"sensormaxvalue":null,"minvalue":null,"maxvalue":null,"semanticid":5,"typeid":8,"sensordefaultdesc":"Value in range 1-5","defaultdescription":"Value in range 1-5","defaultactivemodename":null,"activemodename":null,"passivemodename":null,"defaultpassivemodename":null,"measureunit":"","defaultmeasureunit":"","checkbox":0,"history":1,"formula":null,"filter":1,"moto":0,"tags":null,"tooltips":3,"maxspeed":null,"bufferlen":null,"json_config":null,"calibration":[],"multi_calibration":[{"min":null,"max":"1","semantic":"Very low"},{"min":null,"max":"2","semantic":"Low"},{"min":null,"max":"3","semantic":"Medium"},{"min":null,"max":"4","semantic":"Normal"},{"min":null,"max":"5","semantic":"High"}]},{"sensortype":"Dedicated","sensortypeid":1,"sensorinterpret":"Temperature sensor","sensorinterpretid":7,"info":"Temperature","sensorfieldname":"BLE_T1","fieldname":"BLE_T1","sensorminvalue":"-50.000","sensormaxvalue":"50.000","minvalue":"-50.000","maxvalue":"50.000","semanticid":7,"typeid":1,"sensordefaultdesc":"Temperature","defaultdescription":"Temperature","defaultactivemodename":null,"activemodename":null,"passivemodename":null,"defaultpassivemodename":null,"measureunit":"C","defaultmeasureunit":"C","checkbox":0,"history":1,"formula":null,"filter":1,"moto":0,"tags":null,"tooltips":3,"maxspeed":5,"bufferlen":null,"json_config":"{\"frame\": \"6\", \"smooth\": \"\", \"max_treshold\": 0, \"min_treshold\": 0}","calibration":[],"multi_calibration":[]},{"sensortype":"Dedicated","sensortypeid":1,"sensorinterpret":"Humidity sensor","sensorinterpretid":24,"info":"Humidity","sensorfieldname":"BLE_Humidity1","fieldname":"BLE_Humidity1","sensorminvalue":"1.000","sensormaxvalue":"100.000","minvalue":"1.000","maxvalue":"100.000","semanticid":24,"typeid":1,"sensordefaultdesc":"Humidity","defaultdescription":"Humidity","defaultactivemodename":null,"activemodename":null,"passivemodename":null,"defaultpassivemodename":null,"measureunit":"%","defaultmeasureunit":"%","checkbox":0,"history":1,"formula":null,"filter":1,"moto":0,"tags":null,"tooltips":3,"maxspeed":5,"bufferlen":null,"json_config":"{\"frame\": \"6\", \"smooth\": \"\"}","calibration":[],"multi_calibration":[]}]'''
+# Every vehicle created here gets the same three sensors: Ignition (DIS1),
+# weight (IN1, frame 6, with its calibration table) and External power supply
+# (Vsourse, 10000-36000). The list is FIXED here, in the format the panel's
+# own "Import sensors" (vehicles.php, cmd importSensors) reads -- the grouped
+# "sensors/tags" file is refused with "Missing required parameter: info".
+# Sensor ids are left out (they belong to one vehicle) and tags are cleared
+# (tags are per account).
+SENSOR_TEMPLATE = r'''[{"sensortype":"Dip","sensortypeid":3,"sensorinterpret":"Ignition sensor","sensorinterpretid":1,"info":"Ignition sensor","sensorfieldname":"DIS1","fieldname":"DIS1","sensorminvalue":"1.000","sensormaxvalue":"1.000","minvalue":"1.000","maxvalue":"1.000","semanticid":1,"typeid":3,"sensordefaultdesc":"Ignition sensor","defaultdescription":"Ignition sensor","defaultactivemodename":"On","activemodename":"On","passivemodename":"Off","defaultpassivemodename":"Off","measureunit":"-","defaultmeasureunit":"-","checkbox":1,"history":1,"formula":null,"filter":0,"moto":1,"tags":null,"tooltips":1,"maxspeed":5,"bufferlen":null,"json_config":null,"calibration":[],"multi_calibration":[]},{"sensortype":"Dedicated","sensortypeid":1,"sensorinterpret":"Special sensor","sensorinterpretid":9,"info":"weight","sensorfieldname":"IN1","fieldname":"IN1","sensorminvalue":"1.000","sensormaxvalue":"30000.000","minvalue":"1.000","maxvalue":"30000.000","semanticid":9,"typeid":1,"sensordefaultdesc":"weight","defaultdescription":"weight","defaultactivemodename":null,"activemodename":null,"passivemodename":null,"defaultpassivemodename":null,"measureunit":"kg","defaultmeasureunit":"kg","checkbox":0,"history":1,"formula":"","filter":0,"moto":0,"tags":null,"tooltips":1,"maxspeed":5,"bufferlen":null,"json_config":"{\"frame\": \"6\", \"smooth\": \"\"}","calibration":[{"value1":"0","value2":"0"},{"value1":"500","value2":"3500"},{"value1":"2000","value2":"10000"},{"value1":"4000","value2":"13000"},{"value1":"10000","value2":"15000"},{"value1":"20000","value2":"17000"}],"multi_calibration":[]},{"sensortype":"Dedicated","sensortypeid":1,"sensorinterpret":"External power supply","sensorinterpretid":6,"info":"External power supply","sensorfieldname":"Vsourse","fieldname":"Vsourse","sensorminvalue":"10000.000","sensormaxvalue":"36000.000","minvalue":"10000.000","maxvalue":"36000.000","semanticid":6,"typeid":1,"sensordefaultdesc":"External power supply","defaultdescription":"External power supply","defaultactivemodename":null,"activemodename":null,"passivemodename":null,"defaultpassivemodename":null,"measureunit":"v","defaultmeasureunit":"v","checkbox":0,"history":1,"formula":null,"filter":0,"moto":0,"tags":null,"tooltips":1,"maxspeed":5,"bufferlen":null,"json_config":"{\"frame\": \"\", \"smooth\": \"\"}","calibration":[],"multi_calibration":[]}]'''
 
 ADD_SENSORS = 1          # 0 = create vehicles without sensors
 
@@ -589,8 +648,8 @@ def panel_sensors(agent_id, account):
 
 
 def ensure_sensors(agent_id, account):
-    """Import the template unless the vehicle already has sensors. A vehicle
-    with SOME sensors is left alone: importing on top would duplicate them."""
+    """Import whichever template sensors the vehicle is missing (by field name).
+    Sensors it already has are left as they are."""
     if not ADD_SENSORS:
         return {"ok": True, "msg": "sensors: switched off (ADD_SENSORS = 0)"}
     if not agent_id:
@@ -602,10 +661,11 @@ def ensure_sensors(agent_id, account):
     missing = [f for f in want if f not in have["fields"]]
     if not missing:
         return {"ok": True, "msg": "sensors: all " + str(len(want)) + " already there"}
-    if have["fields"]:
-        return {"ok": False, "msg": ("sensors: the vehicle already has " + str(len(have["fields"])) +
-                                     " sensor(s) but is missing " + ", ".join(missing) +
-                                     " -- not importing on top; add them in the panel")}
+    # Import only the sensors the vehicle does not have yet (matched by field
+    # name), so a vehicle Pilot already gave some sensors is completed, never
+    # duplicated.
+    upload = json.dumps([s for s in json.loads(SENSOR_TEMPLATE)
+                         if str(s.get("fieldname") or "") in missing])
 
     boundary = "----vehicleUploadSensors7f3a9c"
     parts = []
@@ -614,7 +674,7 @@ def ensure_sensors(agent_id, account):
                  str(agent_id) + "\r\n")
     parts.append("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; "
                  "filename=\"sensors_template.json\"\r\nContent-Type: application/json\r\n\r\n" +
-                 SENSOR_TEMPLATE + "\r\n")
+                 upload + "\r\n")
     parts.append("--" + boundary + "--\r\n")
     res = panel_call("app/vehicles.php", "".join(parts), account, "POST",
                      {"Content-Type": "multipart/form-data; boundary=" + boundary})
@@ -712,6 +772,287 @@ def resolve_type_id(veh, account):
             " -- add it to TYPE_ALIASES at the top of this script"}
 
 
+def vehicle_types(account):
+    """Pilot's vehicle types (vehtypelist) as [{"id", "name"}]."""
+    got = lookup("vehtypelist", account)
+    rows = []
+    for r in got["rows"]:
+        if isinstance(r, dict) and row_id(r):
+            rows.append({"id": row_id(r), "name": str(r.get("name") or "")})
+    return {"rows": rows, "err": got["err"]}
+
+
+def pick_type(v, account, edits):
+    """The vehicle type to give the vehicle: the one chosen in the dialog, else the
+    ERP's type_new / type matched through TYPE_ALIASES."""
+    types = vehicle_types(account)
+    erp = str(v.get("type_new") or v.get("type") or "").strip()
+    out = {"id": 0, "name": "", "erp": erp, "why": "", "err": types["err"]}
+    if "type" in edits:
+        want = frappe.utils.cint(edits.get("type"))
+        for r in types["rows"]:
+            if r["id"] == want:
+                out["id"] = want
+                out["name"] = r["name"]
+                return out
+        if want and types["err"]:
+            # the list could not be read, so the id is taken as typed
+            out["id"] = want
+            out["name"] = "id " + str(want)
+            return out
+        out["why"] = ("no type chosen" if not want else
+                      "type id " + str(want) + " is not in Pilot's vehicle-type list")
+        return out
+    got = resolve_type_id(v, account)
+    if got["id"]:
+        out["id"] = got["id"]
+        for r in types["rows"]:
+            if r["id"] == got["id"]:
+                out["name"] = r["name"]
+    else:
+        out["why"] = got["why"]
+    return out
+
+
+def edit_options(account):
+    """What the Upload dialog offers in its dropdowns."""
+    types = vehicle_types(account)
+    return {"types": types["rows"], "types_error": types["err"],
+            "configurations": panel_type_names(account),
+            "node": bool(pilot_settings(account)["node"])}
+
+
+def set_vehicle_type(agent_id, imei, type_id, vehiclenumber, account, extra=None):
+    """The panel's create has no vehicle-type field, so the chosen type is set on the
+    vehicle just created with the Administrator API's cmd=vehedit. veh_number is sent
+    with it so the edit cannot blank the name."""
+    tid = frappe.utils.cint(type_id)
+    if not tid:
+        return {"ok": False, "msg": "no vehicle type chosen -- Pilot keeps its default type"}
+    if not pilot_settings(account)["node"]:
+        return {"ok": False, "msg": ("vehicle type NOT set: this estate's node is not set in app_apis, "
+                                     "so cmd=vehedit cannot run -- set the type on Pilot by hand")}
+    who = str(agent_id or "").strip() or str(imei or "").strip()
+    params = {"agentid": who, "type": str(tid), "veh_number": str(vehiclenumber or "")}
+    for k in (extra or {}).keys():
+        params[k] = str(extra[k])
+    try:
+        res = backend("vehedit", params, account, "POST")
+    except Exception as e:
+        return {"ok": False, "msg": "vehicle type NOT confirmed -- the edit call broke on our side: " +
+                str(e)[:160] + " -- check the type on Pilot"}
+    code = frappe.utils.cint(res.get("code"))
+    said = str(res.get("Success") or res.get("msg") or res.get("message") or "")
+    low = said.lower()
+    refused = False
+    for hint in REFUSALS:
+        if hint in low:
+            refused = True
+    # "The vehicle data has been changed" is vehedit's success answer, however it is wrapped
+    if "has been changed" in low:
+        said = "The vehicle data has been changed"
+    if (code == 0 and not refused) or "has been changed" in low:
+        return {"ok": True, "msg": "vehicle type set" + ((" -- Pilot said: " + said[:120]) if said else "")}
+    return {"ok": False, "msg": ("vehicle type NOT set -- Pilot said: " + (said or ("code " + str(code)))[:200] +
+                                 " -- set it on Pilot by hand")}
+
+
+# ---------------------------------------------------------------- edit on Pilot
+# Changes a vehicle that is ALREADY on Pilot:
+#   plate / IMEI / SIM / device type -> the admin panel's own Save, fitter.php
+#       cmd=update_vehicle (what Mechanic -> View vehicle -> Save sends). Every field
+#       the dialog does not change is sent back exactly as Pilot has it.
+#   vehicle type -> cmd=vehedit, with the vehicle's current group and values sent along
+#       so the edit cannot move or reset anything else.
+PANEL_FORM_KEYS = ("vehiclenumber", "uniqid", "msisdn", "configuration", "initial_mileage",
+                   "current_mileage", "sum_mileage", "account_id", "account_name")
+MILEAGE_KEYS = ("initial_mileage", "current_mileage", "sum_mileage")
+VEHEDIT_KEEP = ("model", "initial_motor_hours", "driver_id", "initial_mileage", "year", "vin",
+                "engine_horse", "organization", "column", "subdivision")
+TYPE_KEYS = ("typeid", "type_id", "veh_type_id", "vehicle_type_id", "type")
+# Keys of the panel record that are bookkeeping, not settings -- left out of the empty-field check.
+RECORD_SKIP = ("tags", "socket_proxy_debug", "admin_blocked_type", "admin_blocked_descr", "blockafter",
+               "block_sim", "isSelfBlocked", "isBlockedDebit", "price_id", "partner_price_id",
+               "subpartner_price_id", "global_partner_price_id", "iccid", "msisdn2")
+
+
+def is_blank(value):
+    return value is None or str(value).strip() == "" or str(value).strip().lower() in ("null", "none")
+
+
+def panel_vehicle(agent_id, account):
+    """The admin panel's full record of one vehicle (vehicles.php get_vehicle) -- the same
+    record its Vehicles -> Edit window opens with."""
+    if not agent_id:
+        return {"ok": False, "rec": {}, "why": "no agent_id"}
+    res = panel_call("app/vehicles.php", {"cmd": "get_vehicle", "agent_id": agent_id}, account)
+    body = res["body"]
+    if res["ok"] and isinstance(body, dict) and not body.get("_text"):
+        rec = body
+        if isinstance(body.get("data"), dict):
+            rec = body.get("data")
+        return {"ok": True, "rec": rec, "why": ""}
+    return {"ok": False, "rec": {},
+            "why": "HTTP " + str(res["status"]) + " " + str(res["text"])[:160]}
+
+
+def record_check(rec):
+    """Which settings Pilot holds EMPTY for this vehicle. Pilot's own vehicle editor keeps
+    Save switched off while a required field is empty, even for an admin."""
+    empty = []
+    for k in rec.keys():
+        if k in RECORD_SKIP or k == "config":
+            continue
+        if is_blank(rec.get(k)):
+            empty.append(str(k))
+    cfg_empty = []
+    cfg_keys = []
+    raw = rec.get("config")
+    cfg = {}
+    if isinstance(raw, dict):
+        cfg = raw
+    elif not is_blank(raw):
+        try:
+            cfg = json.loads(raw)
+        except Exception:
+            cfg = {}
+    if isinstance(cfg, dict):
+        for k in cfg.keys():
+            cfg_keys.append(str(k))
+            if is_blank(cfg.get(k)):
+                cfg_empty.append(str(k))
+    keys = []
+    for k in rec.keys():
+        keys.append(str(k))
+    return {"empty": sorted(empty), "config_empty": sorted(cfg_empty), "config_keys": sorted(cfg_keys),
+            "config_blank": is_blank(raw), "keys": sorted(keys)}
+
+
+def current_type_of(rec):
+    for k in TYPE_KEYS:
+        if k in rec and frappe.utils.cint(rec.get(k)):
+            return frappe.utils.cint(rec.get(k))
+    return 0
+
+
+def vehedit_keep(rec):
+    """The values vehedit must be handed back so a type change leaves them as they are."""
+    keep = {}
+    if not is_blank(rec.get("folder_id")):
+        keep["folder_id"] = str(rec.get("folder_id"))
+    for k in VEHEDIT_KEEP:
+        if k in rec and not is_blank(rec.get(k)):
+            keep[k] = str(rec.get(k))
+    return keep
+
+
+def edit_on_pilot(v, key, row, edits):
+    """Apply the dialog's edits to the vehicle Pilot already has (`row` = its panel search row)."""
+    spec = TARGETS[key]
+    account = spec["account"]
+    agent_id = str(row.get("agent_id") or "")
+    out_row = {"target": key, "label": spec["label"], "ok": False, "mode": "edit",
+               "agent_id": agent_id, "changes": [], "notes": []}
+
+    # what the panel's Save would send, starting from Pilot's own values
+    form = {"cmd": "update_vehicle", "agent_id": agent_id}
+    for k in PANEL_FORM_KEYS:
+        if k in row:
+            form[k] = "" if row.get(k) is None else str(row.get(k))
+    want = {}
+    if edits.get("vehiclenumber"):
+        want["vehiclenumber"] = edits["vehiclenumber"]
+    if edits.get("uniqid"):
+        want["uniqid"] = edits["uniqid"]
+    if "msisdn" in edits:
+        want["msisdn"] = edits["msisdn"] or "0"
+    if edits.get("configuration"):
+        m = pick_panel_model(edits["configuration"], account)
+        if not m["name"]:
+            out_row["verdict"] = "failure"
+            out_row["result"] = "Nothing saved: " + m["why"]
+            out_row["headline"] = "Not saved on " + spec["label"]
+            return out_row
+        want["configuration"] = m["name"]
+    panel_changes = []
+    for k in want.keys():
+        if str(form.get(k) or "") != str(want[k]):
+            panel_changes.append(k + ": " + (str(form.get(k) or "") or "(empty)") + " -> " + str(want[k]))
+            form[k] = str(want[k])
+
+    panel_ok = True
+    if panel_changes:
+        missing = [k for k in MILEAGE_KEYS if k not in row]
+        if missing:
+            panel_ok = False
+            out_row["notes"].append("plate / IMEI / SIM / device type were NOT changed: Pilot's search does not "
+                                    "return " + ", ".join(missing) + ", and sending them blank could reset the mileage")
+        else:
+            form["device_name"] = form.get("configuration") or ""
+            res = panel_call("app/fitter.php", form, account, "POST")
+            said = panel_verdict(res)
+            said["msg"] = str(said["msg"]).replace("the panel created", "the panel saved")
+            out_row["platform_said"] = said["msg"]
+            after = panel_find(form.get("uniqid") or "", account)
+            arow = after.get("row") or {}
+            same = after["state"] == "yes"
+            for k in want.keys():
+                if same and str(arow.get(k) or "") != str(want[k]):
+                    same = False
+            if same:
+                out_row["changes"] = out_row["changes"] + panel_changes
+            else:
+                panel_ok = False
+                out_row["notes"].append("Pilot did not take the plate / IMEI / SIM / device type change -- " +
+                                        said["msg"][:200] + ("" if after["state"] == "yes" else
+                                                             " (read back: " + after["detail"] + ")"))
+
+    # the vehicle type
+    type_ok = True
+    tid = frappe.utils.cint(edits.get("type"))
+    if tid:
+        full = panel_vehicle(agent_id, account)
+        if not full["ok"]:
+            type_ok = False
+            out_row["notes"].append("vehicle type NOT changed: Pilot's record of the vehicle could not be read (" +
+                                    full["why"] + "), and changing it blind could move it out of its group")
+        else:
+            keep = vehedit_keep(full["rec"])
+            if "folder_id" not in keep:
+                out_row["notes"].append("Pilot gave no group (folder) for this vehicle, so the type edit may "
+                                        "leave it in the account's main group")
+            name_now = form.get("vehiclenumber") or row.get("vehiclenumber") or ""
+            t = set_vehicle_type(agent_id, form.get("uniqid") or "", tid, name_now, account, keep)
+            out_row["type_msg"] = t["msg"]
+            out_row["type_ok"] = t["ok"]
+            tname = ""
+            for r in vehicle_types(account)["rows"]:
+                if r["id"] == tid:
+                    tname = r["name"]
+            out_row["vehicle_type"] = tname or ("id " + str(tid))
+            if t["ok"]:
+                out_row["changes"].append("vehicle type -> " + out_row["vehicle_type"])
+            else:
+                type_ok = False
+                out_row["notes"].append(t["msg"])
+
+    if not panel_changes and not tid:
+        out_row["ok"] = True
+        out_row["verdict"] = ""
+        out_row["headline"] = "Nothing to change on " + spec["label"]
+        out_row["result"] = "Every value is already what Pilot has, so nothing was sent."
+        return out_row
+    out_row["ok"] = panel_ok and type_ok
+    out_row["verdict"] = "uploaded" if out_row["ok"] else ("failure" if not out_row["changes"] else "error")
+    out_row["headline"] = ("Saved on " + spec["label"]) if out_row["ok"] else (
+        "Partly saved on " + spec["label"] if out_row["changes"] else "Not saved on " + spec["label"])
+    out_row["result"] = ("; ".join(out_row["changes"]) or "nothing changed") + (
+        (" | " + " | ".join(out_row["notes"])) if out_row["notes"] else "")
+    if out_row["notes"]:
+        out_row["advice"] = " ".join(out_row["notes"])
+    return out_row
+
+
 def resolve_folder(account_id, org_name, account):
     """The account's root folder, read from cmd=getfolders. It is usually named
     after the account's org_name but not always, so it is read, not assumed."""
@@ -799,11 +1140,38 @@ def stamp_tickets(veh, status_value, note):
 
 
 # ---------------------------------------------------------------- the payload
+def edits_for(key):
+    """The dialog's edits for one target: trimmed strings, EDIT_KEYS only."""
+    if key not in EDIT_TARGETS:
+        return {}
+    got = OVERRIDES.get(key)
+    if not isinstance(got, dict):
+        return {}
+    clean = {}
+    for k in EDIT_KEYS:
+        if k in got and got.get(k) is not None:
+            clean[k] = str(got.get(k)).strip()
+    return clean
+
+
 def build_payload(v, key):
     """Everything cmd=vehadd needs, resolved. `gaps` lists what could not be
     worked out -- a payload with gaps is never sent."""
     spec = TARGETS[key]
     account = spec["account"]
+    edits = edits_for(key)
+    if edits:
+        # a copy -- the ERP record itself is never changed by the dialog
+        copy = {}
+        for k in v.keys():
+            copy[k] = v[k]
+        if edits.get("uniqid"):
+            copy["device_serial"] = edits["uniqid"]
+        if edits.get("account_email"):
+            copy[spec["email_field"]] = edits["account_email"]
+        if edits.get("vehiclenumber"):
+            copy["license_plate"] = edits["vehiclenumber"]
+        v = copy
     imei = str(v.get("device_serial") or "").strip()
     email = str(v.get(spec["email_field"]) or "").strip()
     gaps = []
@@ -825,18 +1193,50 @@ def build_payload(v, key):
     if UPLOAD_VIA == "panel":
         # Exactly the fields of the panel's create form, under its own names.
         sim = resolve_msisdn(imei)
-        model = resolve_panel_model(v.get("devices_type"), account)
+        if edits.get("configuration"):
+            model = pick_panel_model(edits["configuration"], account)
+        else:
+            model = resolve_panel_model(v.get("devices_type"), account)
         panel = {"vehiclenumber": payload["name"], "uniqid": imei,
                  "msisdn": sim["value"] or "0", "configuration": model["name"],
                  "account_id": got["id"], "account_name": got.get("org_name") or ""}
+        if "msisdn" in edits:
+            panel["msisdn"] = edits["msisdn"] or "0"
         if not model["name"]:
             gaps.append("configuration -- " + model["why"])
         if got["id"] and not panel["account_name"]:
             gaps.append("account_name -- the Pilot account has no org_name")
-        if not sim["value"]:
+        if not sim["value"] and "msisdn" not in edits:
             panel["_msisdn_note"] = sim["why"] + " -- sending 0, Pilot's no-SIM value"
         panel["_account_email"] = email
         panel["_device_type"] = str(v.get("devices_type") or "")
+
+        # The vehicle type. Not part of the create form -- set after it (cmd=vehedit).
+        typ = pick_type(v, account, edits)
+        panel["_type_id"] = typ["id"]
+        panel["_type_name"] = typ["name"]
+        panel["_vehicle_type"] = typ["erp"]
+        if SET_TYPE_AFTER_CREATE:
+            if typ["err"]:
+                panel["_type_note"] = ("Pilot's vehicle-type list could not be read (" + typ["err"][:120] +
+                                       ") -- the vehicle would keep Pilot's default type")
+            elif not typ["id"]:
+                gaps.append("vehicle type -- choose it in the dialog (" + typ["why"] + ")")
+            elif not pilot_settings(account)["node"]:
+                panel["_type_note"] = ("this estate's node is not set in app_apis, so the type cannot be "
+                                       "set after create -- Pilot would keep its default type")
+
+        if edits:
+            said = []
+            for k in EDIT_KEYS:
+                if k in edits:
+                    shown = edits[k]
+                    if k == "type":
+                        shown = typ["name"]
+                    elif k == "configuration" and model["name"]:
+                        shown = model["name"]
+                    said.append(k + " = " + (str(shown) if str(shown) else "(empty)"))
+            panel["_edited"] = ", ".join(said)
         if ADD_SENSORS:
             panel["_sensors"] = ", ".join(sensor_fields()) + " (from the template, after create)"
         return {"payload": panel, "gaps": gaps}
@@ -856,10 +1256,10 @@ def build_payload(v, key):
     if not got["id"]:
         gaps.append("vehmodel -- " + got["why"])
 
-    got = resolve_type_id(v, account)
+    got = pick_type(v, account, edits)
     payload["type"] = got["id"]
     if not got["id"]:
-        gaps.append("type -- " + got["why"])
+        gaps.append("type -- " + (got["why"] or got["err"]))
 
     # These three go up as EMPTY rather than blocking. This fleet's vehicles have
     # no SIM on the ERP side (sim_serial is an ICCID, not a number, and most have
@@ -872,6 +1272,8 @@ def build_payload(v, key):
     # answers 400.
     got = resolve_msisdn(imei)
     payload["msisdn"] = got["value"] or "0"
+    if "msisdn" in edits:
+        payload["msisdn"] = edits["msisdn"] or "0"
     payload["msisdn2"] = "0"
     if not got["value"]:
         payload["_msisdn_note"] = got["why"] + " -- sending 0, Pilot's no-SIM value"
@@ -993,7 +1395,7 @@ def im_login():
     except Exception as e:
         got["why"] = "IM sign-in failed -- " + str(e)[:200].replace(str(pwd), "***")
         if "ermission" in str(e) or not str(e).strip():
-            got["why"] = got["why"] + " -- IM calls need a System Manager login (app_apis.core.http is limited to that role)"
+            got["why"] = got["why"] + " -- IM calls need a signed-in user"
         if "No module named" in str(e):
             got["why"] = got["why"] + " -- this server's app_apis is too old (it has no core module); update the app"
     if res is not None:
@@ -1827,7 +2229,7 @@ def delete_find(v, key):
         row["state"] = "unknown"
         row["detail"] = "IM sign-in failed -- " + log["why"]
         if "ermission" in log["why"]:
-            row["detail"] = row["detail"] + " (IM calls need a System Manager login: app_apis.core.http is limited to that role)"
+            row["detail"] = row["detail"] + " (IM calls need a signed-in user)"
         return row
     email = str(v.get("im_platform") or "").strip()
     if not email:
@@ -2044,6 +2446,11 @@ def send_one(v, key):
     gaps = built["gaps"]
     row = {"target": key, "label": spec["label"], "ok": False,
            "payload": payload, "gaps": gaps, "mode": "upload"}
+    if payload.get("_edited"):
+        row["edited"] = payload.get("_edited")   # .get: safe_exec refuses x["_key"]
+    # what the dialog offers in its dropdowns (only needed while planning)
+    if action == "plan" and key in EDIT_TARGETS and UPLOAD_VIA == "panel":
+        row["edit"] = edit_options(spec["account"])
 
     how = "create_vehicle (admin panel)" if UPLOAD_VIA == "panel" else "vehadd"
     if key == "im":
@@ -2072,7 +2479,8 @@ def send_one(v, key):
         return row
 
     row["cmd"] = how
-    imei = str(v.get("device_serial") or "").strip()
+    # the IMEI as sent -- it may have been corrected in the dialog
+    imei = str(payload.get("uniqid") or payload.get("imei") or v.get("device_serial") or "").strip()
 
     # Already there? Then sending again could only make a duplicate.
     before = platform_has(key, imei, spec["account"])
@@ -2083,6 +2491,8 @@ def send_one(v, key):
                          before["detail"])
         row["headline"] = "Already on " + spec["label"] + " — not created again"
         row["detail"] = before["detail"]
+        if key in EDIT_TARGETS:
+            row["advice"] = "To change it on " + spec["label"] + ", use Upload > Edit on " + spec["label"] + "."
         if UPLOAD_VIA == "panel" and key != "im":
             sen = ensure_sensors((before.get("row") or {}).get("agent_id"), spec["account"])
             row["sensors"] = sen["msg"]
@@ -2118,11 +2528,32 @@ def send_one(v, key):
         if after["state"] == "yes":
             row["ok"] = True
             row["verdict"] = "uploaded"
-            sen = ensure_sensors((after.get("row") or {}).get("agent_id"), spec["account"])
+            try:
+                sen = ensure_sensors((after.get("row") or {}).get("agent_id"), spec["account"])
+            except Exception as e:
+                sen = {"ok": False, "msg": "sensors: not checked -- " + str(e)[:160]}
             row["sensors"] = sen["msg"]
             row["sensors_ok"] = sen["ok"]
+            type_msg = ""
+            if SET_TYPE_AFTER_CREATE:
+                if payload.get("_type_id"):
+                    try:
+                        typ = set_vehicle_type((after.get("row") or {}).get("agent_id"), imei,
+                                               payload.get("_type_id"), payload.get("vehiclenumber"),
+                                               spec["account"])
+                    except Exception as e:
+                        typ = {"ok": False, "msg": "vehicle type NOT confirmed -- " + str(e)[:160]}
+                else:
+                    typ = {"ok": False, "msg": str(payload.get("_type_note") or
+                                                   "no vehicle type chosen -- Pilot keeps its default type")}
+                row["vehicle_type"] = str(payload.get("_type_name") or "")
+                row["type_msg"] = typ["msg"]
+                row["type_ok"] = typ["ok"]
+                type_msg = " " + str(payload.get("_type_name") or "") + ": " + typ["msg"] + "."
+                if not typ["ok"]:
+                    row["advice"] = ("The vehicle was created, but its type is not set: " + typ["msg"])
             row["result"] = ("created on " + spec["label"] + " -- " + after["detail"] +
-                             ". " + sen["msg"] + ". Panel said: " + said["msg"][:160])
+                             ". " + sen["msg"] + "." + type_msg + " Panel said: " + said["msg"][:160])
             row["headline"] = "Created on " + spec["label"]
             row["detail"] = after["detail"]
         elif after["state"] == "no":
@@ -2190,9 +2621,107 @@ def notify_core(event, platform, vehicle, imei, detail):
 
 # ---------------------------------------------------------------- run
 if not allowed and action not in ("delete_plan", "delete", "sim_check"):
-    # upload / verify / im_sync stay with these roles; delete and the SIM check are open to
-    # every signed-in user (their own branches refuse Guest; delete needs the typed word)
-    out["error"] = "Only System Manager or Technical can do this."
+    # every signed-in user may run every action; Guest is refused (delete needs the typed word)
+    out["error"] = "Sign in first."
+
+elif action == "edit_plan":
+    # Read-only: the vehicle as Pilot has it now, for the Edit on Pilot dialog. Also reads the
+    # panel's full record and lists what is empty there (why Pilot's own editor may refuse to
+    # save). compare_imei = a vehicle made in Pilot itself, to see what ours lacks.
+    veh = vehicle_doc(vehicle_name) if vehicle_name else None
+    if not veh:
+        out["error"] = "No such Customer Vehicle: " + vehicle_name
+    elif target not in EDIT_TARGETS:
+        out["error"] = "Pick one Pilot target: " + ", ".join(EDIT_TARGETS) + "."
+    else:
+        spec = TARGETS[target]
+        account = spec["account"]
+        imei = str(args.get("pilot_imei") or veh.get("device_serial") or "").strip()
+        out["vehicle"] = vehicle_name
+        out["plate"] = plate_of(veh)
+        out["imei"] = imei
+        out["label"] = spec["label"]
+        found = panel_find(imei, account)
+        if found["state"] != "yes":
+            out["not_found"] = found["state"] == "no"
+            out["error"] = ("Not on " + spec["label"] + " with IMEI " + imei + " -- " + found["detail"]
+                            if found["state"] == "no" else
+                            "Could not reach " + spec["label"] + " -- " + found["detail"])
+        else:
+            row = found["row"]
+            cur = {}
+            for k in ["agent_id"] + list(PANEL_FORM_KEYS):
+                if k in row:
+                    cur[k] = row[k]
+            full = panel_vehicle(row.get("agent_id"), account)
+            chk = record_check(full["rec"]) if full["ok"] else {}
+            sug = pick_type(veh, account, {})
+            out["pilot"] = {"current": cur, "detail": found["detail"],
+                            "missing_mileage": [k for k in MILEAGE_KEYS if k not in row],
+                            "record_ok": full["ok"], "record_why": full["why"], "check": chk,
+                            "folder_id": str(full["rec"].get("folder_id") or ""),
+                            "current_type_id": current_type_of(full["rec"])}
+            out["suggest_type"] = {"id": sug["id"], "name": sug["name"], "erp": sug["erp"]}
+            out["edit"] = edit_options(account)
+            other = str(args.get("compare_imei") or "").strip()
+            if other:
+                f2 = panel_find(other, account)
+                if f2["state"] == "yes":
+                    full2 = panel_vehicle((f2.get("row") or {}).get("agent_id"), account)
+                    chk2 = record_check(full2["rec"]) if full2["ok"] else {}
+                    ours = chk.get("empty") or []
+                    theirs = chk2.get("empty") or []
+                    ours_cfg = chk.get("config_empty") or []
+                    theirs_cfg = chk2.get("config_empty") or []
+                    out["compare"] = {
+                        "imei": other, "detail": f2["detail"], "record_ok": full2["ok"],
+                        "empty_only_here": [k for k in ours if k not in theirs],
+                        "config_empty_only_here": [k for k in ours_cfg if k not in theirs_cfg],
+                        "config_keys_missing_here": [k for k in (chk2.get("config_keys") or [])
+                                                     if k not in (chk.get("config_keys") or [])],
+                        "keys_missing_here": [k for k in (chk2.get("keys") or []) if k not in (chk.get("keys") or [])],
+                        "folder_id_there": str(full2["rec"].get("folder_id") or "")}
+                else:
+                    out["compare"] = {"imei": other, "error": f2["detail"]}
+            out["ok"] = True
+
+elif action == "edit_save":
+    # Writes to Pilot: the dialog's changes to a vehicle that is already there.
+    veh = vehicle_doc(vehicle_name) if vehicle_name else None
+    if not veh:
+        out["error"] = "No such Customer Vehicle: " + vehicle_name
+    elif target not in EDIT_TARGETS:
+        out["error"] = "Pick one Pilot target: " + ", ".join(EDIT_TARGETS) + "."
+    elif target not in LIVE_TARGETS:
+        out["error"] = TARGETS[target]["label"] + " is not in LIVE_TARGETS, so nothing is sent to it."
+    else:
+        spec = TARGETS[target]
+        account = spec["account"]
+        imei = str(args.get("pilot_imei") or veh.get("device_serial") or "").strip()
+        want_agent = str(args.get("agent_id") or "").strip()
+        out["vehicle"] = vehicle_name
+        out["plate"] = plate_of(veh)
+        out["imei"] = imei
+        found = panel_find(imei, account)
+        if found["state"] != "yes":
+            out["error"] = "Nothing saved: the vehicle is no longer found on " + spec["label"] + " -- " + found["detail"]
+        elif want_agent and str((found["row"] or {}).get("agent_id") or "") != want_agent:
+            out["error"] = ("Nothing saved: the vehicle on " + spec["label"] + " is not the one the dialog opened "
+                            "(agent_id changed). Open Edit on Pilot again.")
+        else:
+            erow = edit_on_pilot(veh, target, found["row"], edits_for(target))
+            erow["edited"] = "; ".join(erow.get("changes") or [])
+            out["results"].append(erow)
+            out["ok"] = bool(erow.get("ok"))
+            if erow.get("changes") or erow.get("notes"):
+                trail = (str(frappe.session.user) + " -- edit on " + spec["label"] + " (agent_id " +
+                         str(erow.get("agent_id")) + ") -> " + str(erow.get("result"))[:400])
+                frappe.get_doc({"doctype": "Comment", "comment_type": "Comment", "reference_doctype": VEH_DT,
+                                "reference_name": vehicle_name, "content": trail}).insert(ignore_permissions=True)
+                frappe.get_doc({"doctype": "Comment", "comment_type": "Comment",
+                                "reference_doctype": "Server Script", "reference_name": SCRIPT_NAME,
+                                "content": trail + " (" + vehicle_name + ", IMEI " + imei + ")"}
+                               ).insert(ignore_permissions=True)
 
 elif action == "im_sync":
     # Refresh Customer.im_company_id / im_reseller_id / im_branch_id from IM (email is the key).
@@ -2293,7 +2822,8 @@ elif action == "sim_check":
         out["ok"] = bool(sim)
 
 elif action not in ("plan", "verify", "upload"):
-    out["error"] = "Unknown action. Use plan, verify, upload, im_sync, delete_plan, delete or sim_check."
+    out["error"] = ("Unknown action. Use plan, verify, upload, edit_plan, edit_save, im_sync, "
+                    "delete_plan, delete or sim_check.")
 
 elif not vehicle_name:
     out["error"] = "No vehicle given."
@@ -2375,7 +2905,11 @@ else:
             if stamp_now:
                 note_parts = []
                 for row in out["results"]:
-                    note_parts.append(str(row.get("label")) + ": " + str(row.get("result")))
+                    part = str(row.get("label")) + ": "
+                    if row.get("edited"):
+                        part = part + "[edited in the dialog: " + str(row.get("edited")) + "] "
+                    part = part + str(row.get("result"))
+                    note_parts.append(part)
                 note = " | ".join(note_parts)
 
                 verdict = "uploaded" if every_ok else worst

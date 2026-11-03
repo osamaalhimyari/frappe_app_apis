@@ -30,6 +30,7 @@ import os
 import re
 
 import frappe
+from app_apis.access import require_login
 
 SERVER_MANIFEST = "scripts/server_scripts.json"
 CLIENT_SCRIPTS = "scripts/client_script.json"
@@ -189,7 +190,7 @@ def _update_managed_block(current, doc: dict) -> bool:
 def seed(names=None) -> list[str]:
 	"""Create every shipped script that does not exist yet, and bring the managed ones up
 	to date. Returns the names created or updated. `names` limits it to those scripts."""
-	frappe.only_for("System Manager")
+	require_login()
 	if isinstance(names, str):
 		names = json.loads(names)
 	changed = []

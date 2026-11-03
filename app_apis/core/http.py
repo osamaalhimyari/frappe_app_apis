@@ -28,9 +28,9 @@ from frappe.utils.password import (
 	remove_encrypted_password,
 	set_encrypted_password,
 )
+from app_apis.access import require_login
 
 SETTINGS = "app_apis"
-ALLOWED_ROLES = ("System Manager",)
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128 Safari/537.36"
 MAX_TEXT = 200_000
 HARD_MAX_TEXT = 5_000_000   # the most a caller may ask for with max_text
@@ -43,9 +43,7 @@ MAX_MATCHES = 20
 
 
 def _check():
-	# Scheduler-run Server Scripts execute as Administrator, which has every
-	# role, so this only ever stops a desk user calling the endpoint directly.
-	frappe.only_for(ALLOWED_ROLES)
+	require_login()
 
 
 def _jar_field(jar: str) -> str:

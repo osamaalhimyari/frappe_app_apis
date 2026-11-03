@@ -59,6 +59,7 @@ import frappe
 from frappe.utils import cint, now_datetime
 
 from app_apis.customers import may_be_messaged
+from app_apis.access import require_login
 
 # Both spellings of "the ticket's state" are watched. `workflow_state` is what
 # the workflow writes; `status` is the Select the form shows and what the
@@ -661,7 +662,7 @@ def send_now(ticket: str, state: str, to: str, force: int = 0) -> dict:
 	should take a settings change and a moment's thought rather than a keyword
 	argument.
 	"""
-	frappe.only_for("System Manager")
+	require_login()
 
 	from app_apis import chatwoot_connector as cw
 
@@ -718,7 +719,7 @@ def preview(ticket: str) -> dict:
 	Answers "why did my customer not get a message?" in one call instead of a
 	trawl through the log file.
 	"""
-	frappe.only_for("System Manager")
+	require_login()
 
 	from app_apis import chatwoot_connector as cw
 

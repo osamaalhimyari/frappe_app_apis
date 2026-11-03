@@ -24,8 +24,8 @@ import json
 
 import frappe
 import requests
+from app_apis.access import require_login
 
-ROLES = ("System Manager", "Technical")
 VEH_DT = "Customer Vehicle"
 TIMEOUT = 60
 REGISTER_TIMEOUT = 600   # Pilot's own UI waits up to 10 minutes for WASL
@@ -41,10 +41,7 @@ def _s(v):
 
 
 def _check_roles():
-    if frappe.session.user == "Administrator":
-        return
-    if not set(frappe.get_roles()) & set(ROLES):
-        frappe.throw("Not permitted", frappe.PermissionError)
+    require_login()
 
 
 def _plain(v):
@@ -438,7 +435,7 @@ def sync_wasl_states() -> dict:
 
     Vehicles are added and updated from every read. A vehicle is REMOVED only after a read that saw the
     whole list (see read_wasl_list), so a flaky page can never make linked vehicles look unlinked."""
-    frappe.only_for(("System Manager", "Technical"))
+    require_login()
     started = frappe.utils.now_datetime()
     out = {"ok": False, "rows": 0, "removed": 0, "complete": False, "note": ""}
     try:

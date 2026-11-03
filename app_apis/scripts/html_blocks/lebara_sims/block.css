@@ -52,6 +52,40 @@
 .lb-dir.out { color: var(--blue-600, #1c7ed6); }
 .lb-msg { white-space: pre-wrap; word-break: break-word; }
 
-.lb-imeibar { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;
+.lb-imeibar, .lb-kpibar { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;
 	margin-bottom: 8px; padding: 6px 10px; border-radius: 8px; background: var(--subtle-fg, rgba(120, 120, 120, .08)); font-size: 12px; }
 .lb-missing { color: var(--red-600, #e03131); }
+
+/* usage this month */
+.lb-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.lb-kpis:empty { display: none; }
+.lb-kpi { border: 1px solid var(--border-color); border-radius: 10px; background: var(--card-bg); padding: 10px 12px; min-width: 0; }
+.lb-kpi-label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.lb-kpi-value { font-size: 20px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.lb-kpi-sub { font-size: 12px; color: var(--text-muted); }
+.lb-kpi.is-total { border-color: var(--primary, #2490ef); }
+.lb-kpi.is-total .lb-kpi-value { color: var(--primary, #2490ef); }
+.lb-kpi.is-warn .lb-kpi-value, .lb-kpi-warn { color: var(--orange-600, #c2410c); }
+.lb-kpi-note { grid-column: 1 / -1; font-size: 11px; color: var(--text-muted); }
+.lb-kpi.is-waste { border-color: var(--red-300, #f5a5a5); }
+.lb-kpi.is-waste .lb-kpi-value { color: var(--red-600, #c0392b); }
+
+
+/* clickable widgets */
+.lb-kpi.is-click { cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.lb-kpi.is-click:hover { border-color: var(--gray-500, #a0a0a0); }
+.lb-kpi.is-click:focus-visible { outline: 2px solid var(--primary, #2490ef); outline-offset: 2px; }
+.lb-kpi.is-on { border-color: var(--primary, #2490ef); box-shadow: 0 0 0 2px var(--primary, #2490ef); }
+
+/* SIM number / IMEI -> Serial No */
+.lb-sn { color: inherit; text-decoration: underline dotted; text-underline-offset: 2px; }
+.lb-sn:hover { color: var(--primary, #2490ef); text-decoration: underline; }
+
+/* SMS history rows open the message dialog */
+.lb-msgrow { cursor: pointer; }
+.lb-msgrow:hover td { background: var(--subtle-fg, rgba(120, 120, 120, .08)); }
+
+/* Bulk SMS (Excel upload) -- the black button */
+.lb .lb-bulk, .lb .lb-bulk:focus { background: #000; color: #fff; border: 1px solid #000; }
+.lb .lb-bulk:hover, .lb .lb-bulk:active { background: #2b2b2b; color: #fff; border-color: #2b2b2b; }
+:host-context([data-theme="dark"]) .lb .lb-bulk { border-color: #555; }

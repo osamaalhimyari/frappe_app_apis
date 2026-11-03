@@ -40,7 +40,7 @@
 #   replies_after    msisdn, after_id        device replies newer than a sent SMS Id
 #   list_sms         since_id (opt, 0)       incremental SMS sync
 #
-# Only System Managers may call it (the core HTTP functions enforce it too).
+# Every signed-in user may call it; who sees the Lebara screens is set on the site, not here.
 # =============================================================================
 
 SETTINGS = "app_apis"
@@ -62,10 +62,7 @@ args = frappe.form_dict
 
 
 def is_manager():
-    if frappe.session.user == "Administrator":
-        return True
-    return bool(frappe.db.exists("Has Role", {"parent": frappe.session.user, "role": "System Manager",
-                                               "parenttype": "User"}))
+    return str(frappe.session.user) != "Guest"
 
 
 def setting(field):
@@ -441,7 +438,7 @@ def list_sms():
 
 # ---------------------------------------------------------------- dispatch
 if not is_manager():
-    frappe.throw("Only a System Manager can use the Lebara integration.", frappe.PermissionError)
+    frappe.throw("Sign in to use the Lebara integration.", frappe.PermissionError)
 
 action = str(args.get("action") or "status")
 if action != "status" and not cint(setting("lebara_enabled")):

@@ -13,6 +13,7 @@ import json
 
 import frappe
 from frappe.utils import cstr, flt, get_datetime, now_datetime
+from app_apis.access import require_login
 
 MODULE = "App Apis"
 
@@ -71,7 +72,7 @@ def upsert(doctype, key, rows, scope=None):
 
 	Returns {"inserted", "updated", "unchanged", "total", "synced_at"}.
 	"""
-	frappe.only_for("System Manager")
+	require_login()
 	meta = frappe.get_meta(doctype)
 	if meta.module != MODULE or meta.issingle or meta.istable:
 		frappe.throw(f"upsert is only allowed on {MODULE} list doctypes, not {doctype}")

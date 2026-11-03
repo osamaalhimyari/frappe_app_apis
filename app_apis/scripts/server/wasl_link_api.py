@@ -26,7 +26,6 @@
 
 WASL_LIVE = 0   # sending is done by app_apis.wasl.link_vehicle (custom app), not here
 USER_SITE = "https://ksa.pilot-gps.com/"
-ROLES = ("System Manager", "Technical")
 VEH_DT = "Customer Vehicle"
 AUDIT_DT = "app_apis_fleet_audit"
 
@@ -36,12 +35,12 @@ DEFAULT_TELECOM = "LEBARA"
 STATIC_WEIGHT = {
     "weightSource": "ANALOG",
     "weightSensorAnalogNumber": "1",
-    "weightInKilogramsEmptyVehicle": 9808,
-    "mlVoltageEmptyVehicle": 9808,
+    "weightInKilogramsEmptyVehicle": 4500,
+    "mlVoltageEmptyVehicle": 500,
     "weightInKilogramsHalfLoad": 0,
     "mlVoltageHalfLoad": "",
-    "weightInKilogramsFullLoad": 9808,
-    "mlVoltageFullLoad": 9808,
+    "weightInKilogramsFullLoad": 20000,
+    "mlVoltageFullLoad": 3500,
 }
 
 # ERP device type prefix -> brand shown on WASL
@@ -63,12 +62,7 @@ out = {"ok": False, "action": action, "live": WASL_LIVE}
 
 
 def allowed():
-    if str(frappe.session.user) == "Administrator":
-        return True
-    for r in frappe.db.get_all("Has Role", filters={"parent": frappe.session.user, "parenttype": "User"}, fields=["role"]):
-        if str(r.get("role")) in ROLES:
-            return True
-    return False
+    return str(frappe.session.user) != "Guest"
 
 
 def s(v):

@@ -189,13 +189,8 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "System Manager",
+   "role": "Desk User",
    "share": 1
-  },
-  {
-   "read": 1,
-   "report": 1,
-   "role": "Support Team"
   }
  ],
  "row_format": "Dynamic",
