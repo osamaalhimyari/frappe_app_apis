@@ -1,4 +1,9 @@
 {
   "name": "Lebara SIMs",
-  "workspace": {"name": "Lebara", "icon": "message", "sequence_id": 50}
+  "workspace": {
+    "name": "Lebara",
+    "icon": "message",
+    "sequence_id": 50
+  },
+  "managed": true
 }

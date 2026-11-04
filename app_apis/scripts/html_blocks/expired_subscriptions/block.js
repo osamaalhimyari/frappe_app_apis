@@ -14,6 +14,16 @@
 // block adds nothing to the app.
 
 const root = root_element;
+
+// The block lives in a shadow root, so a key pressed in one of its text boxes reaches Frappe's page-wide
+// keyboard shortcuts as if it came from the page itself (the event is re-targeted to the block), and
+// letters open the search instead of being typed. Keys typed into a field stay inside the block.
+["keydown", "keypress", "keyup"].forEach((type) => {
+	root_element.addEventListener(type, (e) => {
+		const t = e.composedPath ? e.composedPath()[0] : e.target;
+		if (t && t.matches && t.matches("input, textarea, select, [contenteditable]")) e.stopPropagation();
+	});
+});
 const $ = (sel) => root.querySelector(sel);
 const $$ = (sel) => Array.prototype.slice.call(root.querySelectorAll(sel));
 
