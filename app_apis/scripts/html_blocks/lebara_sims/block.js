@@ -15,6 +15,16 @@
 (function () {
 	const root = root_element.querySelector(".lb");
 	const $ = (sel) => root.querySelector(sel);
+
+	// The block lives in a shadow root, so a key pressed in one of its text boxes reaches Frappe's page-wide
+	// keyboard shortcuts as if it came from the page itself (the event is re-targeted to the block), and
+	// letters open the search instead of being typed. Keys typed into a field stay inside the block.
+	["keydown", "keypress", "keyup"].forEach((type) => {
+		root_element.addEventListener(type, (e) => {
+			const t = e.composedPath ? e.composedPath()[0] : e.target;
+			if (t && t.matches && t.matches("input, textarea, select, [contenteditable]")) e.stopPropagation();
+		});
+	});
 	const esc = (v) => frappe.utils.escape_html(v === undefined || v === null || v === "" ? "—" : String(v));
 	const PAGE = 50;
 	const SN_COLOR = { Active: 'green', Delivered: 'blue', Inactive: 'gray', Consumed: 'orange', Expired: 'red' };
