@@ -200,6 +200,67 @@ function pw_editor(frm, cdn) {
 	});
 }
 
+// IM Connections: each row shows ITS device models as a small table inside the row; they are stored in
+// the hidden IM Device Models table, tagged with the row's conn_id.
+const IM_MODELS_TABLE = "im_device_models";
+const IM_MODEL_DT = "App Apis IM Model";
+const IM_MODEL_COLS = [["device_type", __("ERP Device Type")], ["im_model_id", __("IM Model ID")], ["note", __("Note")]];
+
+function im_models_editor(frm, cdn) {
+	const row = locals["App Apis IM Connection"][cdn];
+	const grid_row = frm.fields_dict.im_connections.grid.grid_rows_by_docname[cdn];
+	const field = grid_row && grid_row.grid_form && grid_row.grid_form.fields_dict.models_html;
+	if (!row || !field) return;
+	if (!row.conn_id) frappe.model.set_value(row.doctype, row.name, "conn_id", frappe.utils.get_random(10));
+	const esc = (v) => frappe.utils.escape_html(String(v || ""));
+	const lines = (frm.doc[IM_MODELS_TABLE] || []).filter((r) => r.connection === row.conn_id)
+		.sort((a, b) => (a.idx || 0) - (b.idx || 0));
+	const $w = field.$wrapper.empty();
+	const $t = $(`<div class="app-apis-im-models">
+		<div class="text-muted small" style="margin-bottom:4px">${__("Device Models")}</div>
+		<table class="table table-bordered table-sm" style="margin-bottom:6px;font-size:12px">
+			<thead><tr><th style="width:36px">${__("No.")}</th>${IM_MODEL_COLS.map((c) => `<th>${c[1]}</th>`).join("")}<th style="width:40px"></th></tr></thead>
+			<tbody></tbody>
+		</table>
+		<button class="btn btn-xs btn-default im-add">${__("Add Model")}</button>
+	</div>`).appendTo($w);
+	const $body = $t.find("tbody");
+	if (!lines.length) $body.append(`<tr><td colspan="${IM_MODEL_COLS.length + 2}" class="text-muted">${__("No models yet.")}</td></tr>`);
+	lines.forEach((line, i) => {
+		const $tr = $(`<tr><td>${i + 1}</td>${IM_MODEL_COLS.map((c) =>
+			`<td><input class="form-control input-xs" data-f="${c[0]}" value="${esc(line[c[0]])}"></td>`).join("")}
+			<td><button class="btn btn-xs btn-danger im-del" title="${esc(__("Remove"))}">✕</button></td></tr>`).appendTo($body);
+		$tr.find("input").on("change", function () {
+			frappe.model.set_value(IM_MODEL_DT, line.name, $(this).attr("data-f"), String(this.value || "").trim());
+		});
+		$tr.find(".im-del").on("click", (e) => {
+			e.preventDefault();
+			frappe.model.clear_doc(IM_MODEL_DT, line.name);
+			frm.doc[IM_MODELS_TABLE] = (frm.doc[IM_MODELS_TABLE] || []).filter((r) => r.name !== line.name);
+			(frm.doc[IM_MODELS_TABLE] || []).forEach((r, k) => (r.idx = k + 1));
+			frm.dirty();
+			im_models_editor(frm, cdn);
+		});
+	});
+	$t.find(".im-add").on("click", (e) => {
+		e.preventDefault();
+		const child = frappe.model.add_child(frm.doc, IM_MODEL_DT, IM_MODELS_TABLE);
+		child.connection = row.conn_id;
+		frm.dirty();
+		im_models_editor(frm, cdn);
+		field.$wrapper.find("tbody tr").last().find("input").first().focus();
+	});
+}
+
+frappe.ui.form.on("App Apis IM Connection", {
+	form_render(frm, cdt, cdn) {
+		im_models_editor(frm, cdn);
+	},
+	im_connections_add(frm, cdt, cdn) {
+		frappe.model.set_value(cdt, cdn, "conn_id", frappe.utils.get_random(10));
+	},
+});
+
 frappe.ui.form.on("App Apis Pilot Connection", {
 	form_render(frm, cdt, cdn) {
 		pw_editor(frm, cdn);
@@ -287,53 +348,52 @@ frappe.ui.form.on("app_apis", {
 			frappe.set_route("Form", "Customize Form", { doc_type: frm.doctype })
 		);
 
-		frm.add_custom_button(
-			__("Test IM Connection"),
-			() => {
-				frappe.call({
-					method: "app_apis.im_connector.test_connection",
-					freeze: true,
-					freeze_message: __("Signing in to IM…"),
-					callback(r) {
-						const d = (r && r.message) || {};
-						frappe.msgprint({
-							title: __("IM Connection"),
-							indicator: d.ok ? "green" : "red",
-							message: `<div style="font-size:13px">
-								<div><b>${d.ok ? __("Signed in") : __("Failed")}</b></div>
-								<div style="margin-top:6px;color:var(--text-muted)">
-									${frappe.utils.escape_html(String(d.message || ""))}
-								</div>
-								<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">
-									${__("Account")}: ${frappe.utils.escape_html(String(d.account || "—"))} ·
-									${__("Mode")}: ${__("Live")} ·
-									${__("Round trip")}: ${frappe.utils.escape_html(
-										String(d.elapsed_ms || 0)
-									)} ms
-								</div>
-							</div>`,
-						});
-					},
-				});
-			},
-			__("IM")
-		);
+		// One Test button per row of IM Connections (saved rows only: a test reads the saved login).
+		(frm.doc.im_connections || []).forEach((row) => {
+			const name = row.label || __("IM {0}", [row.idx]);
+			frm.add_custom_button(
+				__("Test {0}", [name]),
+				() => {
+					frappe.call({
+						method: "app_apis.im_connector.test_connection",
+						args: { account: row.idx },
+						freeze: true,
+						freeze_message: __("Signing in to IM\u2026"),
+						callback(r) {
+							const d = (r && r.message) || {};
+							const esc = (v) => frappe.utils.escape_html(String(v === undefined || v === null || v === "" ? "\u2014" : v));
+							frappe.msgprint({
+								title: name,
+								indicator: d.ok ? "green" : "red",
+								message: `<div style="font-size:13px">
+									<div><b>${d.ok ? __("Signed in") : __("Failed")}</b></div>
+									<div style="margin-top:6px;color:var(--text-muted)">${esc(d.message)}</div>
+									<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">
+										${__("Account")}: ${esc(d.account)} \u00b7 ${__("Project")}: ${esc(d.project_id)} \u00b7
+										${__("Round trip")}: ${esc(d.elapsed_ms || 0)} ms
+									</div>
+								</div>`,
+							});
+						},
+					});
+				},
+				__("IM Connections")
+			);
+		});
 
 		frm.add_custom_button(
-			__("Clear Cached Token"),
+			__("Clear Cached Tokens"),
 			() => {
 				frappe.call({
 					method: "app_apis.im_connector.clear_cache_from_desk",
 					callback() {
-						frappe.show_alert({
-							message: __("Cached IM token and snapshots dropped."),
-							indicator: "green",
-						});
+						frappe.show_alert({ message: __("Cached IM tokens and snapshots dropped."), indicator: "green" });
 					},
 				});
 			},
-			__("IM")
+			__("IM Connections")
 		);
+
 
 		// One Test button per row of Pilot Connections (saved rows only: a test reads the saved login).
 		(frm.doc.pilot_connections || []).forEach((row) => {

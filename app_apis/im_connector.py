@@ -126,43 +126,77 @@ CACHE_PREFIX = "im_api"
 # --------------------------------------------------------------------------
 
 
-def _settings() -> dict:
-	"""IM's half of the merged `app_apis` settings doctype.
+def connection_rows(doc=None) -> list:
+	"""The IM Connections rows, in table order. Row N is IM account N everywhere in the app."""
+	doc = doc or frappe.get_cached_doc("app_apis")
+	return sorted(doc.get("im_connections") or [], key=lambda r: frappe.utils.cint(r.idx))
 
-	Both providers live in one Single now, so every field here is read under its
-	`im_` prefix. The prefix is load-bearing rather than cosmetic: Pilot and IM
-	both have a base URL, a request timeout and a staleness threshold, and
-	unprefixed names would have silently shared one value between two unrelated
-	endpoints.
-	"""
+
+def connection_key(account) -> str:
+	"""The platform key for IM account N: "im" for row 1 (its historic key), then "im2", "im3", ..."""
+	n = frappe.utils.cint(account) or 1
+	return "im" if n == 1 else "im%d" % n
+
+
+def _settings(account: int = 1) -> dict:
+	"""Row `account` (1-based) of the IM Connections table on `app_apis`. A row that does not exist
+	gives empty settings, so callers report "not configured" instead of crashing."""
+	from app_apis.pilot_admin import email_fields_of
+
+	account = frappe.utils.cint(account) or 1
 	s = frappe.get_cached_doc("app_apis")
+	rows = connection_rows(s)
+	row = rows[account - 1] if 0 < account <= len(rows) else None
+
+	def get(field):
+		return row.get(field) if row is not None else None
+
 	return {
-		"base_url": str(s.im_base_url or "").strip().rstrip("?"),
-		"project_id": str(s.im_project_id or "").strip(),
-		"username": str(s.im_username or "").strip(),
-		"timeout": frappe.utils.cint(s.im_request_timeout) or 20,
-		"stale_after_minutes": frappe.utils.cint(s.im_stale_after_minutes) or 15,
-		"min_call_interval": frappe.utils.cint(s.im_min_call_interval_seconds) or 60,
-		"token_ttl": (frappe.utils.cint(s.im_token_ttl_minutes) or 45) * 60,
-		"ignition_poll_seconds": frappe.utils.cint(s.im_ignition_poll_seconds) or 90,
-		"ignition_window_minutes": frappe.utils.cint(s.im_ignition_window_minutes) or 10,
-		"data_timezone": str(s.im_data_timezone or "").strip(),
+		"base_url": str(get("base_url") or "").strip().rstrip("?"),
+		"project_id": str(get("project_id") or "").strip(),
+		"username": str(get("username") or "").strip(),
+		"timeout": frappe.utils.cint(get("request_timeout")) or 20,
+		"stale_after_minutes": frappe.utils.cint(get("stale_after_minutes")) or 15,
+		"min_call_interval": frappe.utils.cint(get("min_call_interval_seconds")) or 60,
+		"token_ttl": (frappe.utils.cint(get("token_ttl_minutes")) or 45) * 60,
+		"ignition_poll_seconds": frappe.utils.cint(get("ignition_poll_seconds")) or 90,
+		"ignition_window_minutes": frappe.utils.cint(get("ignition_window_minutes")) or 10,
+		"data_timezone": str(get("data_timezone") or "").strip(),
 		"doc": s,
+		"row": row,
+		"account_no": account,
+		"key": connection_key(account),
+		"label": str(get("label") or "").strip() or ("IM %d" % account),
+		"enabled": bool(frappe.utils.cint(get("enabled"))),
+		"email_fields": email_fields_of(get("email_fields")) or (["im_platform"] if row is not None else []),
+		"conf_key": "im_password" if account == 1 else "im%d_password" % account,
 	}
 
 
 def _password(settings: dict) -> str | None:
-	"""The one IM password.
+	"""The connection's IM password.
 
-	`im_password` in site_config wins, so a deployment can keep the secret out
-	of the database entirely; otherwise the encrypted field on app_apis.
+	`im_password` (row 1; `im2_password` for row 2, ...) in site_config wins, so a deployment can keep
+	the secret out of the database entirely; otherwise the encrypted field on the row.
 	"""
-	conf_pw = frappe.conf.get("im_password")
+	conf_pw = frappe.conf.get(settings.get("conf_key") or "im_password")
 	if conf_pw:
 		return str(conf_pw)
 
-	doc = settings["doc"]
-	return doc.get_password("im_password") if doc.im_password else None
+	row = settings.get("row")
+	return row.get_password("password", raise_exception=False) if row is not None and row.get("password") else None
+
+
+@frappe.whitelist()
+def connections() -> list:
+	"""The IM Connections rows as the Customer Vehicle buttons need them. No secrets."""
+	require_login()
+	out = []
+	for n in range(1, len(connection_rows()) + 1):
+		cfg = _settings(n)
+		out.append({"account": n, "key": cfg["key"], "label": cfg["label"], "enabled": cfg["enabled"],
+		            "email_fields": cfg["email_fields"]})
+	return out
 
 
 # --------------------------------------------------------------------------
@@ -885,7 +919,7 @@ def _shape(vehicle: dict, settings: dict) -> dict:
 
 
 @frappe.whitelist()
-def get_snapshot(ticket: str, imei: str | None = None) -> dict:
+def get_snapshot(ticket: str, imei: str | None = None, account: int = 1) -> dict:
 	"""Live IM snapshot for one xticket, looked up BY IMEI. THE public entry point.
 
 	Called from the Client Script as:
@@ -912,7 +946,7 @@ def get_snapshot(ticket: str, imei: str | None = None) -> dict:
 			frappe.PermissionError,
 		)
 
-	settings = _settings()
+	settings = _settings(account)
 	ref = _resolve_imei(doc, imei)
 	target = ref["imei"]
 
@@ -1011,7 +1045,7 @@ def get_snapshot(ticket: str, imei: str | None = None) -> dict:
 
 
 @frappe.whitelist()
-def get_vehicle_live(imei: str) -> dict:
+def get_vehicle_live(imei: str, account: int = 1) -> dict:
 	"""Live IM snapshot for one IMEI, with no ticket in the picture.
 
 	`get_snapshot` is bound to an xticket -- it checks that ticket's read
@@ -1029,7 +1063,7 @@ def get_vehicle_live(imei: str) -> dict:
 	if not imei:
 		frappe.throw(_("imei is required."), title=_("IM"))
 
-	settings = _settings()
+	settings = _settings(account)
 	result = _cached_or_fetch(imei, settings)
 	rows = result.get("vehicles") or []
 
@@ -1112,6 +1146,7 @@ def get_track_logs(
 	end_date: str | None = None,
 	imei: str | None = None,
 	hours: float | None = None,
+	account: int = 1,
 ) -> dict:
 	"""Historical track points for one ticket's device.
 
@@ -1140,7 +1175,7 @@ def get_track_logs(
 			frappe.PermissionError,
 		)
 
-	settings = _settings()
+	settings = _settings(account)
 	ref = _resolve_imei(doc, imei)
 	target = ref["imei"]
 
@@ -1265,11 +1300,11 @@ def _extract_points(root, settings: dict) -> list[dict]:
 
 
 @frappe.whitelist()
-def test_connection() -> dict:
+def test_connection(account: int = 1) -> dict:
 	"""Sign in and report the outcome. Used by the button on the app_apis settings form."""
 	require_login()
 
-	settings = _settings()
+	settings = _settings(account)
 	started = time.monotonic()
 	token, source, meta = _get_token(settings, force=True)
 	elapsed = int((time.monotonic() - started) * 1000)
@@ -1296,14 +1331,14 @@ def test_connection() -> dict:
 # --------------------------------------------------------------------------
 
 
-def status() -> dict:
-	cfg = _settings()
+def status(account: int = 1) -> dict:
+	cfg = _settings(account)
 	return {
 		"mode": "live-only, IMEI-only",
 		"base_url": cfg["base_url"],
 		"project_id": cfg["project_id"],
 		"username": cfg["username"],
-		"password_set": bool(cfg["doc"].im_password or frappe.conf.get("im_password")),
+		"password_set": bool(_password(cfg)),
 		"timeout": cfg["timeout"],
 		"stale_after_minutes": cfg["stale_after_minutes"],
 		"min_call_interval_seconds": cfg["min_call_interval"],

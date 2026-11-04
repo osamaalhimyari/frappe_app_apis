@@ -29,23 +29,24 @@ import frappe
 
 from app_apis.core import events, im, pilot_panel
 
-IM = {"label": "IM (Trakzee)", "kind": "im", "account": 0, "email_fields": ["im_platform"], "box": "ch_trakzee",
-      "uses_wasl": False}
 
 # Row 1 is the estate the "Pilot WSL" tick box on the vehicle stands for; no other row has a box.
 PILOT_BOX = {1: "ch_pilot_wsl"}
 
 
 def platforms_map() -> dict:
-	"""Every platform: one per row of the app_apis Pilot Connections table, then IM."""
-	from app_apis import pilot_admin
+	"""Every platform: one per row of the app_apis Pilot Connections table, then one per row of IM Connections."""
+	from app_apis import im_connector, pilot_admin
 
 	out = {}
 	for n in range(1, len(pilot_admin.connection_rows()) + 1):
 		cfg = pilot_admin._settings(n)
 		out[cfg["key"]] = {"label": cfg["label"], "kind": "pilot", "account": n, "email_fields": cfg["email_fields"],
 		                   "box": PILOT_BOX.get(n), "uses_wasl": cfg["uses_wasl"]}
-	out["im"] = dict(IM)
+	for n in range(1, len(im_connector.connection_rows()) + 1):
+		cfg = im_connector._settings(n)
+		out[cfg["key"]] = {"label": cfg["label"], "kind": "im", "account": n, "email_fields": cfg["email_fields"],
+		                   "box": "ch_trakzee" if n == 1 else None, "uses_wasl": False}
 	return out
 
 
@@ -122,12 +123,13 @@ def find(platform: str, imei: str, vehicle: str = "") -> dict:
 		got = pilot_panel.find(imei, sp["account"])
 		return {"platform": platform, "state": got["state"], "found": got["state"] == "yes",
 		        "id": got.get("agent_id", ""), "name": got.get("name", ""), "detail": got["detail"], "row": got.get("row") or {}}
+	im.use(sp["account"])
 	got = im.has_imei(imei)
 	out = {"platform": platform, "state": got["state"], "found": got["state"] == "yes", "id": "", "name": "",
 	       "detail": got["detail"], "row": {}}
 	if got["state"] == "yes" and vehicle:
 		v = vehicle_row(vehicle)
-		acc = im.account_for_email(v.get("im_platform"), refresh=False) if v else {}
+		acc = im.account_for_email(email_of(v, sp), refresh=False) if v else {}
 		if acc.get("company"):
 			fb = im.find_by_name(plate_of(v), acc["company"], imei)
 			if fb["state"] == "yes":
@@ -170,6 +172,7 @@ def build(platform: str, vehicle: str) -> dict:
 			payload["msisdn_note"] = "no SIM number in the Fleet Audit -- sending 0, Pilot's no-SIM value"
 		return {"payload": payload, "gaps": gaps}
 
+	im.use(sp["account"])
 	acc = im.account_for_email(email)
 	model = im.model_for(v.get("devices_type"))
 	if imei and not imei.isdigit():
@@ -327,7 +330,8 @@ def delete(platform: str, vehicle: str, pin: str = "", update_status: bool = Tru
 	if sp["kind"] == "pilot":
 		res = pilot_panel.delete(imei, sp["account"])
 	else:
-		acc = im.account_for_email(v.get("im_platform"))
+		im.use(sp["account"])
+		acc = im.account_for_email(email_of(v, sp))
 		if not (acc["company"] and acc["branch"]):
 			res = {"verdict": "not_deleted", "ok": False, "result": "nothing deleted -- " + acc["why"]}
 		else:
@@ -373,7 +377,7 @@ def live(platform: str, imei: str, vehicle: str = "") -> dict:
 	if sp["kind"] == "im":
 		from app_apis import im_connector
 
-		return im_connector.get_vehicle_live(imei)
+		return im_connector.get_vehicle_live(imei, sp["account"])
 	from app_apis import connector
 
 	customer = frappe.db.get_value(VEHICLE_DT, vehicle, "customer") if vehicle else ""

@@ -8,7 +8,8 @@
  "field_order": [
   "device_type",
   "im_model_id",
-  "note"
+  "note",
+  "connection"
  ],
  "fields": [
   {
@@ -34,6 +35,13 @@
    "fieldname": "note",
    "fieldtype": "Data",
    "label": "Note"
+  },
+  {
+   "description": "The IM Connections row this model belongs to (its hidden id).",
+   "fieldname": "connection",
+   "fieldtype": "Data",
+   "label": "Connection",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

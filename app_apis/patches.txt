@@ -73,3 +73,6 @@ app_apis.patches.pilot_admin_to_connections_table
 # The Pilot (WSL) / Pilot 2 live-tracking sections move into rows 1 and 2 of Pilot Connections
 # (URL, node, fallback login, timeout, stale-after; the password tables become Customer Passwords).
 app_apis.patches.pilot_live_to_connections_table
+# The IM Connection / IM Upload sections become row 1 of IM Connections (key im); the IM Device
+# Models lines move under that row. Post-sync: the table must exist.
+app_apis.patches.im_settings_to_connections_table

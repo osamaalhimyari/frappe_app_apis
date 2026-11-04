@@ -22,10 +22,10 @@ import frappe
 
 DATA = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 DEFAULTS = {
-	"im_admin_id": "1213",
-	"im_default_reseller_id": "3237",
-	"im_reseller_ids": "3237,3267",
-	"im_sim_provider": "2",
+	"admin_id": "1213",
+	"default_reseller_id": "3237",
+	"reseller_ids": "3237,3267",
+	"sim_provider": "2",
 }
 
 
@@ -38,19 +38,27 @@ def _load(name):
 
 
 def execute():
+	"""Row 1 of IM Connections (the settings now live there). Does nothing until that row exists."""
 	doc = frappe.get_doc("app_apis")
+	rows = sorted(doc.get("im_connections") or [], key=lambda r: frappe.utils.cint(r.idx))
+	if not rows:
+		return
+	con = rows[0]
+	if not con.conn_id:
+		con.conn_id = frappe.generate_hash(length=10)
 	for field, value in DEFAULTS.items():
-		if not str(doc.get(field) or "").strip():
-			doc.set(field, value)
+		if not str(con.get(field) or "").strip():
+			con.set(field, value)
 
-	have = {str(r.device_type or "").strip().lower() for r in doc.get("im_models") or []}
+	mine = [m for m in doc.get("im_device_models") or [] if m.connection == con.conn_id]
+	have = {str(r.device_type or "").strip().lower() for r in mine}
 	for row in _load("im_models.json"):
 		key = str(row.get("device_type") or "").strip().lower()
 		if not key or key in have:
 			continue
 		have.add(key)
-		doc.append("im_models", {"device_type": row["device_type"], "im_model_id": str(row["im_model_id"]),
-		                         "note": row.get("note") or ""})
+		doc.append("im_device_models", {"device_type": row["device_type"], "im_model_id": str(row["im_model_id"]),
+		                                "note": row.get("note") or "", "connection": con.conn_id})
 
 	doc.flags.ignore_permissions = True
 	doc.save()

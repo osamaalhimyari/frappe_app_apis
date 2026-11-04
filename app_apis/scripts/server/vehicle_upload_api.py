@@ -16,9 +16,10 @@
 #   action=edit_plan  read the vehicle as Pilot has it now (+ what is empty in Pilot's record)
 #   action=edit_save  change a vehicle already on Pilot (plate, IMEI, SIM, device type, type)
 #
-#   target  = a Pilot connection | im | all
+#   target  = a Pilot connection | an IM connection | all
 #             The Pilot connections are the rows of the app_apis Pilot Connections table:
 #             pilot_wsl = row 1, pilot2 = row 2, pilot3 = row 3, ... (see TARGETS)
+#             The IM connections are the rows of IM Connections: im = row 1, im2 = row 2, ...
 #   connection = for target=wasl (delete from WASL only): the Pilot connection to go
 #             through. Blank = the first connection with Uses WASL ticked.
 #   vehicle = Customer Vehicle name
@@ -134,9 +135,27 @@ for ci in range(len(CONNECTION_ROWS)):
         "account": ci + 1,
         "email_fields": email_fields_of(crow.get("email_fields")),
         "wasl": frappe.utils.cint(crow.get("uses_wasl")),
+        "kind": "pilot",
     }
 PILOT_TARGETS = list(TARGETS.keys())
-TARGETS["im"] = {"label": "IM (Trakzee)", "account": 0, "email_fields": ["im_platform"], "wasl": 0}
+
+IM_ROWS = sorted(frappe.get_doc(SETTINGS).get("im_connections") or [], key=lambda r: frappe.utils.cint(r.get("idx")))
+IM_TARGETS = []
+for ci in range(len(IM_ROWS)):
+    crow = IM_ROWS[ci]
+    tkey = "im" if ci == 0 else "im" + str(ci + 1)
+    IM_TARGETS.append(tkey)
+    TARGETS[tkey] = {
+        "label": str(crow.get("label") or "").strip() or ("IM " + str(ci + 1)),
+        "account": ci + 1,
+        "email_fields": email_fields_of(crow.get("email_fields")) or ["im_platform"],
+        "wasl": 0,
+        "kind": "im",
+    }
+
+
+def is_im(key):
+    return key in IM_TARGETS
 
 # Every email field any target reads, that really exists on the vehicle.
 VEH_META = frappe.get_meta(VEH_DT)
@@ -209,14 +228,14 @@ SET_TYPE_AFTER_CREATE = 1     # 0 = leave Pilot's default type
 
 # ---------------------------------------------------------------- IM SETTINGS
 # Add "im" to LIVE_TARGETS (top of this script) only after the first test.
-IM_WEB = "https://gps.im2m.ws"
-IM_JAR = "im_web"                 # the cookie jar the IM session lives in
+IM_WEB_DEFAULT = "https://gps.im2m.ws"
+IM_JAR_DEFAULT = "im_web"         # the cookie jar of IM Connections row 1; row N uses im_web<N>
 IM_APPLICATION_ID = "37"
 
 # Who owns the vehicle on IM. Key = the vehicle's `im_platform` email.
 # company / branch are object_company_id / object_location_id from the IM
 # Add Vehicle form (Company and Branch dropdowns).
-# Format: "<im_platform email>": {"company": "<id>", "branch": "<id>", "reseller": "<id, only if not IM_RESELLER_ID>"}
+# Format: "<im_platform email>": {"company": "<id>", "branch": "<id>", "reseller": "<id, only if not IMC["reseller_id"]>"}
 IM_ACCOUNTS = {
     # Al Jazeera Winds Logistics Services Est. (admin 1213, reseller 3266 Global Staff Company).
     # Swap in this customer's `im_platform` email from ERPNext, then un-comment.
@@ -225,10 +244,11 @@ IM_ACCOUNTS = {
 # Used for every email that is not in IM_ACCOUNTS. Leave empty to refuse.
 IM_DEFAULT_ACCOUNT = {"company": "", "branch": ""}
 
-IM_ADMIN_ID = "1213"              # object_admin_entity_id
-IM_RESELLER_ID = "3237"           # object_reseller_entity_id when the company's own reseller is unknown
-IM_RESELLERS = ["3237", "3267"]   # resellers scanned for companies (im2m, IM2M-B2B)
-IM_SIM_PROVIDER = "2"             # sim_provide
+# Defaults; the row's Add Vehicle settings in app_apis > IM Connections override them (see im_use).
+IM_ADMIN_ID_DEFAULT = "1213"              # object_admin_entity_id
+IM_RESELLER_ID_DEFAULT = "3237"           # object_reseller_entity_id when the company's own reseller is unknown
+IM_RESELLERS_DEFAULT = ["3237", "3267"]   # resellers scanned for companies (im2m, IM2M-B2B)
+IM_SIM_PROVIDER_DEFAULT = "2"             # sim_provide
 
 # ERP Device Type -> IM gps_device_model_id ("Device Type" dropdown on IM).
 IM_MODELS = {
@@ -283,8 +303,8 @@ IM_RSA = "app_apis.core.crypto.rsa_encrypt"
 IM_XML_CLASS = "com.uffizio.tools.projectmanager.GenerateXmlUsingAjax"
 IM_JSON_CLASS = "com.uffizio.tools.projectmanager.GenerateJSONAjax"
 IM_JSON_TZ_CLASS = "com.uffizio.tools.projectmanager.GenerateJSONAjaxTrakzee"
-IM_DETAIL_REFERER = (IM_WEB + "/jsp/DetailScreen.jsp?entityid=0&screenid=2249&mode=insert&popup=false"
-                     "&view=L&overviewscreenid=2253&modulename=")
+IM_DETAIL_PATH = ("/jsp/DetailScreen.jsp?entityid=0&screenid=2249&mode=insert&popup=false"
+                  "&view=L&overviewscreenid=2253&modulename=")
 
 # The rest of the Add Vehicle form, exactly as a fresh form serialises it (im.md 4.4).
 IM_FORM_DEFAULTS = {
@@ -355,25 +375,59 @@ elif raw_edits:
 if not isinstance(OVERRIDES, dict):
     OVERRIDES = {}
 
-# The IM section of the app_apis settings (IM Upload / IM Device Models)
-# overrides the values written at the top of this script. A server whose app_apis does
-# not have those fields yet simply keeps the values above.
-try:
-    im_cfg = frappe.get_doc(SETTINGS)
-    if str(im_cfg.get("im_admin_id") or "").strip():
-        IM_ADMIN_ID = str(im_cfg.get("im_admin_id")).strip()
-    if str(im_cfg.get("im_default_reseller_id") or "").strip():
-        IM_RESELLER_ID = str(im_cfg.get("im_default_reseller_id")).strip()
-    if str(im_cfg.get("im_sim_provider") or "").strip():
-        IM_SIM_PROVIDER = str(im_cfg.get("im_sim_provider")).strip()
-    im_ids = [x.strip() for x in str(im_cfg.get("im_reseller_ids") or "").split(",") if x.strip()]
-    if im_ids:
-        IM_RESELLERS = im_ids
-    for im_row in im_cfg.get("im_models") or []:
-        if str(im_row.get("device_type") or "").strip() and str(im_row.get("im_model_id") or "").strip():
-            IM_MODELS[str(im_row.get("device_type")).strip()] = str(im_row.get("im_model_id")).strip()
-except Exception:
-    pass
+# The IM connection every im_* function below talks to: one row of app_apis > IM Connections.
+# im_use(N) switches to row N (its web address, cookie jar, login, Add Vehicle settings and device models);
+# a request that never calls it uses row 1.
+IMC = {}
+
+
+def im_use(account):
+    acc = frappe.utils.cint(account) or 1
+    if IMC.get("account") == acc:
+        return
+    row = IM_ROWS[acc - 1] if 0 < acc <= len(IM_ROWS) else None
+    base = str((row.get("base_url") if row is not None else "") or "").strip().rstrip("?").rstrip("/")
+    if base.endswith("/webservice"):
+        base = base[: -len("/webservice")]
+    models = {}
+    for k in IM_MODELS.keys():
+        models[k] = IM_MODELS[k]
+    conn_id = row.get("conn_id") if row is not None else ""
+    for m in frappe.get_doc(SETTINGS).get("im_device_models") or []:
+        if conn_id and m.get("connection") == conn_id and str(m.get("device_type") or "").strip() \
+                and str(m.get("im_model_id") or "").strip():
+            models[str(m.get("device_type")).strip()] = str(m.get("im_model_id")).strip()
+
+    def pick(field, default):
+        value = str((row.get(field) if row is not None else "") or "").strip()
+        return value or default
+
+    resellers = [x.strip() for x in pick("reseller_ids", "").split(",") if x.strip()]
+    IMC.clear()
+    IMC.update({
+        "account": acc,
+        "row": row,
+        "web": base or IM_WEB_DEFAULT,
+        "jar": IM_JAR_DEFAULT if acc == 1 else IM_JAR_DEFAULT + str(acc),
+        "admin_id": pick("admin_id", IM_ADMIN_ID_DEFAULT),
+        "reseller_id": pick("default_reseller_id", IM_RESELLER_ID_DEFAULT),
+        "resellers": resellers or IM_RESELLERS_DEFAULT,
+        "sim_provider": pick("sim_provider", IM_SIM_PROVIDER_DEFAULT),
+        "models": models,
+    })
+    # what was read from another IM connection in this request is not this one's
+    for k in list(LOOKUPS.keys()):
+        if str(k).startswith("im-"):
+            LOOKUPS.pop(k)
+
+
+def im_cache_ok():
+    """The Customer IM cache fields belong to IM Connections row 1 only: a Customer has one set of them, so
+    another IM estate always looks its company up live."""
+    return IMC.get("account", 1) == 1 and im_cache_fields()
+
+
+im_use(1)
 
 
 # ---------------------------------------------------------------- the platform
@@ -1002,6 +1056,8 @@ def vehedit_keep(rec):
 def edit_on_pilot(v, key, row, edits):
     """Apply the dialog's edits to the vehicle Pilot already has (`row` = its panel search row)."""
     spec = TARGETS[key]
+    if is_im(key):
+        im_use(spec["account"])
     account = spec["account"]
     agent_id = str(row.get("agent_id") or "")
     out_row = {"target": key, "label": spec["label"], "ok": False, "mode": "edit",
@@ -1215,6 +1271,8 @@ def build_payload(v, key):
     """Everything cmd=vehadd needs, resolved. `gaps` lists what could not be
     worked out -- a payload with gaps is never sent."""
     spec = TARGETS[key]
+    if is_im(key):
+        im_use(spec["account"])
     account = spec["account"]
     edits = edits_for(key)
     if edits:
@@ -1243,7 +1301,7 @@ def build_payload(v, key):
     if not payload["name"]:
         gaps.append("name (plate)")
 
-    if key == "im":
+    if is_im(key):
         return im_build(v, payload, gaps, email)
 
     got = resolve_account_id(email, account)
@@ -1423,9 +1481,9 @@ def strip_tags(html):
 
 
 def im_post(path, data, referer=None, timeout=60):
-    headers = {"Referer": referer or (IM_WEB + "/jsp/index.html")}
+    headers = {"Referer": referer or (IMC["web"] + "/jsp/index.html")}
     try:
-        res = frappe.call(IM_HTTP, jar=IM_JAR, url=IM_WEB + path, method="POST", data=data,
+        res = frappe.call(IM_HTTP, jar=IMC["jar"], url=IMC["web"] + path, method="POST", data=data,
                           headers=headers, timeout=timeout)
     except Exception as e:
         return {"ok": False, "status": 0, "text": "", "json": None, "error": str(e)[:300]}
@@ -1435,22 +1493,22 @@ def im_post(path, data, referer=None, timeout=60):
 
 
 def im_login():
-    """Sign in once per request; the session cookie stays in the IM_JAR jar."""
+    """Sign in once per request; the session cookie stays in the IMC["jar"] jar."""
     if "im-login" in LOOKUPS:
         return LOOKUPS["im-login"]
     got = {"ok": False, "why": "", "user": ""}
-    doc = frappe.get_doc(SETTINGS)
-    user = str(doc.get("im_username") or "").strip()
-    pwd = doc.get_password("im_password", raise_exception=False) if doc.get("im_password") else ""
+    con = IMC.get("row")
+    user = str((con.get("username") if con is not None else "") or "").strip()
+    pwd = con.get_password("password", raise_exception=False) if con is not None and con.get("password") else ""
     got["user"] = user
     if not user or not pwd:
-        got["why"] = "IM Username / Password are not set in app_apis > IM Connection."
+        got["why"] = "IM Username / Password are not set in app_apis > IM Connections row " + str(IMC.get("account", 1)) + "."
         LOOKUPS["im-login"] = got
         return got
     res = None
     try:
         enc = frappe.call(IM_RSA, public_key=IM_PUBKEY, text=pwd)
-        frappe.call(IM_CLEAR, jar=IM_JAR)
+        frappe.call(IM_CLEAR, jar=IMC["jar"])
         res = im_post("/UserLogin", {"username": user, "password": enc, "projectName": "VTS",
                                      "projectentity": "EMC", "webclient": "false"})
     except Exception as e:
@@ -1536,10 +1594,10 @@ def im_rows(method, params):
 
 
 def im_companies():
-    """[{id, name, reseller}] of the companies under every reseller in IM_RESELLERS."""
+    """[{id, name, reseller}] of the companies under every reseller in IMC["resellers"]."""
     if "im-companies" not in LOOKUPS:
         found = []
-        for rid in IM_RESELLERS:
+        for rid in IMC["resellers"]:
             for r in im_rows("getCompanyDropdown", {"object_reseller_entity_id": rid}):
                 if r.get("company_id"):
                     found.append({"id": str(r.get("company_id")), "name": str(r.get("short_name") or ""),
@@ -1580,16 +1638,16 @@ def im_company_login(company):
     IM only serves that page after the Company overview has been opened in the same session."""
     if "im-overview" not in LOOKUPS:
         try:
-            frappe.call(IM_HTTP, jar=IM_JAR, url=IM_WEB + "/jsp/Overview.jsp?screenid=2286&level=1&popup=false",
-                        method="GET", headers={"Referer": IM_WEB + "/jsp/index.html"}, timeout=60)
+            frappe.call(IM_HTTP, jar=IMC["jar"], url=IMC["web"] + "/jsp/Overview.jsp?screenid=2286&level=1&popup=false",
+                        method="GET", headers={"Referer": IMC["web"] + "/jsp/index.html"}, timeout=60)
         except Exception:
             pass
         LOOKUPS["im-overview"] = 1
     try:
-        res = frappe.call(IM_HTTP, jar=IM_JAR, method="GET", timeout=60,
-                          url=IM_WEB + "/jsp/DetailScreen.jsp?entityid=" + str(company) +
+        res = frappe.call(IM_HTTP, jar=IMC["jar"], method="GET", timeout=60,
+                          url=IMC["web"] + "/jsp/DetailScreen.jsp?entityid=" + str(company) +
                               "&screenid=2286&mode=update&level=1&popup=false&view=L&overviewscreenid=2286",
-                          headers={"Referer": IM_WEB + "/jsp/index.html"})
+                          headers={"Referer": IMC["web"] + "/jsp/index.html"})
     except Exception:
         return ""
     text = str(res.get("text") or "")
@@ -1632,7 +1690,7 @@ def im_sync(want="", limit=60, force=False):
         return stats
     known = {}
     if not force:
-        if im_cache_fields():
+        if im_cache_ok():
             for r in frappe.db.sql("select im_company_id from `tabCustomer` where ifnull(im_company_id, '') != ''",
                                    as_dict=True):
                 known[str(r.im_company_id)] = 1
@@ -1660,7 +1718,7 @@ def im_sync(want="", limit=60, force=False):
         hit = {"company": c["id"], "reseller": c["reseller"], "branch": branch, "name": c["name"],
                "login": login, "branch_note": note}
         names = im_customers_with(login)
-        for n in (names if im_cache_fields() else []):
+        for n in (names if im_cache_ok() else []):
             frappe.db.set_value("Customer", n, {"im_company_id": c["id"], "im_reseller_id": c["reseller"],
                                                 "im_branch_id": branch})
             stats["matched"] = stats["matched"] + 1
@@ -1696,7 +1754,7 @@ def im_account(email, customer="", customer_doc=""):
 
     for attempt in (1, 2):
         rows = []
-        if im_cache_fields():
+        if im_cache_ok():
             rows = frappe.db.sql(
                 "select name, im_company_id, im_reseller_id, im_branch_id from `tabCustomer` "
                 "where lower(trim(email_im_platform)) = %(e)s and ifnull(im_company_id, '') != '' "
@@ -1734,11 +1792,11 @@ def im_account(email, customer="", customer_doc=""):
             return out
 
     if im_customers_with(want):
-        out["why"] = ("no IM company (resellers " + ", ".join(IM_RESELLERS) + ") has the username " + want +
+        out["why"] = ("no IM company (resellers " + ", ".join(IMC["resellers"]) + ") has the username " + want +
                       " -- create it on IM or fix the email on the Customer")
     else:
         out["why"] = ("IM Platform email " + want + " is on no ERP Customer, and no IM company (resellers " +
-                      ", ".join(IM_RESELLERS) + ") has it as username")
+                      ", ".join(IMC["resellers"]) + ") has it as username")
     return out
 
 
@@ -1746,13 +1804,13 @@ def im_model(devices_type):
     n = norm(devices_type)
     if not n:
         return ""
-    for k in IM_MODELS.keys():
+    for k in IMC["models"].keys():
         if norm(k) == n:
-            return str(IM_MODELS[k])
-    for k in IM_MODELS.keys():
+            return str(IMC["models"][k])
+    for k in IMC["models"].keys():
         if n.endswith(norm(k)) or norm(k).endswith(n):
-            return str(IM_MODELS[k])
-    # Not in IM_MODELS: ask IM for its own model list and take an exact name match.
+            return str(IMC["models"][k])
+    # Not in the connection's Device Models: ask IM for its own model list and take an exact name match.
     try:
         if "im-models" not in LOOKUPS:
             got = im_json("getGpsDeviceModel", {"applicationid": IM_APPLICATION_ID})
@@ -1852,7 +1910,7 @@ def im_build(v, payload, gaps, email):
         "object_location_id": str((acc or {}).get("branch") or ""),
         "object_gps_device_model_id": model,
         "object_sim_card_no": "".join([c for c in str(sim["value"] or "") if c in "0123456789"]),
-        "sim_provide": IM_SIM_PROVIDER,
+        "sim_provide": IMC["sim_provider"],
         "_account_email": email,
         "_im_company": acc["how"],
         "_reseller": acc.get("reseller") or "",
@@ -1908,8 +1966,8 @@ def im_upload(row, payload):
     screen = sensors["screen"] or {}
     form = dict(IM_FORM_DEFAULTS)
     form["applicationid"] = IM_APPLICATION_ID
-    form["object_admin_entity_id"] = IM_ADMIN_ID
-    form["object_reseller_entity_id"] = payload.get("_reseller") or IM_RESELLER_ID
+    form["object_admin_entity_id"] = IMC["admin_id"]
+    form["object_reseller_entity_id"] = payload.get("_reseller") or IMC["reseller_id"]
     form["object_company_id"] = company
     form["object_location_id"] = branch
     form["gps_device_company_id"] = company
@@ -1934,14 +1992,14 @@ def im_upload(row, payload):
 
     # IM only serves a form to a session that opened it the way the browser does:
     # the vehicle overview first, then the Add Vehicle page. Do the same before posting.
-    for prime in ("/jsp/Overview.jsp?screenid=2253&level=1&popup=false", IM_DETAIL_REFERER.replace(IM_WEB, "")):
+    for prime in ("/jsp/Overview.jsp?screenid=2253&level=1&popup=false", IM_DETAIL_PATH):
         try:
-            frappe.call(IM_HTTP, jar=IM_JAR, url=IM_WEB + prime, method="GET",
-                        headers={"Referer": IM_WEB + "/jsp/index.html"}, timeout=60)
+            frappe.call(IM_HTTP, jar=IMC["jar"], url=IMC["web"] + prime, method="GET",
+                        headers={"Referer": IMC["web"] + "/jsp/index.html"}, timeout=60)
         except Exception:
             pass
 
-    res = im_post("/jsp/ProcessDetails.jsp", form, IM_DETAIL_REFERER, 120)
+    res = im_post("/jsp/ProcessDetails.jsp", form, (IMC["web"] + IM_DETAIL_PATH), 120)
     raw = str(res.get("text") or "")
     said = strip_tags(raw)[:300] or str(res.get("error") or "")
     row["raw_reply"] = ("url " + str(res.get("url")) + "; type " + str(res.get("content_type")) +
@@ -1978,7 +2036,7 @@ def im_upload(row, payload):
 
 
 def platform_has(key, imei, account):
-    if key == "im":
+    if is_im(key):
         return im_has(imei)
     return pilot_has(imei, account)
 
@@ -2011,7 +2069,7 @@ for tkey in TARGETS.keys():
 DELETE_LABELS["wasl"] = ("WASL only, through " + TARGETS[WASL_CONNECTION]["label"] if WASL_CONNECTION
                          else "WASL only") + " (Pilot vehicle kept)"
 DELETE_LABELS["sim"] = "SIM (suspend)"
-DELETE_TARGET_KEYS = tuple(PILOT_TARGETS) + ("im", "wasl", "sim")
+DELETE_TARGET_KEYS = tuple(PILOT_TARGETS) + tuple(IM_TARGETS) + ("wasl", "sim")
 
 # After a vehicle is deleted from a PLATFORM (a Pilot connection or IM) its Device Statues becomes
 # "Deleted", with today's Deletion Date, when no other SYSTEM is left. Systems, as the Platforms section
@@ -2029,7 +2087,7 @@ PILOT_BOXES = [["ch_pilot_wsl", "Pilot WSL"], ["ch_pilot_tow", "Pilot Towing"], 
                ["ch_pilot_tracking_only", "Pilot Tracking Only"]]
 OTHER_BOXES = [["ch_trakzee", "IM Tracking"], ["ch_sarp", "SARP"], ["ch_fmsi_medicine", "FMSI Medicine"],
                ["ch_fmsi_balady", "FMSI Balady"]]
-DELETE_UNTICKS = {"pilot_wsl": "ch_pilot_wsl", "im": "ch_trakzee"}      # only row 1 has a box
+DELETE_UNTICKS = {"pilot_wsl": "ch_pilot_wsl", "im": "ch_trakzee"}      # only the first rows have a box
 STATUS_DELETED = "Deleted"
 
 
@@ -2243,8 +2301,8 @@ def im_input_value(html, name):
 
 def im_get(path):
     try:
-        res = frappe.call(IM_HTTP, jar=IM_JAR, url=IM_WEB + path, method="GET",
-                          headers={"Referer": IM_WEB + "/jsp/index.html"}, timeout=90)
+        res = frappe.call(IM_HTTP, jar=IMC["jar"], url=IMC["web"] + path, method="GET",
+                          headers={"Referer": IMC["web"] + "/jsp/index.html"}, timeout=90)
     except Exception as e:
         return ""
     return str(res.get("text") or "")
@@ -2270,8 +2328,10 @@ def delete_find(v, key):
     if key == "sim":
         return sim_find(row, v)
     spec = TARGETS[key]
+    if is_im(key):
+        im_use(spec["account"])
 
-    if key != "im":
+    if not is_im(key):
         got = panel_find(imei, spec["account"])
         row["detail"] = got["detail"]
         if got["state"] == "yes":
@@ -2345,9 +2405,11 @@ def delete_one(v, key, pin):
     if key == "sim":
         return sim_suspend_one(row, v)
     spec = TARGETS[key]
+    if is_im(key):
+        im_use(spec["account"])
     imei = row["imei"]
 
-    if key != "im":
+    if not is_im(key):
         res = panel_call("app/vehicles.php", {"cmd": "remove", "agent_id": row["platform_id"],
                                               "is_update_sim_status": "false"}, spec["account"], "POST")
         said = str(res.get("text") or res.get("body") or "")[:200]
@@ -2442,6 +2504,8 @@ def exists_on_pilot(imei, account):
 
 def verify_one(v, key):
     spec = TARGETS[key]
+    if is_im(key):
+        im_use(spec["account"])
     imei = str(v.get("device_serial") or "").strip()
     built = build_payload(v, key)
     row = {"target": key, "label": spec["label"], "ok": False,
@@ -2452,16 +2516,16 @@ def verify_one(v, key):
         row["result"] = "this vehicle has no Device Serial, so nothing can be looked up"
         return row
 
-    if key == "im" and IM_VERIFY_VIA == "web":
+    if is_im(key) and IM_VERIFY_VIA == "web":
         seen = im_has(imei)
         row["ok"] = seen["state"] == "yes"
         row["verdict"] = {"yes": "uploaded", "no": "vehicle_not_found"}.get(seen["state"], "error")
         row["result"] = seen["detail"]
         return row
 
-    if key == "im":
+    if is_im(key):
         try:
-            snap = frappe.call("app_apis.im_connector.get_vehicle_live", imei=imei) or {}
+            snap = frappe.call("app_apis.im_connector.get_vehicle_live", imei=imei, account=IMC.get("account", 1)) or {}
             row["ok"] = True
             row["verdict"] = "uploaded"
             row["result"] = "IM has this device"
@@ -2506,6 +2570,8 @@ def verify_one(v, key):
 # ---------------------------------------------------------------- upload
 def send_one(v, key):
     spec = TARGETS[key]
+    if is_im(key):
+        im_use(spec["account"])
     built = build_payload(v, key)
     payload = built["payload"]
     gaps = built["gaps"]
@@ -2518,7 +2584,7 @@ def send_one(v, key):
         row["edit"] = edit_options(spec["account"])
 
     how = "create_vehicle (admin panel)" if UPLOAD_VIA == "panel" else "vehadd"
-    if key == "im":
+    if is_im(key):
         how = "Add Vehicle form (gps.im2m.ws)"
     if gaps:
         row["verdict"] = "failure"
@@ -2558,7 +2624,7 @@ def send_one(v, key):
         row["detail"] = before["detail"]
         if key in EDIT_TARGETS:
             row["advice"] = "To change it on " + spec["label"] + ", use Upload > Edit on " + spec["label"] + "."
-        if UPLOAD_VIA == "panel" and key != "im":
+        if UPLOAD_VIA == "panel" and not is_im(key):
             sen = ensure_sensors((before.get("row") or {}).get("agent_id"), spec["account"])
             row["sensors"] = sen["msg"]
             row["sensors_ok"] = sen["ok"]
@@ -2575,7 +2641,7 @@ def send_one(v, key):
         if not str(k).startswith("_"):
             params[k] = payload[k]
 
-    if key == "im":
+    if is_im(key):
         return im_upload(row, payload)
 
     # Create through the admin panel, then read it back.
@@ -2668,8 +2734,9 @@ def which_targets(v, asked):
     for k in PILOT_TARGETS:
         if email_of(v, TARGETS[k]) or (k == "pilot_wsl" and frappe.utils.cint(v.get("ch_pilot_wsl"))):
             picked.append(k)
-    if frappe.utils.cint(v.get("ch_trakzee")) or str(v.get("im_platform") or "").strip():
-        picked.append("im")
+    for k in IM_TARGETS:
+        if email_of(v, TARGETS[k]) or (k == "im" and frappe.utils.cint(v.get("ch_trakzee"))):
+            picked.append(k)
     return picked
 
 
@@ -2791,6 +2858,8 @@ elif action == "edit_save":
 
 elif action == "im_sync":
     # Refresh Customer.im_company_id / im_reseller_id / im_branch_id from IM (email is the key).
+    # Only IM Connections row 1 has that cache on the Customer.
+    im_use(1)
     # Optional: email=<one address to look for>, limit=<page reads, default 60>, force=1 to re-read mapped companies.
     got = im_sync(str(args.get("email") or ""), frappe.utils.cint(args.get("limit") or 60), bool(args.get("force")))
     frappe.db.commit()
@@ -2819,7 +2888,7 @@ elif action in ("delete_plan", "delete"):
         else:
             drow = delete_one(veh, target, str(args.get("pin") or ""))
             out["device_status_changed"] = False
-            if drow.get("verdict") == "deleted" and (target in PILOT_TARGETS or target == "im"):
+            if drow.get("verdict") == "deleted" and (target in PILOT_TARGETS or is_im(target)):
                 try:
                     st = after_platform_delete(vehicle_name, target, str(drow.get("imei") or ""))
                     drow["result"] = str(drow["result"]) + " | " + st["note"]
@@ -2842,7 +2911,7 @@ elif action in ("delete_plan", "delete"):
             if target == "wasl":
                 notify_core("after_wasl", WASL_CONNECTION or "pilot_wsl", vehicle_name, out["imei"],
                             {"action": "delete", "result": str(drow.get("result"))[:300]})
-            elif target in PILOT_TARGETS or target == "im":
+            elif target in PILOT_TARGETS or is_im(target):
                 notify_core("after_delete", target, vehicle_name, out["imei"],
                             {"result": {"verdict": drow.get("verdict"), "ok": bool(drow.get("ok")),
                                         "result": str(drow.get("result"))[:300],

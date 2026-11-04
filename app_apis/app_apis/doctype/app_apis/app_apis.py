@@ -21,23 +21,7 @@ class app_apis(Document):
 	"""
 
 	def validate(self):
-		# IM signs in with one account for the whole site, so a missing username
-		# is a configuration error worth catching here rather than surfacing
-		# later as an opaque 401 from IM. Pilot has no equivalent check: its
-		# account comes off the ticket, not from this form.
-		if (self.im_base_url or "").strip() and not (self.im_username or "").strip():
-			frappe.throw(
-				_("IM Username is required when an IM Base URL is set."),
-				title=_("App APIs"),
-			)
-
-		# IM rate-limits live data to about one call per minute per account.
-		# Letting these drop to 0 turns the ignition test into a request storm
-		# that IM answers with "The call exceeded the limit".
-		if frappe.utils.cint(self.im_min_call_interval_seconds) < 10:
-			self.im_min_call_interval_seconds = 60
-		if frappe.utils.cint(self.im_ignition_poll_seconds) < 30:
-			self.im_ignition_poll_seconds = 90
+		self._validate_im_connections()
 
 		self._keep_lebara_session_state()
 		self._validate_pilot_connections()
@@ -143,6 +127,38 @@ class app_apis(Document):
 					_("Row {0}: name a customer, a phone number, or both.").format(row.idx),
 					title=_("Excluded Customers"),
 				)
+
+	def _validate_im_connections(self):
+		"""IM Connections: an enabled row needs its username (a missing one would surface later as an
+		opaque 401 from IM), the Email Fields must be real Customer Vehicle fields, and the rate-limit
+		settings may not drop below what IM tolerates (about one live call per minute per account --
+		letting them reach 0 turns the ignition test into a request storm)."""
+		from app_apis.pilot_admin import email_fields_of
+
+		problems = []
+		meta = frappe.get_meta("Customer Vehicle")
+		for row in self.get("im_connections") or []:
+			if not row.conn_id:
+				row.conn_id = frappe.generate_hash(length=10)
+		ids = {row.conn_id for row in self.get("im_connections") or []}
+		self.set("im_device_models", [m for m in self.get("im_device_models") or [] if m.connection in ids])
+		for row in self.get("im_connections") or []:
+			row.label = (row.label or "").strip()
+			where = _("IM Connections row {0}").format(row.idx)
+			fields = email_fields_of(row.email_fields)
+			row.email_fields = ", ".join(fields)
+			unknown = [f for f in fields if not meta.has_field(f)]
+			if unknown:
+				problems.append(_("{0}: Customer Vehicle has no field {1}.").format(
+					where, ", ".join(frappe.utils.escape_html(f) for f in unknown)))
+			if frappe.utils.cint(row.min_call_interval_seconds) < 10:
+				row.min_call_interval_seconds = 60
+			if frappe.utils.cint(row.ignition_poll_seconds) < 30:
+				row.ignition_poll_seconds = 90
+			if frappe.utils.cint(row.enabled) and (row.base_url or "").strip() and not (row.username or "").strip():
+				problems.append(_("{0} ({1}): the Username is required.").format(where, frappe.utils.escape_html(row.label)))
+		if problems:
+			frappe.throw("<br>".join(problems), title=_("IM Connections"))
 
 	def _validate_pilot_connections(self):
 		"""Pilot Connections: each row is checked only once it is switched on.

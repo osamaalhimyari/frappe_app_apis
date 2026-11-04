@@ -9,26 +9,9 @@
   "sec_pilot_connections",
   "pilot_connections",
   "pilot_customer_passwords",
-  "sec_im",
-  "im_base_url",
-  "im_project_id",
-  "im_username",
-  "im_password",
-  "col_im_a",
-  "im_request_timeout",
-  "im_stale_after_minutes",
-  "im_data_timezone",
-  "col_im_b",
-  "im_min_call_interval_seconds",
-  "im_token_ttl_minutes",
-  "im_ignition_poll_seconds",
-  "im_ignition_window_minutes",
-  "sec_im_upload",
-  "im_admin_id",
-  "im_default_reseller_id",
-  "im_reseller_ids",
-  "im_sim_provider",
-  "im_models",
+  "sec_im_connections",
+  "im_connections",
+  "im_device_models",
   "sec_lebara",
   "lebara_enabled",
   "lebara_base_url",
@@ -125,125 +108,22 @@
   },
   {
    "collapsible": 1,
-   "fieldname": "sec_im",
+   "description": "One row per IM login. Row 1 is IM account 1 (key im), row 2 is im2, and so on; each row gets its own button on the Customer Vehicle form.",
+   "fieldname": "sec_im_connections",
    "fieldtype": "Section Break",
-   "label": "IM Connection"
+   "label": "IM Connections"
   },
   {
-   "default": "https://gps.im2m.ws/webservice",
-   "description": "IM webservice endpoint.",
-   "fieldname": "im_base_url",
-   "fieldtype": "Data",
-   "label": "IM Base URL"
-  },
-  {
-   "default": "37",
-   "description": "Sent as ProjectId.",
-   "fieldname": "im_project_id",
-   "fieldtype": "Data",
-   "label": "IM Project ID"
-  },
-  {
-   "fieldname": "im_username",
-   "fieldtype": "Data",
-   "label": "IM Username"
-  },
-  {
-   "description": "Case-sensitive.",
-   "fieldname": "im_password",
-   "fieldtype": "Password",
-   "label": "IM Password"
-  },
-  {
-   "fieldname": "col_im_a",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "20",
-   "fieldname": "im_request_timeout",
-   "fieldtype": "Int",
-   "label": "IM Request Timeout (seconds)"
-  },
-  {
-   "default": "15",
-   "fieldname": "im_stale_after_minutes",
-   "fieldtype": "Int",
-   "label": "IM Stale After (minutes)"
-  },
-  {
-   "description": "Blank = system timezone.",
-   "fieldname": "im_data_timezone",
-   "fieldtype": "Data",
-   "label": "IM Data Timezone (blank = system)"
-  },
-  {
-   "fieldname": "col_im_b",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "60",
-   "description": "About one call a minute; cached otherwise.",
-   "fieldname": "im_min_call_interval_seconds",
-   "fieldtype": "Int",
-   "label": "IM Minimum Call Interval (seconds)"
-  },
-  {
-   "default": "45",
-   "description": "How long an access token is reused.",
-   "fieldname": "im_token_ttl_minutes",
-   "fieldtype": "Int",
-   "label": "IM Token Cache TTL (minutes)"
-  },
-  {
-   "default": "90",
-   "description": "Must stay above the rate limit.",
-   "fieldname": "im_ignition_poll_seconds",
-   "fieldtype": "Int",
-   "label": "IM Ignition Test Poll (seconds)"
-  },
-  {
-   "default": "10",
-   "fieldname": "im_ignition_window_minutes",
-   "fieldtype": "Int",
-   "label": "IM Ignition Test Window (minutes)"
-  },
-  {
-   "fieldname": "sec_im_upload",
-   "fieldtype": "Section Break",
-   "label": "IM Upload (Add Vehicle)",
-   "collapsible": 1
-  },
-  {
-   "fieldname": "im_admin_id",
-   "fieldtype": "Data",
-   "label": "IM Admin ID",
-   "description": "object_admin_entity_id (the IM admin the vehicles are created under).",
-   "default": "1213"
-  },
-  {
-   "fieldname": "im_default_reseller_id",
-   "fieldtype": "Data",
-   "label": "IM Default Reseller ID",
-   "description": "object_reseller_entity_id when an account row has no reseller.",
-   "default": "3237"
-  },
-  {
-   "fieldname": "im_reseller_ids",
-   "fieldtype": "Data",
-   "label": "IM Resellers To Scan",
-   "description": "Comma-separated reseller ids whose companies are searched when an email is not in the table below. Example: 3237,3267",
-   "default": "3237,3267"
-  },
-  {
-   "fieldname": "im_sim_provider",
-   "fieldtype": "Data",
-   "label": "IM SIM Provider ID",
-   "description": "sim_provide on the Add Vehicle form.",
-   "default": "2"
-  },
-  {
-   "fieldname": "im_models",
+   "fieldname": "im_connections",
    "fieldtype": "Table",
+   "label": "IM Connections",
+   "options": "App Apis IM Connection"
+  },
+  {
+   "description": "Edited inside each IM Connections row (Device Models).",
+   "fieldname": "im_device_models",
+   "fieldtype": "Table",
+   "hidden": 1,
    "label": "IM Device Models",
    "options": "App Apis IM Model"
   },

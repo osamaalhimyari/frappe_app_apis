@@ -199,15 +199,47 @@ def build_form(*, name: str, imei: str, company: str, branch: str, model: str, s
 
 
 # ------------------------------------------------------------------ configuration
+# Which IM connection (row of app_apis > IM Connections) the calls below go to. use(n) switches it for
+# the rest of the request; every caller that never calls use() gets row 1, as before.
+def use(account) -> None:
+	frappe.local.app_apis_im_account = frappe.utils.cint(account) or 1
+
+
+def account() -> int:
+	return getattr(frappe.local, "app_apis_im_account", 1) or 1
+
+
+def _row():
+	from app_apis import im_connector
+
+	rows = im_connector.connection_rows(frappe.get_doc(SETTINGS))
+	n = account()
+	return rows[n - 1] if 0 < n <= len(rows) else None
+
+
+def _jar() -> str:
+	n = account()
+	return JAR if n == 1 else "%s%d" % (JAR, n)
+
+
 def _cache() -> dict:
-	"""One small cache per request or job, so a list is read from IM once."""
+	"""One small cache per request or job and connection, so a list is read from IM once."""
 	if not hasattr(frappe.local, "app_apis_im"):
 		frappe.local.app_apis_im = {}
-	return frappe.local.app_apis_im
+	return frappe.local.app_apis_im.setdefault(account(), {})
 
 
 def web_base() -> str:
-	return str(frappe.conf.get("app_apis_im_web") or WEB).rstrip("/")
+	"""The IM web app: the connection's Base URL without /webservice (site_config app_apis_im_web wins for
+	row 1)."""
+	if account() == 1 and frappe.conf.get("app_apis_im_web"):
+		return str(frappe.conf.get("app_apis_im_web")).rstrip("/")
+	row = _row()
+	base = str((row.get("base_url") if row is not None else "") or "").strip().rstrip("?").rstrip("/")
+	for suffix in ("/webservice", "/webservice/"):
+		if base.endswith(suffix):
+			base = base[: -len(suffix)]
+	return (base or WEB).rstrip("/")
 
 
 def config() -> dict:
@@ -220,14 +252,17 @@ def config() -> dict:
 	       "resellers": list(DEFAULTS["resellers"]), "sim_provider": DEFAULTS["sim_provider"], "models": dict(MODELS)}
 	try:
 		doc = frappe.get_doc(SETTINGS)
-		for key, field in (("admin_id", "im_admin_id"), ("reseller_id", "im_default_reseller_id"),
-		                   ("sim_provider", "im_sim_provider")):
-			if str(doc.get(field) or "").strip():
-				out[key] = str(doc.get(field)).strip()
-		ids = [x.strip() for x in str(doc.get("im_reseller_ids") or "").split(",") if x.strip()]
+		con = _row()
+		get = (lambda f: con.get(f)) if con is not None else (lambda f: None)
+		for key, field in (("admin_id", "admin_id"), ("reseller_id", "default_reseller_id"),
+		                   ("sim_provider", "sim_provider")):
+			if str(get(field) or "").strip():
+				out[key] = str(get(field)).strip()
+		ids = [x.strip() for x in str(get("reseller_ids") or "").split(",") if x.strip()]
 		if ids:
 			out["resellers"] = ids
-		for row in doc.get("im_models") or []:
+		conn_id = get("conn_id")
+		for row in [m for m in doc.get("im_device_models") or [] if conn_id and m.get("connection") == conn_id]:
 			if str(row.get("device_type") or "").strip() and str(row.get("im_model_id") or "").strip():
 				out["models"][str(row.get("device_type")).strip()] = str(row.get("im_model_id")).strip()
 	except Exception:
@@ -239,7 +274,7 @@ def config() -> dict:
 # ------------------------------------------------------------------ session
 def post(path: str, data: dict, referer: str | None = None, timeout: int = 60) -> dict:
 	try:
-		res = http.request(jar=JAR, url=web_base() + path, method="POST", data=data,
+		res = http.request(jar=_jar(), url=web_base() + path, method="POST", data=data,
 		                   headers={"Referer": referer or (web_base() + "/jsp/index.html")}, timeout=timeout)
 	except Exception as e:
 		return {"ok": False, "status": 0, "text": "", "json": None, "error": str(e)[:300]}
@@ -250,7 +285,7 @@ def post(path: str, data: dict, referer: str | None = None, timeout: int = 60) -
 
 def get(path: str, timeout: int = 90) -> str:
 	try:
-		res = http.request(jar=JAR, url=web_base() + path, method="GET",
+		res = http.request(jar=_jar(), url=web_base() + path, method="GET",
 		                   headers={"Referer": web_base() + "/jsp/index.html"}, timeout=timeout)
 	except Exception:
 		return ""
@@ -263,17 +298,17 @@ def login(force: bool = False) -> dict:
 	if "login" in c and not force:
 		return c["login"]
 	got = {"ok": False, "why": "", "user": ""}
-	doc = frappe.get_doc(SETTINGS)
-	user = str(doc.get("im_username") or "").strip()
-	pwd = doc.get_password("im_password", raise_exception=False) if doc.get("im_password") else ""
+	con = _row()
+	user = str((con.get("username") if con is not None else "") or "").strip()
+	pwd = con.get_password("password", raise_exception=False) if con is not None and con.get("password") else ""
 	got["user"] = user
 	if not user or not pwd:
-		got["why"] = "IM Username / Password are not set in app_apis > IM Connection."
+		got["why"] = "IM Username / Password are not set in app_apis > IM Connections row %s." % account()
 		c["login"] = got
 		return got
 	try:
 		enc = crypto.rsa_encrypt(public_key=PUBKEY, text=pwd)
-		http.clear_jar(jar=JAR)
+		http.clear_jar(jar=_jar())
 		res = post("/UserLogin", {"username": user, "password": enc, "projectName": "VTS",
 		                          "projectentity": "EMC", "webclient": "false"})
 	except Exception as e:
@@ -602,6 +637,14 @@ def customers_with(email: str) -> list:
 
 
 def cache_fields_exist() -> bool:
+	"""The Customer IM cache (im_company_id ...) belongs to IM Connections row 1: a Customer has one set of
+	those fields, so another IM estate always looks its company up live."""
+	if account() != 1:
+		return False
+	return _cache_fields_on_customer()
+
+
+def _cache_fields_on_customer() -> bool:
 	meta = frappe.get_meta("Customer")
 	return all(meta.has_field(f) for f in ("im_company_id", "im_reseller_id", "im_branch_id"))
 
