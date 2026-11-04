@@ -20,7 +20,7 @@ Architecture
 What IM's shape forces on this module
 -------------------------------------
 1. ONE ACCOUNT, ALWAYS. IM signs in with a single username and password held in
-   `app_apis` (IM Connection section), so there is no per-customer credential lookup.
+   `app_apis` (IM Connections table), so there is no per-customer credential lookup.
 
 2. IMEI IS THE ONLY KEY. `getTokenBaseLiveData` accepts `imei_nos`,
    `vehicle_nos` or `company_names`; this module sends only `imei_nos`. Plates
@@ -50,7 +50,7 @@ What IM's shape forces on this module
    becomes "not reported" rather than a confident value.
 
 6. TIMESTAMPS ARE LOCAL STRINGS. "28-09-2020 22:43:29" carries no zone, so it is
-   interpreted in `app_apis.im_data_timezone` (defaulting to the site's system
+   interpreted in the connection's Data Timezone (app_apis > IM Connections) (defaulting to the site's system
    timezone) before being turned into an epoch. Getting this wrong shifts the
    "last seen" age by whole hours, which is why it is configurable.
 
@@ -58,7 +58,7 @@ Public surface: `get_snapshot`, `get_track_logs`, `test_connection` and
 `clear_cache_from_desk` are whitelisted. Everything else is internal.
 
 This app defines no business doctypes. `xticket` and `Customer Vehicle` belong
-to the site; this module owns only `app_apis` (IM Connection section).
+to the site; this module owns only `app_apis` (IM Connections table).
 """
 
 import json
@@ -267,7 +267,7 @@ def _post(command: str, settings: dict, body: dict, headers: dict | None = None)
 
 	base_url = settings["base_url"]
 	if not base_url:
-		meta["error"] = (-500, "IM Base URL is not set in app_apis settings (IM Connection).")
+		meta["error"] = (-500, "IM Base URL is not set in app_apis > IM Connections.")
 		return None, meta
 
 	# Application code, not the Server Script sandbox: this import is the point.
@@ -351,15 +351,15 @@ def _get_token(settings: dict, force: bool = False) -> tuple[str | None, str, di
 			return str(cached), "cache", {"elapsed_ms": 0}
 
 	if not settings["username"]:
-		return None, "error", {"error": (-500, "IM Username is not set in app_apis settings (IM Connection).")}
+		return None, "error", {"error": (-500, "IM Username is not set in app_apis > IM Connections row %s." % settings.get("account_no", 1))}
 
 	password = _password(settings)
 	if not password:
 		return None, "error", {
 			"error": (
 				-500,
-				"no IM password available -- set app_apis > IM Password, or put "
-				"`im_password` in site_config.json.",
+				"no IM password available -- set the Password on app_apis > IM Connections row %s, or put "
+				"`%s` in site_config.json." % (settings.get("account_no", 1), settings.get("conf_key") or "im_password"),
 			)
 		}
 
@@ -964,7 +964,7 @@ def get_snapshot(ticket: str, imei: str | None = None, account: int = 1) -> dict
 				+ f"\n\n{reason}\n\n"
 				+ _(
 					"This is a credential/account problem at IM's end, not a bug in this "
-					"integration. Fix it in app_apis settings (IM Connection) ({0}), then press Test Connection."
+					"integration. Fix it in app_apis > IM Connections ({0}), then press Test Connection."
 				).format(settings["username"] or "-"),
 				title=_("IM: Sign-in Failed"),
 			)
@@ -1075,7 +1075,7 @@ def get_vehicle_live(imei: str, account: int = 1) -> dict:
 				_("IM sign-in failed, so no vehicle could be read.") + f"\n\n{reason}\n\n"
 				+ _(
 					"This is a credential/account problem at IM's end, not a bug in this "
-					"integration. Fix it in app_apis settings (IM Connection), then press "
+					"integration. Fix it in app_apis > IM Connections, then press "
 					"Test Connection."
 				),
 				title=_("IM: Sign-in Failed"),

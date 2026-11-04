@@ -644,7 +644,7 @@ def _collect_emails(ticket: "frappe.Document", settings: dict) -> list[tuple[str
 				out.append((email, origin))
 
 	if not out and settings["fallback_username"]:
-		out.append((settings["fallback_username"], "app_apis.pilot_fallback_username"))
+		out.append((settings["fallback_username"], "app_apis Pilot Connections > Fallback Username"))
 
 	if not out:
 		frappe.throw(
@@ -999,7 +999,7 @@ def _collect_emails_for_customer(customer_name: str | None, settings: dict) -> l
 
 	Same `Customer.email_pilot*` fields `_collect_emails` reads -- just without
 	the ticket-level `email_pilot` override a ticket can carry, since there is
-	no ticket here. Falls back to `pilot_fallback_username`, same as the
+	no ticket here. Falls back to the connection's Fallback Username, same as the
 	ticket path, when the customer has none of these fields set (or there is
 	no customer at all -- a Fleet Audit row can be Pilot/IM-only, with nothing
 	in ERPNext to read a customer off of).
@@ -1025,7 +1025,7 @@ def _collect_emails_for_customer(customer_name: str | None, settings: dict) -> l
 				out.append((email, origin))
 
 	if not out and settings["fallback_username"]:
-		out.append((settings["fallback_username"], "app_apis.pilot_fallback_username"))
+		out.append((settings["fallback_username"], "app_apis Pilot Connections > Fallback Username"))
 
 	return out
 

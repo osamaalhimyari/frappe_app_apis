@@ -198,19 +198,34 @@ class TestWhereThePasswordsComeFrom(Harness):
 
 
 class TestTablePasswords(unittest.TestCase):
-	def row(self, name, password):
+	def row(self, name, password, connection="C1", idx=0):
 		r = mock.Mock()
 		r.name = name
+		r.idx = idx
 		r.get_password.return_value = password
+		r.get.side_effect = lambda f, _c=connection: _c if f == "connection" else None
 		return r
+
+	def connection(self, conn_id="C1"):
+		c = mock.Mock()
+		c.get.side_effect = lambda f: conn_id if f == "conn_id" else None
+		return c
 
 	def test_blank_rows_and_duplicates_are_skipped_and_positions_count_every_row(self):
 		doc = mock.Mock()
-		doc.get.return_value = [self.row("a", "p1"), self.row("b", ""), self.row("c", "p1"), self.row("d", "p4")]
-		settings = {"doc": doc, "pw_table": "pilot_password_list"}
+		doc.get.return_value = [self.row("a", "p1", idx=1), self.row("b", "", idx=2), self.row("c", "p1", idx=3),
+		                        self.row("d", "p4", idx=4)]
+		settings = {"doc": doc, "row": self.connection()}
 		got = connector._table_passwords(settings)
 		self.assertEqual([(r["row"], r["no"], r["password"]) for r in got], [("a", 1, "p1"), ("d", 4, "p4")])
-		doc.get.assert_called_once_with("pilot_password_list")
+		doc.get.assert_called_once_with("pilot_customer_passwords")
+
+	def test_only_this_connections_passwords_in_table_order(self):
+		doc = mock.Mock()
+		doc.get.return_value = [self.row("x", "other", connection="C2", idx=1), self.row("b", "p2", idx=3),
+		                        self.row("a", "p1", idx=2)]
+		got = connector._table_passwords({"doc": doc, "row": self.connection("C1")})
+		self.assertEqual([(r["row"], r["no"], r["password"]) for r in got], [("a", 1, "p1"), ("b", 2, "p2")])
 
 	def test_decrypted_once_per_settings_dict(self):
 		doc = mock.Mock()

@@ -68,18 +68,23 @@ class TestShippedScripts(unittest.TestCase):
 		self.assertTrue(row["managed"])
 		self.assertEqual(row["view"], "Form")
 		self.assertEqual(row["carry_prefix"], "SHOW_")
-		# Delete is its own button on the vehicle form (beside Upload), one switch per item ...
-		self.assertIn('var DELETE_GROUP = "Delete";', row["script"])
-		# ... and WASL-only / Suspend SIM sit in a third button of their own, not in Delete
-		self.assertIn('var OTHER_GROUP = "WASL / SIM";', row["script"])
-		self.assertIn("__(OTHER_GROUP)", row["script"])
-		# Check SIM goes into the existing WASL button (beside Link vehicle), not the new one
-		self.assertIn("var SHOW_CHECK_SIM =", row["script"])
-		self.assertIn('var WASL_GROUP = "WASL";', row["script"])
-		self.assertIn("}, __(WASL_GROUP));", row["script"])
-		for switch in ("SHOW_DELETE_PILOT_WSL", "SHOW_DELETE_PILOT2", "SHOW_DELETE_IM",
-		               "SHOW_DELETE_WASL", "SHOW_SUSPEND_SIM"):
-			self.assertIn("var " + switch + " =", row["script"])
+		js = row["script"]
+		# one dropdown per connection, built from the app_apis Pilot / IM Connections tables
+		self.assertIn("app_apis.pilot_admin.connections", js)
+		self.assertIn("app_apis.im_connector.connections", js)
+		self.assertIn("function platform_buttons(frm, con)", js)
+		self.assertIn("var group = con.label;", js)
+		for item in ('__("Upload")', '__("Edit")', '__("Check vehicle")', '__("Delete")', '__("Remove from WASL")'):
+			self.assertIn(item, js)
+		# the WASL items only for a connection that uses WASL
+		self.assertIn("if (con.uses_wasl && SHOW_REMOVE_WASL)", js)
+		# the SIM actions have a dropdown of their own
+		self.assertIn('var SIM_GROUP = "SIM";', js)
+		for switch in ("SHOW_UPLOAD", "SHOW_EDIT", "SHOW_CHECK_VEHICLE", "SHOW_DELETE", "SHOW_REMOVE_WASL", "SHOW_IM",
+		               "SHOW_ALL_PLATFORMS", "SHOW_UPLOAD_NOW", "SHOW_VERIFY_STAMP", "SHOW_CHECK_SIM", "SHOW_SUSPEND_SIM"):
+			self.assertIn("var " + switch + " =", js)
+		# no connection is written into the script any more
+		self.assertNotIn('"pilot2"', js)
 		# ... and not a separate list-view script
 		self.assertNotIn("customer-vehicle-delete", rows)
 
@@ -154,7 +159,7 @@ class TestDeleteSetsStatus(unittest.TestCase):
 		            "ch_sarp", "ch_fmsi_medicine", "ch_fmsi_balady"):
 			self.assertIn('"' + box + '"', source)
 		# only a platform delete triggers it, never the WASL-only delete or the SIM suspend
-		self.assertIn('target in ("pilot_wsl", "pilot2", "im")', source)
+		self.assertIn("(target in PILOT_TARGETS or is_im(target))", source)
 		# written with db.set_value: a document save would run the Customer Vehicle save scripts
 		self.assertIn("frappe.db.set_value(VEH_DT, vehicle_name, updates)", source)
 		# the Deletion Date goes in with the status, and is filled even for a vehicle that is already Deleted

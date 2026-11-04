@@ -87,7 +87,6 @@
  "fields": [
   {
    "collapsible": 1,
-   "description": "One row per Pilot Administrator login (estate). Row 1 is account 1, row 2 account 2, and so on; each row gets its own button on the Customer Vehicle form.",
    "fieldname": "sec_pilot_connections",
    "fieldtype": "Section Break",
    "label": "Pilot Connections"
@@ -108,7 +107,6 @@
   },
   {
    "collapsible": 1,
-   "description": "One row per IM login. Row 1 is IM account 1 (key im), row 2 is im2, and so on; each row gets its own button on the Customer Vehicle form.",
    "fieldname": "sec_im_connections",
    "fieldtype": "Section Break",
    "label": "IM Connections"

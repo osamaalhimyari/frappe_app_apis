@@ -113,8 +113,7 @@
    "collapsible": 0,
    "fieldname": "sec_live",
    "fieldtype": "Section Break",
-   "label": "Customer Accounts (live tracking)",
-   "description": "How a ticket or vehicle reads its live position from Pilot with the CUSTOMER's own account."
+   "label": "Customer Accounts (live tracking)"
   },
   {
    "default": "https://ksa.pilot-gps.com/api/api.php",
