@@ -74,12 +74,16 @@ all_types = (not allowed_types) or ("all" in allowed_types) or ("*" in allowed_t
 
 
 def pilot_settings():
-    doc = frappe.get_doc(SETTINGS)
-    base = str(doc.get("pilot_admin_base_url") or "").strip().rstrip("/")
+    """Row 1 of the app_apis Pilot Connections table (the estate this list has always read)."""
+    rows = sorted(frappe.get_doc(SETTINGS).get("pilot_connections") or [], key=lambda r: frappe.utils.cint(r.get("idx")))
+    if not rows:
+        return {"url": BACKEND, "user": "", "password": ""}
+    row = rows[0]
+    base = str(row.get("base_url") or "").strip().rstrip("/")
     return {
         "url": base + BACKEND,
-        "user": str(doc.get("pilot_admin_username") or "").strip(),
-        "password": doc.get_password("pilot_admin_password", raise_exception=False),
+        "user": str(row.get("username") or "").strip(),
+        "password": row.get_password("password", raise_exception=False),
     }
 
 

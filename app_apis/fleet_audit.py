@@ -455,8 +455,8 @@ def _pilot_fleet(source: str = "admin", max_accounts: int = 0,
 			report["ok"] = False
 			report["error"] = _(
 				"No Pilot Admin connection is configured, so the fleet cannot be "
-				"read in one call. Set the login and password in App APIs → Pilot "
-				"Admin Connection (or Pilot Admin Connection 2) and tick it enabled."
+				"read in one call. Set the login and password on a row of App APIs → Pilot "
+				"Connections and tick it Enabled."
 			)
 			report["elapsed_ms"] = int((time.monotonic() - started) * 1000)
 			return {}, report

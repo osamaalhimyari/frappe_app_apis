@@ -7,8 +7,8 @@ panel's own buttons call. This module is that, as plain functions. Nothing here 
 Customer Vehicle: every function takes an IMEI / account / name. ERP-aware code is in
 app_apis.core.platforms.
 
-`account` is the app_apis settings account: 1 = Pilot (WSL), 2 = Pilot 2 (the `pilot_admin_*` and
-`pilot_admin2_*` fields). Everything here is read from those settings.
+`account` is the row number in the app_apis Pilot Connections table (1 = the first row, usually
+Pilot (WSL)). Everything here is read from that row.
 
 Return shapes are plain dicts and these functions do not raise for a Pilot-side failure:
 

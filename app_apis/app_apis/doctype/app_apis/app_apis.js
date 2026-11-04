@@ -185,14 +185,6 @@ frappe.ui.form.on("app_apis", {
 	},
 
 	refresh(frm) {
-		// The Pilot password tables show only the password: no "No." column
-		if (!document.getElementById("app-apis-pilot-pw-grid")) {
-			$(`<style id="app-apis-pilot-pw-grid">
-				[data-fieldname="pilot_password_list"] .row-index,
-				[data-fieldname="pilot2_password_list"] .row-index { display: none !important; }
-			</style>`).appendTo("head");
-		}
-
 		frm.add_custom_button(__("Send Test Template"), () => wa_send_test(), __("WhatsApp"));
 
 		lebara_buttons(frm);
@@ -251,114 +243,63 @@ frappe.ui.form.on("app_apis", {
 			__("IM")
 		);
 
-		frm.add_custom_button(
-			__("Test Admin Connection"),
-			() => {
-				frappe.call({
-					method: "app_apis.pilot_admin.test_connection",
-					freeze: true,
-					freeze_message: __("Signing in to Pilot\u2026"),
-					callback(r) {
-						const d = (r && r.message) || {};
-						const esc = (v) => frappe.utils.escape_html(String(v === undefined || v === null || v === "" ? "\u2014" : v));
-						frappe.msgprint({
-							title: __("Pilot Admin Connection"),
-							indicator: d.ok ? "green" : "red",
-							message: `<div style="font-size:13px">
-								<div><b>${d.ok ? __("Signed in") : __("Failed")}</b></div>
-								<div style="margin-top:6px;color:var(--text-muted)">
-									${esc(d.message)}
-								</div>
-								<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">
-									${__("Login")}: ${esc(d.account)} \u00b7
-									${__("Server")}: ${esc(d.base_url)} \u00b7
-									${__("Round trip")}: ${esc(d.elapsed_ms || 0)} ms
-								</div>
-								${
-									d.ok
-										? `<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">
-												${__("Accounts visible")}: ${esc(d.account_count)}
-											</div>`
-										: ""
-								}
-							</div>`,
-						});
-					},
-				});
-			},
-			__("Pilot Admin")
-		);
+		// One Test button per row of Pilot Connections (saved rows only: a test reads the saved login).
+		(frm.doc.pilot_connections || []).forEach((row) => {
+			const name = row.label || __("Pilot {0}", [row.idx]);
+			frm.add_custom_button(
+				__("Test {0}", [name]),
+				() => {
+					frappe.call({
+						method: "app_apis.pilot_admin.test_connection",
+						args: { account: row.idx },
+						freeze: true,
+						freeze_message: __("Signing in to Pilot…"),
+						callback(r) {
+							const d = (r && r.message) || {};
+							const esc = (v) => frappe.utils.escape_html(String(v === undefined || v === null || v === "" ? "—" : v));
+							frappe.msgprint({
+								title: name,
+								indicator: d.ok ? "green" : "red",
+								message: `<div style="font-size:13px">
+									<div><b>${d.ok ? __("Signed in") : __("Failed")}</b></div>
+									<div style="margin-top:6px;color:var(--text-muted)">
+										${esc(d.message)}
+									</div>
+									<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">
+										${__("Login")}: ${esc(d.account)} ·
+										${__("Server")}: ${esc(d.base_url)} ·
+										${__("Round trip")}: ${esc(d.elapsed_ms || 0)} ms
+									</div>
+									${
+										d.ok
+											? `<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">
+													${__("Accounts visible")}: ${esc(d.account_count)}
+												</div>`
+											: ""
+									}
+								</div>`,
+							});
+						},
+					});
+				},
+				__("Pilot Connections")
+			);
+		});
 
 		frm.add_custom_button(
-			__("Clear Cached Token"),
+			__("Clear Cached Tokens"),
 			() => {
 				frappe.call({
 					method: "app_apis.pilot_admin.clear_cache_from_desk",
 					callback() {
 						frappe.show_alert({
-							message: __("Cached Pilot admin token dropped."),
+							message: __("Cached Pilot admin tokens dropped."),
 							indicator: "green",
 						});
 					},
 				});
 			},
-			__("Pilot Admin")
-		);
-
-		frm.add_custom_button(
-			__("Test Admin Connection 2"),
-			() => {
-				frappe.call({
-					method: "app_apis.pilot_admin.test_connection",
-					args: { account: 2 },
-					freeze: true,
-					freeze_message: __("Signing in to Pilot…"),
-					callback(r) {
-						const d = (r && r.message) || {};
-						const esc = (v) => frappe.utils.escape_html(String(v === undefined || v === null || v === "" ? "—" : v));
-						frappe.msgprint({
-							title: __("Pilot Admin Connection 2"),
-							indicator: d.ok ? "green" : "red",
-							message: `<div style="font-size:13px">
-								<div><b>${d.ok ? __("Signed in") : __("Failed")}</b></div>
-								<div style="margin-top:6px;color:var(--text-muted)">
-									${esc(d.message)}
-								</div>
-								<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">
-									${__("Login")}: ${esc(d.account)} ·
-									${__("Server")}: ${esc(d.base_url)} ·
-									${__("Round trip")}: ${esc(d.elapsed_ms || 0)} ms
-								</div>
-								${
-									d.ok
-										? `<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">
-												${__("Accounts visible")}: ${esc(d.account_count)}
-											</div>`
-										: ""
-								}
-							</div>`,
-						});
-					},
-				});
-			},
-			__("Pilot Admin 2")
-		);
-
-		frm.add_custom_button(
-			__("Clear Cached Token 2"),
-			() => {
-				frappe.call({
-					method: "app_apis.pilot_admin.clear_cache_from_desk",
-					args: { account: 2 },
-					callback() {
-						frappe.show_alert({
-							message: __("Cached Pilot admin token (2) dropped."),
-							indicator: "green",
-						});
-					},
-				});
-			},
-			__("Pilot Admin 2")
+			__("Pilot Connections")
 		);
 
 		// Pilot has no sign-in-only endpoint: `cmd=status` needs an IMEI, and the
@@ -368,7 +309,7 @@ frappe.ui.form.on("app_apis", {
 		// that would have to invent an IMEI to click.
 		frm.dashboard.add_comment(
 			__(
-				"The Pilot Connection above is tested from a ticket, not from here: its account is read off the xticket and its status call needs an IMEI. Use Check Pilot on any xticket. The Pilot Admin Connection has one site-wide login, so it does have a Test button."
+				"The Pilot Connection above is tested from a ticket, not from here: its account is read off the xticket and its status call needs an IMEI. Use Check Pilot on any xticket. Each row of Pilot Connections has one site-wide login, so it does have a Test button."
 			),
 			"blue",
 			true

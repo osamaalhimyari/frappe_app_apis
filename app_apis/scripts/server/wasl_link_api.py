@@ -8,6 +8,11 @@
 #                 Sends nothing.
 #   action=link   validate the form the user confirmed, then (only when
 #                 WASL_LIVE = 1) save it on Pilot and register it with WASL.
+#   action=status read-only: what the Pilot admin panel's WASL list says.
+#
+#   connection = the Pilot connection to use: pilot_wsl (row 1 of the app_apis
+#                Pilot Connections table), pilot2 (row 2), pilot3, ... It must
+#                have Uses WASL ticked. Blank = the first row that does.
 #
 # THE PILOT SIDE (read from the Pilot web app itself, not the docs -- the docs
 # say there is no API for WASL, and there is none in api.php):
@@ -191,18 +196,39 @@ def wasl_session(doc):
     Pilot account. Not built yet: the way to sign in is the open decision."""
     return {"ok": False, "why": "the WASL connection to Pilot is not configured yet"}
 
-# ---------------------------------------------------------------- WASL status
-# Read-only. Uses the Pilot ADMIN panel (same admin login as vehicle_upload_api,
-# app_apis settings account 1): find the vehicle by IMEI, then read the admin
-# panel's own WASL vehicle list (backend/app/wasl.php, cmd=get_vehicles).
-ADMIN_BASE_FIELD = "pilot_admin_base_url"
+# ---------------------------------------------------------------- the Pilot connection
+# Read-only. Uses the Pilot ADMIN panel of one row of the app_apis Pilot
+# Connections table (the same rows vehicle_upload_api uses): find the vehicle by
+# IMEI, then read the admin panel's own WASL vehicle list (backend/app/wasl.php,
+# cmd=get_vehicles).
+def connection_rows():
+    rows = list(frappe.get_doc("app_apis").get("pilot_connections") or [])
+    return sorted(rows, key=lambda r: frappe.utils.cint(r.get("idx")))
 
 
-def adm_cfg():
-    st = frappe.get_doc("app_apis")
-    return {"base": s(st.get(ADMIN_BASE_FIELD)).rstrip("/") + "/backend/",
-            "user": s(st.get("pilot_admin_username")),
-            "password": st.get_password("pilot_admin_password", raise_exception=False)}
+def connection_key(n):
+    return "pilot_wsl" if n == 1 else "pilot" + str(n)
+
+
+def pick_connection(key):
+    """-> {"no": row number, "row": row} of the connection named by `key`, or of the first one using
+    WASL; {"no": 0, "row": None} when there is none."""
+    rows = connection_rows()
+    for i in range(len(rows)):
+        n = i + 1
+        if frappe.utils.cint(rows[i].get("uses_wasl")) and (not key or key == connection_key(n)):
+            return {"no": n, "row": rows[i]}
+    return {"no": 0, "row": None}
+
+
+def adm_cfg(row):
+    base = s(row.get("base_url")).rstrip("/")
+    for suffix in ("/api/v3", "/api/api.php", "/api"):
+        if base.lower().endswith(suffix):
+            base = base[: -len(suffix)].rstrip("/")
+    return {"base": base + "/backend/",
+            "user": s(row.get("username")),
+            "password": row.get_password("password", raise_exception=False)}
 
 
 def as_json(ans):
@@ -238,13 +264,13 @@ def adm_get(cfg, tok, path, params):
         return {"_error": str(e)[:300]}
 
 
-def wasl_status(doc, debug):
+def wasl_status(doc, debug, row):
     imei = s(doc.get("device_serial"))
     res = {"imei": imei, "state": "unknown", "detail": ""}
     if not imei:
         res["detail"] = "no IMEI on this vehicle"
         return res
-    cfg = adm_cfg()
+    cfg = adm_cfg(row)
     tok = adm_token(cfg)
     if not tok:
         res["detail"] = "could not sign in to the Pilot admin panel"
@@ -305,10 +331,21 @@ def wasl_status(doc, debug):
 
 
 
+picked = pick_connection(str(args.get("connection") or "").strip())
+con_no = picked["no"]
+con_row = picked["row"]
+out["connection"] = connection_key(con_no) if con_no else ""
+out["account"] = con_no
+if con_row is not None:
+    out["connection_label"] = s(con_row.get("label")) or ("Pilot " + str(con_no))
+
 if not allowed():
     out["error"] = "Not permitted"
 elif not vehicle_name or not frappe.db.exists(VEH_DT, vehicle_name):
     out["error"] = "Customer Vehicle not found: " + vehicle_name
+elif con_row is None:
+    out["error"] = ("No Pilot connection uses WASL" + (" under the name " + str(args.get("connection")) if args.get("connection") else "") +
+                    ". Tick Uses WASL on its row in app_apis > Pilot Connections.")
 else:
     doc = frappe.get_doc(VEH_DT, vehicle_name)
     if action == "plan":
@@ -334,7 +371,7 @@ else:
             out["msg"] = "Not sent: " + sess["why"]
     elif action == "status":
         out["ok"] = True
-        out["status"] = wasl_status(doc, frappe.utils.cint(args.get("debug")))
+        out["status"] = wasl_status(doc, frappe.utils.cint(args.get("debug")), con_row)
     else:
         out["error"] = "Unknown action: " + action
 

@@ -9,7 +9,8 @@ Why a custom app and not a Server Script: Pilot's WASL form only works inside a
 signed-in *user* session, and that session lives in a cookie. Server Scripts
 cannot keep cookies between calls; a requests.Session here can.
 
-Flow (all on Pilot, admin account 1 from the app_apis settings):
+Flow (all on Pilot, through one row of the app_apis Pilot Connections table -- `account` -- that has
+Uses WASL ticked; account 1 when none is given):
   1. admin panel login            <admin>/backend/login.php        -> JWT
   2. find the vehicle by IMEI     backend/app/fitter.php get_agents -> agent_id, account_id
   3. owner user + login link      backend/app/accounts.php getUsers / getUsersFormAuth
@@ -59,13 +60,32 @@ def _json(resp):
 
 
 # ---------------------------------------------------------------- admin panel
-def _admin(sess):
-    st = frappe.get_doc("app_apis")
-    base = _s(st.get("pilot_admin_base_url")).rstrip("/") + "/backend/"
-    user = _s(st.get("pilot_admin_username"))
-    pwd = st.get_password("pilot_admin_password", raise_exception=False)
+def _connection(account):
+    """Row `account` of Pilot Connections -> {"base", "user", "password", "label"}. Throws when it is not
+    usable for WASL."""
+    from app_apis import pilot_admin
+
+    cfg = pilot_admin._settings(frappe.utils.cint(account) or 1)
+    if not cfg["uses_wasl"]:
+        frappe.throw("%s does not use WASL (Uses WASL is not ticked in Pilot Connections row %s)."
+                     % (cfg["label"], cfg["account_no"]))
+    return {"base": cfg["base_url"].rstrip("/") + "/backend/", "user": cfg["username"],
+            "password": pilot_admin._password(cfg), "label": cfg["label"], "account": cfg["account_no"]}
+
+
+def wasl_accounts():
+    """The Pilot Connections row numbers that are enabled and use WASL."""
+    from app_apis import pilot_admin
+
+    return [n for n in range(1, len(pilot_admin.connection_rows()) + 1)
+            if pilot_admin._settings(n)["uses_wasl"] and pilot_admin._settings(n)["enabled"]]
+
+
+def _admin(sess, account=1):
+    con = _connection(account)
+    base, user, pwd = con["base"], con["user"], con["password"]
     if not (base.startswith("http") and user and pwd):
-        frappe.throw("Pilot admin account 1 is not configured in app_apis.")
+        frappe.throw("%s is not configured in app_apis (Pilot Connections row %s)." % (con["label"], con["account"]))
 
     who = _json(sess.post(base + "login.php", timeout=TIMEOUT, data={
         "cmd": "get_user_without_auth", "username": user, "password": pwd}))
@@ -188,8 +208,9 @@ def _payload(f):
 
 # ---------------------------------------------------------------- API
 @frappe.whitelist()
-def link_vehicle(vehicle, form, register=1):
-    """Save the WASL form on Pilot, then (register=1) register it with WASL."""
+def link_vehicle(vehicle, form, register=1, account=1):
+    """Save the WASL form on Pilot, then (register=1) register it with WASL. `account` is the Pilot
+    Connections row the vehicle is on."""
     _check_roles()
     doc = frappe.get_doc(VEH_DT, vehicle)
     f = json.loads(form) if isinstance(form, str) else (form or {})
@@ -202,7 +223,7 @@ def link_vehicle(vehicle, form, register=1):
 
     out = {"ok": False, "imei": imei}
     with requests.Session() as sess:
-        adm = _admin(sess)
+        adm = _admin(sess, account)
         row = _find_agent(sess, adm, imei)
         agent_id = _s(row.get("agent_id"))
         out["agent_id"] = agent_id
@@ -260,7 +281,7 @@ def _wasl_call(sess, url, cmd, agent_id, timeout):
 
 
 @frappe.whitelist(methods=["POST"])
-def wasl_delete(vehicle, confirm="", dry_run=1):
+def wasl_delete(vehicle, confirm="", dry_run=1, account=1):
     """Delete a vehicle from the WASL database ONLY. The Pilot vehicle is not touched.
 
     It is Pilot's own WASL window > Delete ("Delete vehicle from wasl database"):
@@ -270,6 +291,7 @@ def wasl_delete(vehicle, confirm="", dry_run=1):
 
     dry_run=1 (default) only looks: it reports whether the vehicle is on Pilot and asks WASL's
     own Inquiry (cmd=vehiclecheck) what it knows. dry_run=0 needs confirm=DELETE.
+    `account` is the Pilot Connections row the vehicle is on.
 
     -> {state: found|missing|unknown, found, deleted, agent_id, detail, wasl_status, msg}
     """
@@ -288,7 +310,7 @@ def wasl_delete(vehicle, confirm="", dry_run=1):
 
     with requests.Session() as sess:
         try:
-            adm = _admin(sess)
+            adm = _admin(sess, account)
             row = _find_agent(sess, adm, imei)
         except Exception as e:
             text = _plain(str(e))[:300]
@@ -438,14 +460,27 @@ def sync_wasl_states() -> dict:
     require_login()
     started = frappe.utils.now_datetime()
     out = {"ok": False, "rows": 0, "removed": 0, "complete": False, "note": ""}
-    try:
-        with requests.Session() as sess:
-            adm = _admin(sess)
-            rows, complete = read_wasl_list(sess, adm)
-    except Exception as e:
-        out["note"] = "WASL status sync failed: " + _plain(str(e))[:300]
-        frappe.log_error(title="App Apis WASL Status Sync", message=str(e)[:1000])
+    # Every Pilot connection that uses WASL is read and the lists are merged by IMEI. Rows are removed
+    # only when EVERY list was read completely, so one estate that cannot be read never makes the
+    # vehicles of another look unlinked.
+    rows, complete, failed = {}, True, []
+    for account in wasl_accounts() or [1]:
+        try:
+            with requests.Session() as sess:
+                adm = _admin(sess, account)
+                got, whole = read_wasl_list(sess, adm)
+        except Exception as e:
+            failed.append("Pilot Connections row %s: %s" % (account, _plain(str(e))[:200]))
+            complete = False
+            continue
+        rows.update(got)
+        complete = complete and whole
+    if failed and not rows:
+        out["note"] = "WASL status sync failed: " + " | ".join(failed)[:300]
+        frappe.log_error(title="App Apis WASL Status Sync", message=" | ".join(failed)[:1000])
         return out
+    if failed:
+        out["note"] = "not read: " + " | ".join(failed)[:300] + "; "
     _upsert_states(rows, started)
     out["rows"] = len(rows)
     out["complete"] = complete
@@ -454,8 +489,8 @@ def sync_wasl_states() -> dict:
             "select count(*) from `tab%s` where synced_at < %%s" % WASL_STATE_DT, started)[0][0]
         frappe.db.sql("delete from `tab%s` where synced_at < %%s" % WASL_STATE_DT, started)
     else:
-        out["note"] = ("the list could not be read completely after %d passes; rows were added/updated, "
-                       "none removed" % WASL_MAX_PASSES)
+        out["note"] = out["note"] + ("a list could not be read completely after %d passes; rows were "
+                                     "added/updated, none removed" % WASL_MAX_PASSES)
     out["ok"] = True
     frappe.db.commit()
     return out

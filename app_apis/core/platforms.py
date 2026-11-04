@@ -1,4 +1,4 @@
-"""One set of verbs for every platform the app talks to: Pilot (WSL), Pilot 2, IM and WASL.
+"""One set of verbs for every platform the app talks to: each Pilot connection, IM and WASL.
 
     find(platform, imei, vehicle="")        is the device there?
     create(platform, vehicle)               put a Customer Vehicle on the platform
@@ -8,7 +8,8 @@
     wasl_status / wasl_link / wasl_delete   the WASL side of a Pilot vehicle
     summary(vehicle)                        what the app has already stored about where it is
 
-`platform` is one of "pilot_wsl", "pilot2", "im" (see PLATFORMS). `vehicle` is a Customer Vehicle name.
+`platform` is a Pilot connection key -- "pilot_wsl" for row 1 of the app_apis Pilot Connections table,
+"pilot2" for row 2, "pilot3", ... -- or "im" (see platforms_map). `vehicle` is a Customer Vehicle name.
 
 These are plain Python: no role check, so code in another app can call them directly:
 
@@ -28,11 +29,36 @@ import frappe
 
 from app_apis.core import events, im, pilot_panel
 
-PLATFORMS = {
-	"pilot_wsl": {"label": "Pilot (WSL)", "kind": "pilot", "account": 1, "email_field": "email_pilot", "box": "ch_pilot_wsl"},
-	"pilot2": {"label": "Pilot 2", "kind": "pilot", "account": 2, "email_field": "email_pilot2", "box": None},
-	"im": {"label": "IM (Trakzee)", "kind": "im", "account": 0, "email_field": "im_platform", "box": "ch_trakzee"},
-}
+IM = {"label": "IM (Trakzee)", "kind": "im", "account": 0, "email_fields": ["im_platform"], "box": "ch_trakzee",
+      "uses_wasl": False}
+
+# Row 1 is the estate the "Pilot WSL" tick box on the vehicle stands for; no other row has a box.
+PILOT_BOX = {1: "ch_pilot_wsl"}
+
+
+def platforms_map() -> dict:
+	"""Every platform: one per row of the app_apis Pilot Connections table, then IM."""
+	from app_apis import pilot_admin
+
+	out = {}
+	for n in range(1, len(pilot_admin.connection_rows()) + 1):
+		cfg = pilot_admin._settings(n)
+		out[cfg["key"]] = {"label": cfg["label"], "kind": "pilot", "account": n, "email_fields": cfg["email_fields"],
+		                   "box": PILOT_BOX.get(n), "uses_wasl": cfg["uses_wasl"]}
+	out["im"] = dict(IM)
+	return out
+
+
+def pilot_keys() -> list:
+	return [k for k, v in platforms_map().items() if v["kind"] == "pilot"]
+
+
+def email_of(v: dict, sp: dict) -> str:
+	"""The platform account email of a vehicle: the first of the platform's Email Fields that is filled."""
+	for f in sp.get("email_fields") or []:
+		if _s(v.get(f)):
+			return _s(v.get(f))
+	return ""
 
 VEHICLE_DT = "Customer Vehicle"
 AUDIT_DT = "app_apis_fleet_audit"
@@ -51,19 +77,21 @@ def _s(v) -> str:
 
 
 def spec(platform: str) -> dict:
-	if platform not in PLATFORMS:
-		raise ValueError("Unknown platform %r. Use one of: %s" % (platform, ", ".join(PLATFORMS)))
-	return PLATFORMS[platform]
+	known = platforms_map()
+	if platform not in known:
+		raise ValueError("Unknown platform %r. Use one of: %s" % (platform, ", ".join(known)))
+	return known[platform]
 
 
 # ------------------------------------------------------------------ the ERP vehicle
 def vehicle_row(name: str) -> dict:
 	"""The Customer Vehicle fields every platform call needs, or {} when there is no such vehicle."""
-	rows = frappe.db.sql(
-		"select name, customer, device_serial, sim_serial, devices_type, license_plate, e_license_plate, "
-		"plate_num, device_statues, email_pilot, email_pilot2, im_platform, ch_pilot_wsl, ch_trakzee "
-		"from `tab%s` where name = %%(n)s limit 1" % VEHICLE_DT, {"n": name}, as_dict=True)
-	return rows[0] if rows else {}
+	meta = frappe.get_meta(VEHICLE_DT)
+	fields = ["name", "customer", "device_serial", "sim_serial", "devices_type", "license_plate", "e_license_plate",
+	          "plate_num", "device_statues", "ch_pilot_wsl", "ch_trakzee"]
+	for sp in platforms_map().values():
+		fields += [f for f in sp["email_fields"] if f not in fields and meta.has_field(f)]
+	return frappe.db.get_value(VEHICLE_DT, name, fields, as_dict=True) or {}
 
 
 def plate_of(v: dict) -> str:
@@ -119,7 +147,7 @@ def build(platform: str, vehicle: str) -> dict:
 		return {"payload": {}, "gaps": ["no such Customer Vehicle: %s" % vehicle]}
 	imei = _s(v.get("device_serial"))
 	name = plate_of(v)
-	email = _s(v.get(sp["email_field"]))
+	email = email_of(v, sp)
 	gaps = []
 	if not imei:
 		gaps.append("imei (Device Serial)")
@@ -248,17 +276,17 @@ def status_decision(boxes: dict, deleted_box: str | None, pilot_state: str, pilo
 def pilot_still_there(vehicle: str, imei: str, deleted_platform: str) -> dict:
 	"""Is the vehicle still on a Pilot estate other than the one just deleted from? Live lookups.
 	-> {"state": "yes" | "no" | "unknown", "where": str}"""
-	row = frappe.db.get_value(VEHICLE_DT, vehicle, ["email_pilot2"], as_dict=True) or {}
-	for key in ("pilot_wsl", "pilot2"):
+	# Every other connection is asked live, whether or not the vehicle has an email for it: skipping one
+	# could set Deleted on a vehicle that is still on that estate, and "unknown" never deletes.
+	known = platforms_map()
+	for key in pilot_keys():
 		if key == deleted_platform:
 			continue
-		if key == "pilot2" and not _s(row.get("email_pilot2")):
-			continue                              # no Pilot 2 account on the vehicle: it is not there
-		got = pilot_panel.find(imei, PLATFORMS[key]["account"])
+		got = pilot_panel.find(imei, known[key]["account"])
 		if got["state"] == "yes":
-			return {"state": "yes", "where": PLATFORMS[key]["label"]}
+			return {"state": "yes", "where": known[key]["label"]}
 		if got["state"] != "no":
-			return {"state": "unknown", "where": "%s could not be checked: %s" % (PLATFORMS[key]["label"], got["detail"][:90])}
+			return {"state": "unknown", "where": "%s could not be checked: %s" % (known[key]["label"], got["detail"][:90])}
 	return {"state": "no", "where": ""}
 
 
@@ -388,31 +416,32 @@ def wasl_status(imei: str) -> dict:
 	return res
 
 
-def wasl_link(vehicle: str, form: dict, register: bool = True, source: str = "core") -> dict:
-	"""Save the WASL form on Pilot and (register=True) register the vehicle with WASL."""
+def wasl_link(vehicle: str, form: dict, register: bool = True, source: str = "core", platform: str = "pilot_wsl") -> dict:
+	"""Save the WASL form on Pilot and (register=True) register the vehicle with WASL, through the Pilot
+	connection `platform`."""
 	from app_apis import wasl
 
-	res = wasl.link_vehicle(vehicle, form, 1 if register else 0)
-	events.emit("after_wasl", platform="pilot_wsl", vehicle=vehicle, imei=_s((res or {}).get("imei")), source=source,
+	res = wasl.link_vehicle(vehicle, form, 1 if register else 0, account=spec(platform)["account"])
+	events.emit("after_wasl", platform=platform, vehicle=vehicle, imei=_s((res or {}).get("imei")), source=source,
 	            action="link", result=res)
 	return res
 
 
-def wasl_delete(vehicle: str, source: str = "core") -> dict:
-	"""Delete the vehicle from WASL ONLY (the Pilot vehicle stays)."""
+def wasl_delete(vehicle: str, source: str = "core", platform: str = "pilot_wsl") -> dict:
+	"""Delete the vehicle from WASL ONLY (the Pilot vehicle stays), through the Pilot connection `platform`."""
 	from app_apis import wasl
 
-	res = wasl.wasl_delete(vehicle, confirm=wasl.DELETE_WORD, dry_run=0)
-	events.emit("after_wasl", platform="pilot_wsl", vehicle=vehicle, imei=_s((res or {}).get("imei")), source=source,
+	res = wasl.wasl_delete(vehicle, confirm=wasl.DELETE_WORD, dry_run=0, account=spec(platform)["account"])
+	events.emit("after_wasl", platform=platform, vehicle=vehicle, imei=_s((res or {}).get("imei")), source=source,
 	            action="delete", result=res)
 	return res
 
 
-def wasl_check(vehicle: str) -> dict:
+def wasl_check(vehicle: str, platform: str = "pilot_wsl") -> dict:
 	"""WASL's own inquiry for a vehicle, nothing changed (the dry run of wasl_delete)."""
 	from app_apis import wasl
 
-	return wasl.wasl_delete(vehicle, dry_run=1)
+	return wasl.wasl_delete(vehicle, dry_run=1, account=spec(platform)["account"])
 
 
 # ------------------------------------------------------------------ stored picture

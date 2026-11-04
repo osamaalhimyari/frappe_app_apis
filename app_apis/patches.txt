@@ -66,3 +66,10 @@ app_apis.patches.seed_im_upload_settings
 # The IM upload finds a vehicle's IM company from its IM Platform email and caches the
 # ids on the Customer. Creates those three Customer fields if the site lacks them.
 app_apis.patches.add_im_customer_cache_fields
+# The two fixed Pilot Admin sections become the Pilot Connections table: Pilot (WSL)
+# is row 1 (email_pilot, uses WASL) and Pilot 2 row 2 (email_pilot2), so account 1/2
+# and the pilot_wsl / pilot2 keys keep their meaning. Post-sync: the table must exist.
+app_apis.patches.pilot_admin_to_connections_table
+# The Pilot (WSL) / Pilot 2 live-tracking sections move into rows 1 and 2 of Pilot Connections
+# (URL, node, fallback login, timeout, stale-after; the password tables become Customer Passwords).
+app_apis.patches.pilot_live_to_connections_table

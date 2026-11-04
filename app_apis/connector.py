@@ -175,30 +175,53 @@ def _settings(account: int = 1) -> dict:
 	unprefixed names would have silently shared one value between two unrelated
 	endpoints.
 
-	`account` selects which of the two Pilot ESTATES this is for -- 1 is the
-	original ("Pilot (WSL)", fields `pilot_*`), 2 is a second, unrelated one
-	(fields `pilot2_*`). Every existing caller passes nothing and gets account
-	1, unchanged. This is the per-CUSTOMER connection (see `pilot_admin.py` for
-	the separate, partner-level Admin connection each estate also has).
+	`account` selects which Pilot ESTATE this is for: the row number in the
+	app_apis Pilot Connections table (its "Customer Accounts (live tracking)"
+	fields). Every existing caller that passes nothing gets row 1, unchanged.
+	This is the per-CUSTOMER connection (see `pilot_admin.py` for the separate,
+	partner-level Admin connection the same row also holds).
 	"""
-	account = frappe.utils.cint(account) or 1
-	prefix = "pilot" if account == 1 else "pilot2"
-	label = "Pilot (WSL)" if account == 1 else "Pilot 2"
+	from app_apis import pilot_admin
 
+	account = frappe.utils.cint(account) or 1
 	s = frappe.get_cached_doc("app_apis")
+	rows = pilot_admin.connection_rows(s)
+	row = rows[account - 1] if 0 < account <= len(rows) else None
+
+	def get(field):
+		return row.get(field) if row is not None else None
+
 	return {
-		"base_url": str(s.get(prefix + "_base_url") or "").strip(),
-		"node": str(s.get(prefix + "_node") or "5").strip(),
-		"timeout": frappe.utils.cint(s.get(prefix + "_request_timeout")) or 20,
-		"stale_after_minutes": frappe.utils.cint(s.get(prefix + "_stale_after_minutes")) or 15,
-		"fallback_username": str(s.get(prefix + "_fallback_username") or "").strip(),
+		"base_url": str(get("live_base_url") or "").strip(),
+		"node": str(get("live_node") or "5").strip(),
+		"timeout": frappe.utils.cint(get("live_request_timeout")) or 20,
+		"stale_after_minutes": frappe.utils.cint(get("stale_after_minutes")) or 15,
+		"fallback_username": str(get("fallback_username") or "").strip(),
 		"doc": s,
+		"row": row,
 		"account_no": account,
-		"label": label,
-		"pw_table": prefix + "_password_list",
-		"conf_key": prefix + "_passwords",
+		"label": str(get("label") or "").strip() or ("Pilot %d" % account),
+		"conf_key": "pilot_passwords" if account == 1 else "pilot%d_passwords" % account,
 		"_pw_cache": {},
 	}
+
+
+def password_id(password: str) -> str:
+	"""What is remembered per account instead of the password: a short one-way id of it, so the
+	memory survives the passwords being reordered, and a removed password is simply never matched."""
+	import hashlib
+
+	return "pw:" + hashlib.sha256(str(password).encode()).hexdigest()[:12]
+
+
+def split_passwords(value) -> list[str]:
+	"""The Customer Passwords field -> the passwords, in order, without blanks or repeats."""
+	out = []
+	for part in str(value or "").split(","):
+		part = part.strip()
+		if part and part not in out:
+			out.append(part)
+	return out
 
 
 LOGIN_DT = "App Apis Pilot Login"
@@ -209,23 +232,19 @@ def _login_key(settings: dict, email: str) -> str:
 
 
 def _table_passwords(settings: dict) -> list[dict]:
-	"""The Pilot Passwords table, top to bottom: [{"row", "no", "password"}].
+	"""The connection's Customer Passwords, in order: [{"row", "no", "password"}].
 
-	`row` is the child row's name (what is remembered per account), `no` is its
-	position counting from 1 (what is shown to people). Blank rows are skipped,
-	and the same password typed twice counts once. Decrypted once per settings
-	dict, because a Fleet Audit sweep resolves thousands of accounts from one.
+	`row` is the password's id (what is remembered per account, see password_id),
+	`no` is its position counting from 1 (what is shown to people). Blanks are
+	skipped and the same password typed twice counts once. Decrypted once per
+	settings dict, because a Fleet Audit sweep resolves thousands of accounts.
 	"""
 	cache = settings.setdefault("_pw_cache", {})
 	if "rows" not in cache:
-		rows, seen = [], set()
-		table = settings["doc"].get(settings.get("pw_table", "pilot_password_list")) or []
-		for position, row in enumerate(table, start=1):
-			password = row.get_password("password", raise_exception=False)
-			if password and password not in seen:
-				seen.add(password)
-				rows.append({"row": row.name, "no": position, "password": password})
-		cache["rows"] = rows
+		row = settings.get("row")
+		value = row.get_password("customer_passwords", raise_exception=False) if row is not None and row.get("customer_passwords") else ""
+		cache["rows"] = [{"row": password_id(pw), "no": n, "password": pw}
+		                 for n, pw in enumerate(split_passwords(value), start=1)]
 	return cache["rows"]
 
 
@@ -249,7 +268,7 @@ def _password_candidates(email: str, settings: dict) -> list[dict]:
 
 	Order:
 
-	  1. `pilot_passwords` (or `pilot2_passwords` for the second estate) in
+	  1. `pilot_passwords` (row 1; `pilot2_passwords` for row 2, ...) in
 	     site_config -- an {email: password} map. An explicit per-account
 	     override, so it always goes first and is never "remembered".
 	  2. The remembered row for this account, if it is still in the table.

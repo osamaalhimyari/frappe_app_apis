@@ -16,7 +16,11 @@
 #   action=edit_plan  read the vehicle as Pilot has it now (+ what is empty in Pilot's record)
 #   action=edit_save  change a vehicle already on Pilot (plate, IMEI, SIM, device type, type)
 #
-#   target  = pilot_wsl | pilot2 | im | all
+#   target  = a Pilot connection | im | all
+#             The Pilot connections are the rows of the app_apis Pilot Connections table:
+#             pilot_wsl = row 1, pilot2 = row 2, pilot3 = row 3, ... (see TARGETS)
+#   connection = for target=wasl (delete from WASL only): the Pilot connection to go
+#             through. Blank = the first connection with Uses WASL ticked.
 #   vehicle = Customer Vehicle name
 #   overrides = optional JSON, the Upload dialog's edits per Pilot target, e.g.
 #               {"pilot_wsl": {"vehiclenumber": "...", "type": "7"}} -- see EDIT_KEYS.
@@ -36,11 +40,12 @@
 #   imei        Customer Vehicle.device_serial
 #   name        license_plate / e_license_plate / plate_num
 #   account_id  accountslist row whose bill_email == the vehicle's platform email
+#               (the first filled field of the connection's Email Fields)
 #   vehmodel    vehmodellist row matching Customer Vehicle.devices_type
 #   type        vehtypelist  row matching type_new / type
 #   msisdn      app_apis_fleet_audit.sim_msisdn for this IMEI  (sim_serial is an
 #               ICCID, not a phone number, so it cannot be used here)
-#   node        app_apis settings for the chosen admin account
+#   node        the connection's Node in app_apis > Pilot Connections
 #
 # ON SUCCESS the newest Installation xticket for this vehicle gets
 # `server_status` = uploaded. Refusals write duplicate / vehicle_not_found /
@@ -59,8 +64,8 @@
 # the payload, shows it, and sends nothing. An empty tuple arms nothing at all.
 #
 #   ()               nothing sends            <- safe default
-#   ("pilot_wsl",)   only Pilot (WSL) sends
-#   ("pilot_wsl", "pilot2")
+#   ("pilot_wsl",)   only Pilot Connections row 1 sends
+#   ("pilot_wsl", "pilot2", "pilot3")   rows 1, 2 and 3
 #
 # PILOT HAS NO DELETE. The Administrator API adds, edits, moves and
 # blocks/unblocks -- there is no command that removes a vehicle. A vehicle added
@@ -103,21 +108,61 @@ TICKET_DT = "xticket"
 AUDIT_DT = "app_apis_fleet_audit"
 INSTALL_TYPE = "Installation"
 
-TARGETS = {
-    "pilot_wsl": {"label": "Pilot (WSL)", "account": 1, "email_field": "email_pilot"},
-    "pilot2": {"label": "Pilot 2", "account": 2, "email_field": "email_pilot2"},
-    "im": {"label": "IM (Trakzee)", "account": 0, "email_field": "im_platform"},
-}
+# One target per row of the app_apis Pilot Connections table, then IM. Row N is
+# Pilot account N; its key is "pilot_wsl" for row 1 and "pilot" + N after that.
+# A connection's account email is the first filled field of its Email Fields.
+def email_fields_of(value):
+    out = []
+    for part in str(value or "").replace("\n", ",").replace(";", ",").replace(" ", ",").split(","):
+        part = part.strip()
+        if part and part not in out:
+            out.append(part)
+    return out
 
-# The cluster node vehadd creates the vehicle on.
+
+def pilot_key(n):
+    return "pilot_wsl" if n == 1 else "pilot" + str(n)
+
+
+TARGETS = {}
+CONNECTION_ROWS = sorted(frappe.get_doc(SETTINGS).get("pilot_connections") or [],
+                         key=lambda r: frappe.utils.cint(r.get("idx")))
+for ci in range(len(CONNECTION_ROWS)):
+    crow = CONNECTION_ROWS[ci]
+    TARGETS[pilot_key(ci + 1)] = {
+        "label": str(crow.get("label") or "").strip() or ("Pilot " + str(ci + 1)),
+        "account": ci + 1,
+        "email_fields": email_fields_of(crow.get("email_fields")),
+        "wasl": frappe.utils.cint(crow.get("uses_wasl")),
+    }
+PILOT_TARGETS = list(TARGETS.keys())
+TARGETS["im"] = {"label": "IM (Trakzee)", "account": 0, "email_fields": ["im_platform"], "wasl": 0}
+
+# Every email field any target reads, that really exists on the vehicle.
+VEH_META = frappe.get_meta(VEH_DT)
+EMAIL_FIELDS = []
+for tkey in TARGETS.keys():
+    for tfield in TARGETS[tkey]["email_fields"]:
+        if tfield not in EMAIL_FIELDS and VEH_META.has_field(tfield):
+            EMAIL_FIELDS.append(tfield)
+
+
+def email_of(v, spec):
+    for f in spec["email_fields"]:
+        if str(v.get(f) or "").strip():
+            return str(v.get(f)).strip()
+    return ""
+
+
+# The cluster node vehadd creates the vehicle on: the connection's Node setting.
 #
-#   WASL is always node 5.
+#   WASL is always node 5, so a connection with Uses WASL ticked and no Node uses 5.
 #   The ordinary Pilot estate spans node_id 2..5 and differs PER ACCOUNT, so it
-#   cannot be guessed -- set pilot_admin_node_2 in app_apis, or the payload is
-#   reported as incomplete rather than sent to the wrong node.
+#   cannot be guessed -- set the Node on its row, or the payload is reported as
+#   incomplete rather than sent to the wrong node.
 #
 # A wrong node puts the vehicle on the wrong cluster, and Pilot has no delete.
-DEFAULT_NODE = {1: "5", 2: ""}
+WASL_NODE = "5"
 
 # Device types the ERP uses that vehmodellist has no obvious name match for.
 # Fill in the Pilot model id once and it is used from then on.
@@ -154,7 +199,7 @@ TYPE_ALIASES = {
 # touched -- and they are written into the comment trail. Only these keys are
 # read from `overrides`; anything else in it is ignored.
 EDIT_KEYS = ("vehiclenumber", "uniqid", "msisdn", "configuration", "account_email", "type")
-EDIT_TARGETS = ("pilot_wsl", "pilot2")
+EDIT_TARGETS = tuple(PILOT_TARGETS)
 
 # The admin panel's create (fitter.php create_vehicle) has NO vehicle-type field,
 # so every vehicle made through it got the panel's default type (Truck). The type
@@ -290,6 +335,14 @@ allowed = str(frappe.session.user) != "Guest"
 LOOKUPS = {}
 
 # Edits from the Upload dialog, per target: {"pilot_wsl": {"vehiclenumber": "...", "type": "4"}}
+# The Pilot connection a WASL-only delete goes through (target=wasl).
+WASL_CONNECTION = str(args.get("connection") or "").strip()
+if WASL_CONNECTION not in TARGETS or not TARGETS[WASL_CONNECTION]["wasl"]:
+    WASL_CONNECTION = ""
+    for tkey in PILOT_TARGETS:
+        if TARGETS[tkey]["wasl"] and not WASL_CONNECTION:
+            WASL_CONNECTION = tkey
+WASL_ACCOUNT = TARGETS[WASL_CONNECTION]["account"] if WASL_CONNECTION else 1
 OVERRIDES = {}
 raw_edits = args.get("overrides")
 if isinstance(raw_edits, dict):
@@ -325,26 +378,26 @@ except Exception:
 
 # ---------------------------------------------------------------- the platform
 def pilot_settings(account):
-    doc = frappe.get_doc(SETTINGS)
+    """Row `account` of app_apis > Pilot Connections."""
     acc_no = frappe.utils.cint(account)
-    # The settings fields are pilot_admin_* for account 1 and pilot_admin2_* for account 2
-    # (NOT a "_2" suffix -- reading pilot_admin_base_url_2 made Pilot 2 look unconfigured).
-    prefix = "pilot_admin" if acc_no == 1 else "pilot_admin2"
-    base = str(doc.get(prefix + "_base_url") or "").strip().rstrip("/")
+    if acc_no < 1 or acc_no > len(CONNECTION_ROWS):
+        return {"url": BACKEND, "user": "", "password": "", "node": "", "label": ""}
+    row = CONNECTION_ROWS[acc_no - 1]
+    base = str(row.get("base_url") or "").strip().rstrip("/")
 
-    # The setting wins; otherwise the known default for that estate. Left empty
-    # on purpose for the ordinary Pilot estate, because its node varies per
-    # account and a wrong node cannot be undone.
-    node = str(doc.get(prefix + "_node") or "").strip()
-    if not node:
-        node = str(DEFAULT_NODE.get(acc_no) or "")
+    # The setting wins; otherwise 5 for a WASL estate. Left empty on purpose for
+    # an ordinary Pilot estate, because its node varies per account and a wrong
+    # node cannot be undone.
+    node = str(row.get("node") or "").strip()
+    if not node and frappe.utils.cint(row.get("uses_wasl")):
+        node = WASL_NODE
 
     return {
         "url": base + BACKEND,
-        "user": str(doc.get(prefix + "_username") or "").strip(),
-        "password": doc.get_password(prefix + "_password", raise_exception=False),
+        "user": str(row.get("username") or "").strip(),
+        "password": row.get_password("password", raise_exception=False),
         "node": node,
-        "label": "",
+        "label": str(row.get("label") or ""),
     }
 
 
@@ -360,7 +413,7 @@ def backend(cmd, params, account, method="GET"):
     """
     cfg = pilot_settings(account)
     if not cfg["user"] or not cfg["password"] or not cfg["url"].startswith("http"):
-        return {"code": -500, "msg": "Pilot admin account " + str(account) +
+        return {"code": -500, "msg": "Pilot Connections row " + str(account) +
                 " is not configured in app_apis.", "data": []}
 
     query = {"cmd": cmd, "node": cfg["node"]}
@@ -1091,11 +1144,15 @@ def resolve_msisdn(imei):
 
 # ---------------------------------------------------------------- the ERP side
 def vehicle_doc(name):
+    # the email columns come from the connections' Email Fields (only fields that exist)
+    extra = ""
+    for f in EMAIL_FIELDS:
+        extra = extra + "`" + f + "`, "
     rows = frappe.db.sql(
         "select name, customer, customer2, is_sec_customer, device_serial, sim_serial, "
         "devices_type, license_plate, e_license_plate, plate_num, naming_type, "
-        "`type`, type_new, licensse_type, device_statues, server_type, "
-        "email_pilot, email_pilot2, im_platform, ch_pilot_wsl, ch_trakzee, "
+        "`type`, type_new, licensse_type, device_statues, server_type, " + extra +
+        "ch_pilot_wsl, ch_trakzee, "
         "installation_date, subscription_expiry_date, deletion_date "
         "from `tab" + VEH_DT + "` where name = %(n)s limit 1",
         {"n": name}, as_dict=True)
@@ -1168,12 +1225,16 @@ def build_payload(v, key):
         if edits.get("uniqid"):
             copy["device_serial"] = edits["uniqid"]
         if edits.get("account_email"):
-            copy[spec["email_field"]] = edits["account_email"]
+            # the edited email wins over every Email Field of this connection
+            for f in spec["email_fields"]:
+                copy[f] = ""
+            if spec["email_fields"]:
+                copy[spec["email_fields"][0]] = edits["account_email"]
         if edits.get("vehiclenumber"):
             copy["license_plate"] = edits["vehiclenumber"]
         v = copy
     imei = str(v.get("device_serial") or "").strip()
-    email = str(v.get(spec["email_field"]) or "").strip()
+    email = email_of(v, spec)
     gaps = []
 
     payload = {"imei": imei, "name": plate_of(v)}
@@ -1944,39 +2005,42 @@ def platform_has(key, imei, account):
 #         only, and that script is limited to System Managers.
 DELETE_WORD = "DELETE"
 SUSPEND_WORD = "SUSPEND"
-DELETE_LABELS = {"pilot_wsl": "Pilot (WSL)", "pilot2": "Pilot 2", "im": "IM (Trakzee)",
-                 "wasl": "WASL only (Pilot vehicle kept)", "sim": "SIM (suspend)"}
-DELETE_TARGET_KEYS = ("pilot_wsl", "pilot2", "im", "wasl", "sim")
+DELETE_LABELS = {}
+for tkey in TARGETS.keys():
+    DELETE_LABELS[tkey] = TARGETS[tkey]["label"]
+DELETE_LABELS["wasl"] = ("WASL only, through " + TARGETS[WASL_CONNECTION]["label"] if WASL_CONNECTION
+                         else "WASL only") + " (Pilot vehicle kept)"
+DELETE_LABELS["sim"] = "SIM (suspend)"
+DELETE_TARGET_KEYS = tuple(PILOT_TARGETS) + ("im", "wasl", "sim")
 
-# After a vehicle is deleted from a PLATFORM (Pilot WSL, Pilot 2 or IM) its Device Statues becomes
+# After a vehicle is deleted from a PLATFORM (a Pilot connection or IM) its Device Statues becomes
 # "Deleted", with today's Deletion Date, when no other SYSTEM is left. Systems, as the Platforms section
 # ticks them:
 #   Pilot  = Pilot WSL, Pilot Towing, Pilot SFDA and Pilot Tracking Only. These are flavours of the one
-#            Pilot system, not four systems. Pilot WSL and Pilot 2 are its two estates.
+#            Pilot system, not four systems. Each row of Pilot Connections is one of its estates.
 #   IM     = IM Tracking
 #   SARP, FMSI Medicine and FMSI Balady are systems of their own (this script cannot delete from those,
 #            so a tick there always keeps the vehicle alive).
-# Pilot is "left" only if the vehicle is still on the OTHER Pilot estate -- looked up live, because the
-# Pilot ticks are often stale. When Pilot is gone from both estates the Pilot ticks are cleared with it.
+# Pilot is "left" only if the vehicle is still on ANOTHER Pilot estate -- looked up live, because the
+# Pilot ticks are often stale. When Pilot is gone from every estate the Pilot ticks are cleared with it.
 # This runs for the form's Delete button and for the Expired Subscriptions block alike, because both call
 # this script. WASL-only deletes and SIM suspends never change the status.
 PILOT_BOXES = [["ch_pilot_wsl", "Pilot WSL"], ["ch_pilot_tow", "Pilot Towing"], ["ch_pilot_sfda", "Pilot SFDA"],
                ["ch_pilot_tracking_only", "Pilot Tracking Only"]]
 OTHER_BOXES = [["ch_trakzee", "IM Tracking"], ["ch_sarp", "SARP"], ["ch_fmsi_medicine", "FMSI Medicine"],
                ["ch_fmsi_balady", "FMSI Balady"]]
-DELETE_UNTICKS = {"pilot_wsl": "ch_pilot_wsl", "im": "ch_trakzee"}      # pilot2 has no box
+DELETE_UNTICKS = {"pilot_wsl": "ch_pilot_wsl", "im": "ch_trakzee"}      # only row 1 has a box
 STATUS_DELETED = "Deleted"
 
 
 def pilot_still_there(vehicle_name, imei, deleted_key):
     """Is the vehicle still on a Pilot estate other than the one just deleted from?  Live lookups.
-    -> {"state": "yes" | "no" | "unknown", "where": text}   ("unknown" is treated as "yes": never guess a deletion)"""
-    mine = frappe.db.get_value(VEH_DT, vehicle_name, ["email_pilot2"], as_dict=True) or {}
-    for k in ("pilot_wsl", "pilot2"):
+    -> {"state": "yes" | "no" | "unknown", "where": text}   ("unknown" is treated as "yes": never guess a deletion)
+    Every other connection is asked, whether or not the vehicle has an email for it: skipping one could
+    set Deleted on a vehicle that is still there."""
+    for k in PILOT_TARGETS:
         if k == deleted_key:
             continue
-        if k == "pilot2" and not str(mine.get("email_pilot2") or "").strip():
-            continue                      # no Pilot 2 account on the vehicle: it is not there
         got = panel_find(imei, TARGETS[k]["account"])
         if got["state"] == "yes":
             return {"state": "yes", "where": TARGETS[k]["label"]}
@@ -2049,7 +2113,7 @@ def delete_word(key):
 def wasl_find(row, v):
     """Is the vehicle on Pilot (WASL is reached through it), and what does WASL's inquiry say?"""
     try:
-        got = frappe.call("app_apis.wasl.wasl_delete", vehicle=str(v.get("name")), dry_run=1)
+        got = frappe.call("app_apis.wasl.wasl_delete", vehicle=str(v.get("name")), dry_run=1, account=WASL_ACCOUNT)
     except Exception as e:
         row["state"] = "unknown"
         row["detail"] = "WASL check failed -- " + str(e)[:240]
@@ -2063,7 +2127,8 @@ def wasl_find(row, v):
 
 def wasl_delete_one(row, v):
     try:
-        got = frappe.call("app_apis.wasl.wasl_delete", vehicle=str(v.get("name")), confirm=DELETE_WORD, dry_run=0)
+        got = frappe.call("app_apis.wasl.wasl_delete", vehicle=str(v.get("name")), confirm=DELETE_WORD, dry_run=0,
+                          account=WASL_ACCOUNT)
     except Exception as e:
         row["verdict"] = "error"
         row["result"] = "WASL delete did not complete -- " + str(e)[:240]
@@ -2597,11 +2662,12 @@ def send_one(v, key):
 def which_targets(v, asked):
     if asked and asked != "all":
         return [asked] if asked in TARGETS else []
+    # A Pilot connection is picked when the vehicle has an email in one of its Email Fields
+    # (row 1 also when the Pilot WSL box is ticked, as before).
     picked = []
-    if frappe.utils.cint(v.get("ch_pilot_wsl")):
-        picked.append("pilot_wsl")
-    if str(v.get("email_pilot2") or "").strip():
-        picked.append("pilot2")
+    for k in PILOT_TARGETS:
+        if email_of(v, TARGETS[k]) or (k == "pilot_wsl" and frappe.utils.cint(v.get("ch_pilot_wsl"))):
+            picked.append(k)
     if frappe.utils.cint(v.get("ch_trakzee")) or str(v.get("im_platform") or "").strip():
         picked.append("im")
     return picked
@@ -2753,7 +2819,7 @@ elif action in ("delete_plan", "delete"):
         else:
             drow = delete_one(veh, target, str(args.get("pin") or ""))
             out["device_status_changed"] = False
-            if drow.get("verdict") == "deleted" and target in ("pilot_wsl", "pilot2", "im"):
+            if drow.get("verdict") == "deleted" and (target in PILOT_TARGETS or target == "im"):
                 try:
                     st = after_platform_delete(vehicle_name, target, str(drow.get("imei") or ""))
                     drow["result"] = str(drow["result"]) + " | " + st["note"]
@@ -2774,9 +2840,9 @@ elif action in ("delete_plan", "delete"):
         out["results"].append(drow)
         if action == "delete" and drow.get("verdict") in ("deleted", "done"):
             if target == "wasl":
-                notify_core("after_wasl", "pilot_wsl", vehicle_name, out["imei"],
+                notify_core("after_wasl", WASL_CONNECTION or "pilot_wsl", vehicle_name, out["imei"],
                             {"action": "delete", "result": str(drow.get("result"))[:300]})
-            elif target in ("pilot_wsl", "pilot2", "im"):
+            elif target in PILOT_TARGETS or target == "im":
                 notify_core("after_delete", target, vehicle_name, out["imei"],
                             {"result": {"verdict": drow.get("verdict"), "ok": bool(drow.get("ok")),
                                         "result": str(drow.get("result"))[:300],

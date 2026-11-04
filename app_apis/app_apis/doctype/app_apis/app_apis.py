@@ -40,8 +40,7 @@ class app_apis(Document):
 			self.im_ignition_poll_seconds = 90
 
 		self._keep_lebara_session_state()
-		self._validate_pilot_admin()
-		self._validate_pilot_admin2()
+		self._validate_pilot_connections()
 		self._validate_chatwoot()
 		self._validate_whatsapp_templates()
 		self._validate_custom_messages()
@@ -145,56 +144,44 @@ class app_apis(Document):
 					title=_("Excluded Customers"),
 				)
 
-	def _validate_pilot_admin(self):
-		"""Only checked when the admin connection is switched on.
+	def _validate_pilot_connections(self):
+		"""Pilot Connections: each row is checked only once it is switched on.
 
-		Same rule as Chatwoot, for the same reason: half-filled settings are a
-		legitimate saved state while somebody is still collecting the login, and
-		nothing calls Pilot until the enabled flag is set.
-		"""
-		if not frappe.utils.cint(self.pilot_admin_enabled):
-			return
+		Same rule as Chatwoot, for the same reason: a half-filled row is a legitimate saved state while
+		somebody is still collecting the login, and nothing calls Pilot until Enabled is ticked. The
+		Email Fields must name real Customer Vehicle fields -- a typo would make every vehicle look like it
+		has no account on that estate, with nothing on screen saying why."""
+		from app_apis.pilot_admin import conf_password_key, email_fields_of
 
-		missing = [
-			label
-			for label, value in (
-				(_("Pilot Admin Base URL"), self.pilot_admin_base_url),
-				(_("Pilot Admin Login"), self.pilot_admin_username),
-				# Read through the field rather than get_password(): the password
-				# may legitimately live in site_config instead of here.
-				(_("Pilot Admin Password"), self.pilot_admin_password or frappe.conf.get("pilot_admin_password")),
-			)
-			if not str(value or "").strip()
-		]
-
-		if missing:
-			frappe.throw(
-				_("Pilot Admin is enabled but these are not set: {0}").format(", ".join(missing)),
-				title=_("App APIs"),
-			)
-
-	def _validate_pilot_admin2(self):
-		"""The second Pilot Administrator account -- a different estate, not a
-		backup for the one above. Same rule: only checked once enabled."""
-		if not frappe.utils.cint(self.pilot_admin2_enabled):
-			return
-
-		missing = [
-			label
-			for label, value in (
-				(_("Pilot Admin Base URL (2)"), self.pilot_admin2_base_url),
-				(_("Pilot Admin Login (2)"), self.pilot_admin2_username),
-				(_("Pilot Admin Password (2)"),
-				 self.pilot_admin2_password or frappe.conf.get("pilot_admin2_password")),
-			)
-			if not str(value or "").strip()
-		]
-
-		if missing:
-			frappe.throw(
-				_("Pilot Admin 2 is enabled but these are not set: {0}").format(", ".join(missing)),
-				title=_("App APIs"),
-			)
+		problems = []
+		meta = frappe.get_meta("Customer Vehicle")
+		for row in self.get("pilot_connections") or []:
+			row.label = (row.label or "").strip()
+			where = _("Pilot Connections row {0}").format(row.idx)
+			fields = email_fields_of(row.email_fields)
+			row.email_fields = ", ".join(fields)
+			unknown = [f for f in fields if not meta.has_field(f)]
+			if unknown:
+				problems.append(_("{0}: Customer Vehicle has no field {1}.").format(
+					where, ", ".join(frappe.utils.escape_html(f) for f in unknown)))
+			if not frappe.utils.cint(row.enabled):
+				continue
+			missing = [
+				label
+				for label, value in (
+					(_("Base URL"), row.base_url),
+					(_("Login"), row.username),
+					# Read through the field rather than get_password(): the password
+					# may legitimately live in site_config instead of here.
+					(_("Password"), row.password or frappe.conf.get(conf_password_key(row.idx))),
+				)
+				if not str(value or "").strip()
+			]
+			if missing:
+				problems.append(_("{0} ({1}) is enabled but these are not set: {2}").format(
+					where, frappe.utils.escape_html(row.label), ", ".join(missing)))
+		if problems:
+			frappe.throw("<br>".join(problems), title=_("Pilot Connections"))
 
 	def _validate_chatwoot(self):
 		"""Only checked when Chatwoot is switched on.

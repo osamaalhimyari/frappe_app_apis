@@ -13,15 +13,14 @@ integrations that happen to share a vendor:
                             Answers a single question: "what is this device
                             doing right now".
 
-    THIS MODULE             REST API v3, Bearer token. UP TO TWO ADMIN
-                            ACCOUNTS FOR THE WHOLE SITE, held in `app_apis`
-                            (Pilot Admin Connection / Pilot Admin Connection
-                            2) -- two separate estates, not a primary and a
-                            backup. Reaches the partner-level surface the
+    THIS MODULE             REST API v3, Bearer token. ANY NUMBER OF ADMIN
+                            ACCOUNTS FOR THE WHOLE SITE, one per row of the
+                            `app_apis` Pilot Connections table -- separate
+                            estates, not a primary and a backup. Reaches the partner-level surface the
                             customer accounts cannot see: the account list,
                             the users inside an account, the full vehicle list,
-                            plate -> IMEI resolution. `_settings(account=1|2)`
-                            picks which; most callers loop over
+                            plate -> IMEI resolution. `_settings(account=N)`
+                            picks row N; most callers loop over
                             `enabled_admin_accounts()` instead of hard-coding
                             one.
 
@@ -48,7 +47,7 @@ What the v3 API's shape forces on this module
    password}` as JSON and answers `{token, expires_in, node_id}`. Every later
    call sends `Authorization: Bearer {token}`. Minting one per request would be
    both wasteful and an easy way to get throttled, so the token is cached (see
-   `pilot_admin_token_ttl_minutes`).
+   the row's Token Cache TTL).
 
 2. THE NODE HEADER IS AMBIGUOUS IN THE SPEC, so this module sends BOTH
    spellings. v3.en.yaml names the header `X-Node` in `components.parameters`
@@ -90,7 +89,7 @@ line away through `request()`, from `bench console`, by someone who meant it.
 An admin token that can delete a customer's user accounts does not get a URL.
 
 This app defines no business doctypes. This module owns only its own half of
-the `app_apis` Single (the `pilot_admin_` fields).
+the `app_apis` Single (the Pilot Connections table).
 """
 
 import json
@@ -126,14 +125,47 @@ KNOWN_SERVERS = (
 # --------------------------------------------------------------------------
 
 
-def _settings(account: int = 1) -> dict:
-	"""The `pilot_admin_` (or `pilot_admin2_`) half of the `app_apis` doctype.
+CONNECTIONS_FIELD = "pilot_connections"
 
-	Two Pilot Administrator accounts can be configured -- two different
-	estates, not a primary and a backup. `account` selects which: 1 is the
-	original ("Pilot (WSL)"), 2 is the second, unrelated one. Everything that
-	takes a `settings` dict downstream is account-agnostic; only this function
-	and `_password` know the field-name prefix.
+
+def connection_rows(doc=None) -> list:
+	"""The Pilot Connections rows, in table order. Row N is account N everywhere in the app."""
+	doc = doc or frappe.get_cached_doc("app_apis")
+	return sorted(doc.get(CONNECTIONS_FIELD) or [], key=lambda r: frappe.utils.cint(r.idx))
+
+
+def connection_key(account) -> str:
+	"""The platform key for account N, as the scripts, LIVE_TARGETS and core.platforms spell it.
+	Row 1 keeps its historic key "pilot_wsl" and row 2 "pilot2", so nothing already saved changes."""
+	n = frappe.utils.cint(account)
+	return "pilot_wsl" if n == 1 else "pilot%d" % n
+
+
+def conf_password_key(account) -> str:
+	"""The site_config key that may hold the password instead of the table: the historic
+	pilot_admin_password (row 1) and pilot_admin2_password (row 2), then pilot_admin3_password..."""
+	n = frappe.utils.cint(account) or 1
+	return "pilot_admin_password" if n == 1 else "pilot_admin%d_password" % n
+
+
+def email_fields_of(value) -> list:
+	"""`email_fields` of a row -> the Customer Vehicle field names, in order, without blanks or repeats."""
+	out = []
+	for part in str(value or "").replace("\n", ",").replace(";", ",").replace(" ", ",").split(","):
+		part = part.strip()
+		if part and part not in out:
+			out.append(part)
+	return out
+
+
+def _settings(account: int = 1) -> dict:
+	"""Row `account` (1-based) of the Pilot Connections table on `app_apis`.
+
+	Each row is one Pilot Administrator account -- a separate estate, not a
+	backup for another row. Everything that takes a `settings` dict downstream
+	is account-agnostic; only this function and `_password` know where the
+	values live. A row number that does not exist gives a disabled, empty
+	settings dict, so callers report "not configured" instead of crashing.
 
 	`base_url` is stripped of a trailing slash AND of a trailing `/api/v3`:
 	the legacy Pilot field holds a full endpoint path
@@ -142,37 +174,36 @@ def _settings(account: int = 1) -> dict:
 	prevents a 404 whose cause is invisible in the message.
 	"""
 	account = frappe.utils.cint(account) or 1
-	prefix = "pilot_admin" if account == 1 else "pilot_admin2"
-	# "Pilot (WSL)" is the operator's own name for the first account, not an
-	# abbreviation this module invented -- shown in error messages and in the
-	# Fleet Audit's per-vehicle Pilot dialog so a finding is traceable to the
-	# right estate at a glance. It is deliberately NOT used to name which App
-	# APIs field is missing (see `_require_configured`) -- those messages name
-	# the actual field labels ("Pilot Admin Base URL (2)", etc).
-	label = "Pilot (WSL)" if account == 1 else "Pilot Admin 2"
-
 	s = frappe.get_cached_doc("app_apis")
+	rows = connection_rows(s)
+	row = rows[account - 1] if 0 < account <= len(rows) else None
 
-	base = str(s.get(prefix + "_base_url") or "").strip().rstrip("/")
+	def get(field):
+		return row.get(field) if row is not None else None
+
+	base = str(get("base_url") or "").strip().rstrip("/")
 	for suffix in ("/api/v3", "/api/api.php", "/api"):
 		if base.lower().endswith(suffix):
 			base = base[: -len(suffix)].rstrip("/")
 			break
 
 	return {
-		"enabled": bool(frappe.utils.cint(s.get(prefix + "_enabled"))),
+		"enabled": bool(frappe.utils.cint(get("enabled"))),
 		"base_url": base,
-		"username": str(s.get(prefix + "_username") or "").strip(),
+		"username": str(get("username") or "").strip(),
 		# Blank is meaningful: "use whatever node the token response issued".
 		# That is why this is Data and not Int -- Int cannot tell blank from 0.
-		"node": str(s.get(prefix + "_node") or "").strip(),
-		"timeout": frappe.utils.cint(s.get(prefix + "_request_timeout")) or 20,
-		"token_ttl": (frappe.utils.cint(s.get(prefix + "_token_ttl_minutes")) or 45) * 60,
-		"doc": s,
+		"node": str(get("node") or "").strip(),
+		"timeout": frappe.utils.cint(get("request_timeout")) or 20,
+		"token_ttl": (frappe.utils.cint(get("token_ttl_minutes")) or 45) * 60,
+		"doc": row,
 		"account_no": account,
-		"label": label,
-		"pw_field": prefix + "_password",
-		"conf_key": prefix + "_password",
+		"key": connection_key(account),
+		"label": str(get("label") or "").strip() or ("Pilot %d" % account),
+		"uses_wasl": bool(frappe.utils.cint(get("uses_wasl"))),
+		"email_fields": email_fields_of(get("email_fields")),
+		"pw_field": "password",
+		"conf_key": conf_password_key(account),
 	}
 
 
@@ -195,8 +226,8 @@ def _password(settings: dict) -> str | None:
 	doc = settings.get("doc")
 	if not doc:
 		return None
-	pw_field = settings.get("pw_field", "pilot_admin_password")
-	return doc.get_password(pw_field) if doc.get(pw_field) else None
+	pw_field = settings.get("pw_field", "password")
+	return doc.get_password(pw_field, raise_exception=False) if doc.get(pw_field) else None
 
 
 def settings_for(username: str, password: str, base_url: str = "", node: str = "") -> dict:
@@ -221,7 +252,8 @@ def settings_for(username: str, password: str, base_url: str = "", node: str = "
 		# is fully configured -- and a sweep of CUSTOMER accounts depends on the
 		# legacy section's credentials, not on the admin one. Derive the v3
 		# server from the legacy endpoint rather than refusing to run.
-		legacy = str(frappe.get_cached_doc("app_apis").pilot_base_url or "").strip()
+		rows = connection_rows()
+		legacy = str((rows[0].get("live_base_url") if rows else "") or "").strip()
 		for suffix in ("/api/api.php", "/api/v3", "/api", "/"):
 			if legacy.endswith(suffix):
 				legacy = legacy[: -len(suffix)]
@@ -250,29 +282,28 @@ def _require_configured(settings: dict) -> None:
 	"""
 	label = settings.get("label", "Pilot Admin")
 	account_no = settings.get("account_no", 1)
-	# The field LABELS in App APIs, which is what a "go set this" message has
-	# to name -- distinct from `label`, the operator's own nickname for the
-	# account, which names WHICH estate a finding or error is about.
-	checkbox = "Pilot Admin Enabled" if account_no == 1 else "Pilot Admin 2 Enabled"
-	field_suffix = "" if account_no == 1 else " (2)"
+	# Where to go and set it: the row of the Pilot Connections table and the
+	# column in it -- distinct from `label`, the operator's own name for the
+	# estate, which says WHICH estate a finding or error is about.
+	row = _("Pilot Connections row {0}").format(account_no)
 
 	if not settings["enabled"]:
 		frappe.throw(
-			_("The {0} connection is switched off. Tick '{1}' in App APIs.").format(label, checkbox),
+			_("The {0} connection is switched off. Tick Enabled in App APIs, {1}.").format(label, row),
 			title=_(label),
 		)
 
 	missing = []
 	if not settings["base_url"]:
-		missing.append(_("Pilot Admin Base URL{0}").format(field_suffix))
+		missing.append(_("Base URL"))
 	if not settings["username"]:
-		missing.append(_("Pilot Admin Login{0}").format(field_suffix))
+		missing.append(_("Login"))
 	if not _password(settings):
-		missing.append(_("Pilot Admin Password{0}").format(field_suffix))
+		missing.append(_("Password"))
 
 	if missing:
 		frappe.throw(
-			_("{0} is not configured. Missing: {1}.").format(label, ", ".join(missing)),
+			_("{0} is not configured. Missing in {1}: {2}.").format(label, row, ", ".join(missing)),
 			title=_(label),
 		)
 
@@ -415,7 +446,7 @@ def _auth_headers(token: str, node: str | None) -> dict:
 def _mint_token(settings: dict) -> tuple[str | None, str | None, dict]:
 	"""Sign in. Returns (token, node, meta). NEVER raises for a bad credential.
 
-	The node returned by Pilot is overridden by `pilot_admin_node` when that
+	The node returned by Pilot is overridden by the row's Node when that
 	field is set, because a deployment can be pinned to a node the token
 	response reports as 0.
 	"""
@@ -661,13 +692,13 @@ def _throw_if_failed(result: dict, what: str) -> dict:
 
 
 def enabled_admin_accounts() -> list[int]:
-	"""Every admin account (1, 2 or both) that is enabled AND has credentials.
+	"""Every Pilot Connections row number that is enabled AND has credentials.
 
-	Falls back to [1] when neither is usable, so every caller that loops over
+	Falls back to [1] when none is usable, so every caller that loops over
 	this list still produces the ORIGINAL "not configured" error against
 	account 1 rather than silently doing nothing when nothing is set up yet.
 	"""
-	out = [n for n in (1, 2) if _is_usable(_settings(n))]
+	out = [n for n in range(1, len(connection_rows()) + 1) if _is_usable(_settings(n))]
 	return out or [1]
 
 
@@ -882,10 +913,25 @@ def get_vehicle_status(imei: str, account: int = 0) -> dict:
 @frappe.whitelist()
 def clear_cache_from_desk(account: int = 1) -> dict:
 	require_login()
-	# clear_cache() sweeps every key under CACHE_PREFIX, which covers both
-	# accounts' tokens -- there is no per-account cache worth keeping separate.
+	# clear_cache() sweeps every key under CACHE_PREFIX, which covers every
+	# connection's token -- there is no per-account cache worth keeping separate.
 	clear_cache()
 	return {"ok": True}
+
+
+@frappe.whitelist()
+def connections() -> list:
+	"""The Pilot Connections rows as the Customer Vehicle buttons need them. No secrets.
+
+	-> [{"account": N, "key": "pilot_wsl" | "pilot2" | "pilotN", "label", "enabled", "uses_wasl",
+	     "email_fields": [...]}]"""
+	require_login()
+	out = []
+	for n in range(1, len(connection_rows()) + 1):
+		cfg = _settings(n)
+		out.append({"account": n, "key": cfg["key"], "label": cfg["label"], "enabled": cfg["enabled"],
+		            "uses_wasl": cfg["uses_wasl"], "email_fields": cfg["email_fields"]})
+	return out
 
 
 # --------------------------------------------------------------------------
@@ -905,7 +951,7 @@ def status(account: int = 1) -> dict:
 		"timeout": cfg["timeout"],
 		"token_ttl_seconds": cfg["token_ttl"],
 		"password_set": bool(_password(cfg)),
-		"password_from_site_config": bool(frappe.conf.get("pilot_admin_password")),
+		"password_from_site_config": bool(frappe.conf.get(cfg["conf_key"])),
 		"token_cached": bool(cached),
 		"known_servers": list(KNOWN_SERVERS),
 		"api_prefix": API,
@@ -943,7 +989,7 @@ def logout() -> dict:
 #                 devices in one request, `cmd=accountslist` all 1,490
 #                 accounts. This is what the Fleet Audit uses.
 #
-# They share the credentials in the Pilot Admin Connection section and nothing
+# They share the credentials of a Pilot Connections row and nothing
 # else -- different host, different auth, different command vocabulary. Hence
 # a separate client rather than a flag on the v3 one.
 #
