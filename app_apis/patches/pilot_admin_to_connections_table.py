@@ -66,6 +66,7 @@ def execute():
 			"request_timeout": frappe.utils.cint(old["request_timeout"]) or 20,
 			"token_ttl_minutes": frappe.utils.cint(old["token_ttl_minutes"]) or 45,
 			"password": ("*" * len(password)) if password else "",
+			"conn_id": frappe.generate_hash(length=10),
 			**fixed,
 		})
 		row.db_insert()

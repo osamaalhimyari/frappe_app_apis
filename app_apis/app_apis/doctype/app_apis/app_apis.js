@@ -117,6 +117,98 @@ function wa_send_test() {
 	d.show();
 }
 
+// ---------------------------------------------------------------- Pilot Connections: customer passwords
+// Each connection row shows ITS customer passwords as a small table inside the row (the row's edit
+// form, "Customer Passwords"). They are stored in the hidden Pilot Customer Passwords table, one
+// encrypted line each, tagged with the row's conn_id; saving the settings saves them.
+const PW_TABLE = "pilot_customer_passwords";
+const PW_DT = "App Apis Pilot Password";
+
+function pw_lines(frm, conn_id) {
+	return (frm.doc[PW_TABLE] || [])
+		.filter((r) => r.connection === conn_id)
+		.sort((a, b) => (a.idx || 0) - (b.idx || 0));
+}
+
+function pw_renumber(frm) {
+	(frm.doc[PW_TABLE] || []).sort((a, b) => (a.idx || 0) - (b.idx || 0)).forEach((r, i) => (r.idx = i + 1));
+}
+
+function pw_editor(frm, cdn) {
+	const row = locals["App Apis Pilot Connection"][cdn];
+	const grid_row = frm.fields_dict.pilot_connections.grid.grid_rows_by_docname[cdn];
+	const field = grid_row && grid_row.grid_form && grid_row.grid_form.fields_dict.passwords_html;
+	if (!row || !field) return;
+	if (!row.conn_id) frappe.model.set_value(row.doctype, row.name, "conn_id", frappe.utils.get_random(10));
+	const esc = (v) => frappe.utils.escape_html(String(v || ""));
+	const lines = pw_lines(frm, row.conn_id);
+	const $w = field.$wrapper.empty();
+	const $t = $(`<div class="app-apis-pw">
+		<div class="text-muted small" style="margin-bottom:4px">${__("Customer Passwords")}</div>
+		<table class="table table-bordered table-sm" style="margin-bottom:6px;font-size:12px">
+			<thead><tr><th style="width:40px">${__("No.")}</th><th>${__("Password")}</th><th style="width:96px"></th></tr></thead>
+			<tbody></tbody>
+		</table>
+		<button class="btn btn-xs btn-default pw-add">${__("Add Password")}</button>
+	</div>`).appendTo($w);
+	const $body = $t.find("tbody");
+	if (!lines.length) $body.append(`<tr><td colspan="3" class="text-muted">${__("No passwords yet.")}</td></tr>`);
+	lines.forEach((line, i) => {
+		const saved = line.password && /^\*+$/.test(line.password);
+		const $tr = $(`<tr>
+			<td>${i + 1}</td>
+			<td><input type="password" class="form-control input-xs" autocomplete="new-password"
+				placeholder="${saved ? esc(__("saved — type to replace")) : ""}" value="${saved ? "" : esc(line.password)}"></td>
+			<td style="white-space:nowrap">
+				<button class="btn btn-xs btn-default pw-up" title="${esc(__("Move up"))}" ${i === 0 ? "disabled" : ""}>↑</button>
+				<button class="btn btn-xs btn-default pw-down" title="${esc(__("Move down"))}" ${i === lines.length - 1 ? "disabled" : ""}>↓</button>
+				<button class="btn btn-xs btn-danger pw-del" title="${esc(__("Remove"))}">✕</button>
+			</td></tr>`).appendTo($body);
+		$tr.find("input").on("change", function () {
+			const v = String(this.value || "");
+			if (v) frappe.model.set_value(PW_DT, line.name, "password", v);
+		});
+		const move = (step) => {
+			const other = lines[i + step];
+			if (!other) return;
+			const a = line.idx;
+			line.idx = other.idx;
+			other.idx = a;
+			pw_renumber(frm);
+			frm.dirty();
+			pw_editor(frm, cdn);
+		};
+		$tr.find(".pw-up").on("click", (e) => { e.preventDefault(); move(-1); });
+		$tr.find(".pw-down").on("click", (e) => { e.preventDefault(); move(1); });
+		$tr.find(".pw-del").on("click", (e) => {
+			e.preventDefault();
+			frappe.model.clear_doc(PW_DT, line.name);
+			frm.doc[PW_TABLE] = (frm.doc[PW_TABLE] || []).filter((r) => r.name !== line.name);
+			pw_renumber(frm);
+			frm.dirty();
+			pw_editor(frm, cdn);
+		});
+	});
+	$t.find(".pw-add").on("click", (e) => {
+		e.preventDefault();
+		const child = frappe.model.add_child(frm.doc, PW_DT, PW_TABLE);
+		child.connection = row.conn_id;
+		pw_renumber(frm);
+		frm.dirty();
+		pw_editor(frm, cdn);
+		field.$wrapper.find("input").last().focus();
+	});
+}
+
+frappe.ui.form.on("App Apis Pilot Connection", {
+	form_render(frm, cdt, cdn) {
+		pw_editor(frm, cdn);
+	},
+	pilot_connections_add(frm, cdt, cdn) {
+		frappe.model.set_value(cdt, cdn, "conn_id", frappe.utils.get_random(10));
+	},
+});
+
 frappe.ui.form.on("app_apis", {
 	setup(frm) {
 		frm.set_query("whatsapp_template", "auto_message_rules", WA_SENDABLE);

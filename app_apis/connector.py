@@ -206,22 +206,7 @@ def _settings(account: int = 1) -> dict:
 	}
 
 
-def password_id(password: str) -> str:
-	"""What is remembered per account instead of the password: a short one-way id of it, so the
-	memory survives the passwords being reordered, and a removed password is simply never matched."""
-	import hashlib
 
-	return "pw:" + hashlib.sha256(str(password).encode()).hexdigest()[:12]
-
-
-def split_passwords(value) -> list[str]:
-	"""The Customer Passwords field -> the passwords, in order, without blanks or repeats."""
-	out = []
-	for part in str(value or "").split(","):
-		part = part.strip()
-		if part and part not in out:
-			out.append(part)
-	return out
 
 
 LOGIN_DT = "App Apis Pilot Login"
@@ -232,19 +217,28 @@ def _login_key(settings: dict, email: str) -> str:
 
 
 def _table_passwords(settings: dict) -> list[dict]:
-	"""The connection's Customer Passwords, in order: [{"row", "no", "password"}].
+	"""The connection's Customer Passwords, top to bottom: [{"row", "no", "password"}].
 
-	`row` is the password's id (what is remembered per account, see password_id),
-	`no` is its position counting from 1 (what is shown to people). Blanks are
-	skipped and the same password typed twice counts once. Decrypted once per
-	settings dict, because a Fleet Audit sweep resolves thousands of accounts.
+	They are the lines of the settings' Pilot Customer Passwords table whose
+	`connection` is this row's id (edited inside the row). `row` is the password
+	line's name (what is remembered per account), `no` is its position counting
+	from 1 (what is shown to people). Blank lines are skipped, and the same
+	password typed twice counts once. Decrypted once per settings dict, because
+	a Fleet Audit sweep resolves thousands of accounts from one.
 	"""
 	cache = settings.setdefault("_pw_cache", {})
 	if "rows" not in cache:
-		row = settings.get("row")
-		value = row.get_password("customer_passwords", raise_exception=False) if row is not None and row.get("customer_passwords") else ""
-		cache["rows"] = [{"row": password_id(pw), "no": n, "password": pw}
-		                 for n, pw in enumerate(split_passwords(value), start=1)]
+		rows, seen = [], set()
+		conn = settings.get("row")
+		conn_id = conn.get("conn_id") if conn is not None else None
+		table = [r for r in (settings["doc"].get("pilot_customer_passwords") or [])
+		         if conn_id and r.get("connection") == conn_id]
+		for position, row in enumerate(sorted(table, key=lambda r: frappe.utils.cint(r.idx)), start=1):
+			password = row.get_password("password", raise_exception=False)
+			if password and password not in seen:
+				seen.add(password)
+				rows.append({"row": row.name, "no": position, "password": password})
+		cache["rows"] = rows
 	return cache["rows"]
 
 

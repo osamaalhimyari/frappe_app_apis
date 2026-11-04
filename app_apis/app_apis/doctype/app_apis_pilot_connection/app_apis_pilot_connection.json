@@ -22,9 +22,10 @@
   "live_node",
   "fallback_username",
   "col_live",
-  "customer_passwords",
+  "passwords_html",
   "live_request_timeout",
-  "stale_after_minutes"
+  "stale_after_minutes",
+  "conn_id"
  ],
  "fields": [
   {
@@ -140,11 +141,10 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "The customer account passwords, separated by commas, tried in this order for each account; the one that works is remembered per account. Encrypted at rest.",
-   "fieldname": "customer_passwords",
-   "fieldtype": "Password",
-   "label": "Customer Passwords",
-   "length": 1000
+   "description": "The customer account passwords, tried top to bottom for each account; the one that works is remembered per account. Encrypted at rest. Save the settings after changing them.",
+   "fieldname": "passwords_html",
+   "fieldtype": "HTML",
+   "label": "Customer Passwords"
   },
   {
    "default": "20",
@@ -157,6 +157,14 @@
    "fieldname": "stale_after_minutes",
    "fieldtype": "Int",
    "label": "Stale After (minutes)"
+  },
+  {
+   "fieldname": "conn_id",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Connection Id",
+   "no_copy": 1,
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

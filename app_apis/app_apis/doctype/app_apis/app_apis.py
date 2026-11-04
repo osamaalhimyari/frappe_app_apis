@@ -156,6 +156,14 @@ class app_apis(Document):
 		problems = []
 		meta = frappe.get_meta("Customer Vehicle")
 		for row in self.get("pilot_connections") or []:
+			# the id the row's Customer Passwords point at; the browser sets it when a row is added
+			if not row.conn_id:
+				row.conn_id = frappe.generate_hash(length=10)
+		# passwords of a connection row that was deleted go with it
+		ids = {row.conn_id for row in self.get("pilot_connections") or []}
+		self.set("pilot_customer_passwords",
+		         [pw for pw in self.get("pilot_customer_passwords") or [] if pw.connection in ids])
+		for row in self.get("pilot_connections") or []:
 			row.label = (row.label or "").strip()
 			where = _("Pilot Connections row {0}").format(row.idx)
 			fields = email_fields_of(row.email_fields)

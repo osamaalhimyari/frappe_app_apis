@@ -6,26 +6,22 @@ move into rows 1 and 2 of the Pilot Connections table.
 
 pilot_* goes to row 1 and pilot2_* to row 2 -- the same estates
 pilot_admin_to_connections_table put there. A row is created when the estate
-has live settings but no admin row yet. The Pilot Passwords tables become the
-row's Customer Passwords (comma-separated, same order), and every account's
-remembered password is re-pointed at the same password, so no customer is
-tried from the top again.
+has live settings but no admin row yet. The lines of the old Pilot Passwords
+tables are moved, not copied, into the Pilot Customer Passwords table with the
+row's id, so they keep their names, their encrypted passwords and their order --
+and every account's remembered password still points at the same line.
 
 Written straight to the database, for the same reason as the patch before it:
-saving app_apis runs its whole validate(). Old values are deleted only after
-the new encrypted copy has been read back and matches. Self-contained on
-purpose -- a patch that imports runtime code breaks the day that code changes.
+saving app_apis runs its whole validate(). Self-contained on purpose -- a patch
+that imports runtime code breaks the day that code changes.
 """
 
-import hashlib
-
 import frappe
-from frappe.utils.password import get_decrypted_password, set_encrypted_password
 
 CHILD = "App Apis Pilot Connection"
 TABLE = "pilot_connections"
 PW_CHILD = "App Apis Pilot Password"
-LOGIN_DT = "App Apis Pilot Login"
+PW_TABLE = "pilot_customer_passwords"
 
 # old prefix, old password table, row number, name for a new row
 ESTATES = (("pilot", "pilot_password_list", 1, "Pilot (WSL)"), ("pilot2", "pilot2_password_list", 2, "Pilot 2"))
@@ -38,56 +34,41 @@ def _single(field):
 	return got[0][0] if got else None
 
 
-def _password_id(password):
-	return "pw:" + hashlib.sha256(str(password).encode()).hexdigest()[:12]
-
-
 def execute():
-	if not frappe.db.exists("DocType", CHILD) or not frappe.db.has_column(CHILD, "customer_passwords"):
+	if not frappe.db.exists("DocType", CHILD) or not frappe.db.has_column(CHILD, "live_base_url") \
+			or not frappe.db.has_column(PW_CHILD, "connection"):
 		return
 
+	next_idx = (frappe.db.sql("select max(idx) from `tab%s` where parent='app_apis' and parentfield=%%s" % PW_CHILD,
+	                          PW_TABLE)[0][0] or 0)
 	for prefix, pw_table, idx, label in ESTATES:
 		old = {k: _single(prefix + "_" + k) for k in MOVES}
-		pw_rows = frappe.get_all(PW_CHILD, {"parent": "app_apis", "parentfield": pw_table}, ["name"], order_by="idx asc") \
-			if frappe.db.exists("DocType", PW_CHILD) else []
-		passwords, ids = [], {}
-		for r in pw_rows:
-			pw = get_decrypted_password(PW_CHILD, r.name, "password", raise_exception=False)
-			if pw and pw not in passwords:
-				passwords.append(pw)
-			if pw:
-				ids[r.name] = _password_id(pw)
-		if not any(old.values()) and not passwords:
+		pw_rows = frappe.get_all(PW_CHILD, {"parent": "app_apis", "parentfield": pw_table}, ["name"], order_by="idx asc")
+		if not any(old.values()) and not pw_rows:
 			continue  # nothing was set for this estate
 
-		row = frappe.db.get_value(CHILD, {"parent": "app_apis", "parentfield": TABLE, "idx": idx}, "name")
+		row = frappe.db.get_value(CHILD, {"parent": "app_apis", "parentfield": TABLE, "idx": idx}, ["name", "conn_id"], as_dict=True)
 		if not row:
-			row = frappe.generate_hash(length=10)
-			frappe.get_doc({"doctype": CHILD, "name": row, "parent": "app_apis", "parenttype": "app_apis",
-			                "parentfield": TABLE, "idx": idx, "label": label, "enabled": 0,
+			row = frappe._dict(name=frappe.generate_hash(length=10), conn_id=frappe.generate_hash(length=10))
+			frappe.get_doc({"doctype": CHILD, "name": row.name, "parent": "app_apis", "parenttype": "app_apis",
+			                "parentfield": TABLE, "idx": idx, "label": label, "enabled": 0, "conn_id": row.conn_id,
 			                "email_fields": "email_pilot" if idx == 1 else "email_pilot2",
 			                "uses_wasl": 1 if idx == 1 else 0}).db_insert()
+		elif not row.conn_id:
+			row.conn_id = frappe.generate_hash(length=10)
+			frappe.db.set_value(CHILD, row.name, "conn_id", row.conn_id, update_modified=False)
 
 		values = {}
 		for k, field in MOVES.items():
-			current = frappe.db.get_value(CHILD, row, field)
-			if old[k] not in (None, "") and not current:
+			if old[k] not in (None, "") and not frappe.db.get_value(CHILD, row.name, field):
 				values[field] = old[k]
 		if values:
-			frappe.db.set_value(CHILD, row, values, update_modified=False)
+			frappe.db.set_value(CHILD, row.name, values, update_modified=False)
 
-		if passwords and not frappe.db.get_value(CHILD, row, "customer_passwords"):
-			joined = ",".join(passwords)
-			frappe.db.set_value(CHILD, row, "customer_passwords", "*" * len(joined), update_modified=False)
-			set_encrypted_password(CHILD, row, joined, "customer_passwords")
-			if get_decrypted_password(CHILD, row, "customer_passwords", raise_exception=False) != joined:
-				frappe.throw("Could not move %s into Pilot Connections row %s; the old passwords were left in place." % (pw_table, idx))
-			# the per-account memory pointed at the old table rows; point it at the same passwords
-			for old_row, new_id in ids.items():
-				frappe.db.sql("update `tab%s` set password_row=%%s where password_row=%%s" % LOGIN_DT, (new_id, old_row))
-			for r in pw_rows:
-				frappe.db.sql("delete from `__Auth` where doctype=%s and name=%s", (PW_CHILD, r.name))
-			frappe.db.delete(PW_CHILD, {"parent": "app_apis", "parentfield": pw_table})
+		for r in pw_rows:
+			next_idx += 1
+			frappe.db.sql("update `tab%s` set parentfield=%%s, connection=%%s, idx=%%s where name=%%s" % PW_CHILD,
+			              (PW_TABLE, row.conn_id, next_idx, r.name))
 
 		for k in MOVES:
 			frappe.db.sql("delete from `tabSingles` where doctype='app_apis' and field=%s", prefix + "_" + k)

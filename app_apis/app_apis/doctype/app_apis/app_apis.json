@@ -8,6 +8,7 @@
  "field_order": [
   "sec_pilot_connections",
   "pilot_connections",
+  "pilot_customer_passwords",
   "sec_im",
   "im_base_url",
   "im_project_id",
@@ -113,6 +114,14 @@
    "fieldtype": "Table",
    "label": "Pilot Connections",
    "options": "App Apis Pilot Connection"
+  },
+  {
+   "fieldname": "pilot_customer_passwords",
+   "fieldtype": "Table",
+   "hidden": 1,
+   "label": "Pilot Customer Passwords",
+   "options": "App Apis Pilot Password",
+   "description": "Edited inside each Pilot Connections row (Customer Passwords)."
   },
   {
    "collapsible": 1,
