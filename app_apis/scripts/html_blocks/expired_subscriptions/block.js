@@ -1,7 +1,7 @@
 // Expired Subscriptions -- a Custom HTML Block.
 //
-// INDIVIDUALS ONLY: a vehicle is listed when its Customer Type is Individual and Paying is
-// not Company (the same rule the subscription reminders use). Companies are left out.
+// INDIVIDUALS ONLY: a vehicle is listed when its Customer Type is Individual AND Paying is
+// Individuals (the same rule the subscription reminders and automatic messages use). Everything else is left out.
 // Plate, IMEI and Customer open the record when pressed. The last column has the row tools:
 // Check SIM, Suspend SIM, Delete WASL only and Delete from Pilot WSL / Pilot 2 / IM, in a ⋯ menu.
 //
@@ -125,11 +125,11 @@ async function load_direct(days) {
 		(page || []).forEach((c) => { people[c.name] = c; });
 	}
 
-	// individuals only: Customer Type Individual and Paying (vehicle's, else customer's) not Company
+	// individuals only: Customer Type Individual AND Paying (vehicle's, else customer's) Individuals
 	const individual = (v) => {
 		const c = people[v.customer] || {};
 		if (String(c.customer_type || "").toLowerCase() !== "individual") return false;
-		return String(v.paying || c.paying || "").toLowerCase() !== "company";
+		return String(v.paying || c.paying || "").toLowerCase().indexOf("individual") === 0;
 	};
 	const kept = vehicles.filter(individual);
 

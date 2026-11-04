@@ -74,8 +74,50 @@ def customer_type(customer) -> str:
 	return str(value or "").strip().lower()
 
 
-def type_allowed(customer, allowed: list[str]) -> bool:
-	"""Is this customer one of `allowed`? `All` or `*` in the list means yes.
+def paying(customer, record=None) -> str:
+	"""Who pays, lowercased: the record's own Paying (the ticket's or the vehicle's) when it has one,
+	else the Customer's. "" when neither says."""
+	own = str((record or {}).get("paying") or "").strip().lower() if record is not None else ""
+	if own:
+		return own
+	name = str(customer or "").strip()
+	if not name:
+		return ""
+	try:
+		return str(frappe.get_cached_value("Customer", name, "paying") or "").strip().lower()
+	except Exception:
+		return ""
+
+
+def is_individual(customer_type_value, paying_value) -> bool:
+	"""THE rule: an individual only when BOTH say so -- Customer Type is Individual AND Paying is
+	Individuals. Anything else (a company type, or an individual whose bill a company pays, or a
+	blank) is not an individual."""
+	return (str(customer_type_value or "").strip().lower() == "individual"
+	        and str(paying_value or "").strip().lower().startswith("individual"))
+
+
+def effective_type(customer, record=None) -> str:
+	"""The type the filters compare with the settings lists: "individual" only when Customer Type and
+	Paying are both individual; an Individual whose Paying is Company counts as "company"; any other
+	type is its own Customer Type (company, partnership ...). "" when the customer cannot be read."""
+	ctype = customer_type(customer)
+	if not ctype:
+		return ""
+	if ctype != "individual":
+		return ctype
+	return "individual" if is_individual(ctype, paying(customer, record)) else "company"
+
+
+def describe(customer, record=None) -> str:
+	"""For messages: "Customer Type Individual, Paying Company"."""
+	ctype = customer_type(customer) or "-"
+	return "Customer Type %s, Paying %s" % (ctype.title(), (paying(customer, record) or "-").title())
+
+
+def type_allowed(customer, allowed: list[str], record=None) -> bool:
+	"""Is this customer one of `allowed`? `All` or `*` in the list means yes. The customer's type is
+	effective_type: Customer Type and Paying together (the record's Paying first, see paying()).
 
 	An unset or unknown customer is never allowed through. If the system cannot
 	tell who it is dealing with, it should not act as though it knows.
@@ -83,17 +125,17 @@ def type_allowed(customer, allowed: list[str]) -> bool:
 	if not allowed or "all" in allowed or "*" in allowed:
 		return True
 
-	return customer_type(customer) in allowed
+	return effective_type(customer, record) in allowed
 
 
-def may_be_messaged(customer, settings=None) -> bool:
-	"""Types the automatic messages are allowed to write to."""
+def may_be_messaged(customer, settings=None, record=None) -> bool:
+	"""Types the automatic messages are allowed to write to. `record` is the ticket."""
 	settings = settings if settings is not None else _settings()
 	allowed = csv_types(settings.get(MESSAGE_TYPES_FIELD), DEFAULT_MESSAGE_TYPES)
-	return type_allowed(customer, allowed)
+	return type_allowed(customer, allowed, record)
 
 
-def may_see_vehicle(customer, settings=None) -> bool:
+def may_see_vehicle(customer, settings=None, record=None) -> bool:
 	"""Types that are shown their vehicle number.
 
 	Read by the Chatwoot templates and by the public feedback page, so the
@@ -102,4 +144,4 @@ def may_see_vehicle(customer, settings=None) -> bool:
 	"""
 	settings = settings if settings is not None else _settings()
 	allowed = csv_types(settings.get(VEHICLE_TYPES_FIELD), DEFAULT_VEHICLE_TYPES)
-	return type_allowed(customer, allowed)
+	return type_allowed(customer, allowed, record)

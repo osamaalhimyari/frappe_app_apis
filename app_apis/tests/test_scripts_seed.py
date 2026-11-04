@@ -104,9 +104,9 @@ class TestExpiredSubscriptions(unittest.TestCase):
 		with open(os.path.join(SCRIPTS, "server", meta["file"])) as f:
 			source = f.read()
 		compile_restricted(source, "expired_devices_api", "exec", policy=FrappeTransformer)
-		# individuals only: Customer Type Individual and Paying not Company, in BOTH queries
+		# individuals only: Customer Type Individual AND Paying Individuals, in BOTH queries
 		self.assertEqual(source.count("+ INDIVIDUAL_ONLY +"), 2)
-		self.assertIn("!= 'company'", source)
+		self.assertIn("like 'individual%%'", source)
 
 	def test_block_is_shipped_managed_with_links_and_row_tools(self):
 		folder = os.path.join(SCRIPTS, "html_blocks", "expired_subscriptions")

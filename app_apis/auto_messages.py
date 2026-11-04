@@ -58,7 +58,7 @@ stopped naming stages at all, once a row could be anything an operator typed.
 import frappe
 from frappe.utils import cint, now_datetime
 
-from app_apis.customers import may_be_messaged
+from app_apis.customers import describe, may_be_messaged
 from app_apis.access import require_login
 
 # Both spellings of "the ticket's state" are watched. `workflow_state` is what
@@ -364,7 +364,7 @@ def _customer_allowed(doc, settings) -> bool:
 	off fields an operator types by hand, and two copies of that would eventually
 	disagree about a stray capital letter.
 	"""
-	return may_be_messaged(doc.get("customer"), settings)
+	return may_be_messaged(doc.get("customer"), settings, doc)
 
 
 # --------------------------------------------------------------------------
@@ -692,8 +692,8 @@ def send_now(ticket: str, state: str, to: str, force: int = 0) -> dict:
 		if not cint(settings.get("auto_message_enabled")):
 			return {"ok": False, "msg": "Automatic messages are switched off in App APIs settings."}
 		if not _customer_allowed(doc, settings):
-			customer_type = frappe.get_cached_value("Customer", doc.get("customer"), "customer_type")
-			return {"ok": False, "msg": f"Customer type '{customer_type or '-'}' is not in the allowed list."}
+			who = describe(doc.get("customer"), doc)
+			return {"ok": False, "msg": f"{who}: not in the allowed list (an individual needs both to be individual)."}
 
 	if not cint(force) and _already_sent(ticket, identity, tech_phone):
 		return {"ok": False, "msg": f"'{identity}' has already been sent for this ticket. Pass force=1 to repeat it."}
@@ -726,7 +726,7 @@ def preview(ticket: str) -> dict:
 	settings = _settings()
 	doc = frappe.get_doc("xticket", ticket)
 	ready, why = cw._ready(cw._settings())
-	customer_type = frappe.get_cached_value("Customer", doc.get("customer"), "customer_type")
+	customer_type = describe(doc.get("customer"), doc)
 	current = [str(doc.get(f) or "").strip().lower() for f in STATE_FIELDS]
 
 	from app_apis import technicians
@@ -757,7 +757,7 @@ def preview(ticket: str) -> dict:
 			if not customer_on:
 				blocked.append("customer messages are off")
 			if not customer_ok:
-				blocked.append(f"customer type '{customer_type or '-'}' is not allowed")
+				blocked.append(f"{customer_type} is not allowed (an individual needs both to be individual)")
 			if not cw.ticket_phone(doc):
 				blocked.append("no usable phone on the ticket")
 		if not ready:

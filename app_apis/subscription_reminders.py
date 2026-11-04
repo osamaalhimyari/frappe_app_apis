@@ -415,13 +415,21 @@ def vehicles_in_window(cfg: dict) -> list[dict]:
 
 
 def is_individual(customer, vehicle=None) -> bool:
-	"""True only when nothing says "company". Either signal is enough to make it
-	a company: the Customer Type is anything but Individual, or Paying is
-	"Company" -- on the vehicle, else on the customer if the vehicle has none."""
-	if str((customer or {}).get("customer_type") or "").strip().lower() != "individual":
-		return False
-	paying = str((vehicle or {}).get("paying") or (customer or {}).get("paying") or "").strip().lower()
-	return paying != "company"
+	"""An individual only when BOTH say so: the Customer Type is Individual AND Paying is Individuals
+	-- the vehicle's Paying, else the customer's if the vehicle has none (app_apis.customers.is_individual)."""
+	from app_apis.customers import is_individual as both_individual
+
+	paying = (vehicle or {}).get("paying") or (customer or {}).get("paying")
+	return both_individual((customer or {}).get("customer_type"), paying)
+
+
+def _effective_type(customer, vehicle=None) -> str:
+	"""What the Customer Types setting is compared with: "individual" only when Customer Type and Paying
+	are both individual, "company" for an Individual whose bill a company pays, else the Customer Type."""
+	ctype = str((customer or {}).get("customer_type") or "").strip().lower()
+	if ctype != "individual":
+		return ctype
+	return "individual" if is_individual(customer, vehicle) else "company"
 
 
 def _plate(vehicle: dict) -> str:
@@ -601,8 +609,8 @@ def plan(cfg: dict | None = None, budget: int | None = None, rows: dict | None =
 			continue
 
 		c = customers.get(v.customer) or {}
-		if not all_types and str(c.get("customer_type") or "").strip().lower() not in allowed_types:
-			_count(passed, "customer type not in the list")
+		if not all_types and _effective_type(c, v) not in allowed_types:
+			_count(passed, "customer type / paying not in the list")
 			continue
 
 		plate = _plate(v)

@@ -15,8 +15,8 @@
 #   action=block   block one device on Pilot: cmd=setvehblock&status=0.
 #   action=unblock the same with status=1 -- how a mistake is undone.
 #
-# ONLY INDIVIDUALS: a vehicle is listed when its Customer Type is Individual and Paying is not
-# "Company" (vehicle's value, else the customer's). Companies are left out of the list and of the counts.
+# ONLY INDIVIDUALS: a vehicle is listed when its Customer Type is Individual AND Paying is Individuals
+# (the vehicle's Paying, else the customer's). Everything else is left out of the list and of the counts.
 #
 # LIVE = 0 HERE: block and unblock answer with what they would have sent and
 # call nothing. Set LIVE = 1 to let the buttons really reach Pilot.
@@ -34,12 +34,12 @@ ROW_LIMIT = 3000             # rows returned in one list call
 
 SETTINGS = "app_apis"
 
-# Only individuals are listed. A vehicle is a company -- and left out -- when EITHER its Customer
-# Type is not Individual OR Paying is "Company" (the vehicle's own value, else the customer's).
-# This is the same rule the subscription reminders use (subscription_reminders.is_individual).
+# Only individuals are listed: BOTH the Customer Type is Individual AND Paying is Individuals (the
+# vehicle's own Paying, else the customer's). Anything else is left out. The same rule the
+# subscription reminders and automatic messages use (app_apis.customers.is_individual).
 INDIVIDUAL_ONLY = (
     "and lower(ifnull(c.customer_type, '')) = 'individual' "
-    "and lower(ifnull(nullif(v.paying, ''), ifnull(c.paying, ''))) != 'company' "
+    "and lower(ifnull(nullif(v.paying, ''), ifnull(c.paying, ''))) like 'individual%%' "
 )
 DNC_DT = "App Apis Do Not Contact"
 SCRIPT_NAME = "expired_devices_api"
@@ -209,7 +209,8 @@ if action == "list":
         imei = str(v.imei or "").strip()
         row = estate.get(imei) or {}
         plate = str(v.license_plate or v.e_license_plate or v.plate_num or v.audit_plate or "").strip()
-        wrong_type = (not all_types) and str(v.customer_type or "").strip().lower() not in allowed_types
+        # every listed row is an individual by both fields (INDIVIDUAL_ONLY), so the type compared is that
+        wrong_type = (not all_types) and "individual" not in allowed_types
         data.append({
             "vehicle": v.name,
             "imei": imei,
@@ -241,7 +242,7 @@ if action == "list":
         "days": days,
         "days_after_setting": days_after,
         "grace": GRACE_DAYS,
-        "customer_types": "Individual only (Customer Type Individual and Paying not Company)",
+        "customer_types": "Individual only (Customer Type Individual AND Paying Individuals)",
         "total": total,
         "returned": len(data),
         "limit": ROW_LIMIT,

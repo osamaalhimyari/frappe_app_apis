@@ -34,7 +34,7 @@ def vehicle(name, customer, days, mobile="0501234567", plate=None, deletion=None
 	return frappe._dict(
 		name=name, customer=customer, license_plate=plate or name, e_license_plate="", plate_num="",
 		driver_mobile=mobile, subscription_expiry_date=expiry, device_statues="Installed",
-		paying=1, deletion_date=deletion,
+		paying="", deletion_date=deletion,
 	)
 
 
@@ -100,7 +100,7 @@ class Planning(unittest.TestCase):
 		renewals = renewals or ({}, {})
 		customers = customers if customers is not None else {
 			v.customer: frappe._dict(name=v.customer, customer_name=v.customer.title(),
-			                         mobile_no="", customer_type="Individual")
+			                         mobile_no="", customer_type="Individual", paying="Individuals")
 			for v in vehicles
 		}
 		db = mock.Mock()
@@ -211,7 +211,8 @@ class Planning(unittest.TestCase):
 		self.assertEqual(found["due"][0]["phone"], "+966502222222")
 
 	def test_individual_uses_vehicle_number_then_customer_number(self):
-		customers = {"c1": frappe._dict(name="c1", customer_name="C1", mobile_no="0509999999", customer_type="Individual")}
+		customers = {"c1": frappe._dict(name="c1", customer_name="C1", mobile_no="0509999999", customer_type="Individual",
+		                                paying="Individuals")}
 		found = self.plan([vehicle("A", "c1", 1, mobile="0501111111")], customers=customers)
 		self.assertEqual(found["due"][0]["phone"], "+966501111111")
 		self.assertEqual(found["due"][0]["phone_source"], "A.driver_mobile")
@@ -245,6 +246,23 @@ class Planning(unittest.TestCase):
 		customers["c1"]["paying"] = ""
 		self.assertEqual(self.plan([v], customers=customers)["due"][0]["phone"], "+966501111111")
 
+	def test_individual_needs_both_type_and_paying(self):
+		# Customer Type Individual AND Paying Individuals -> individual; anything else is not
+		self.assertTrue(sr.is_individual({"customer_type": "Individual", "paying": "Individuals"}))
+		self.assertFalse(sr.is_individual({"customer_type": "Individual", "paying": "Company"}))
+		self.assertFalse(sr.is_individual({"customer_type": "Individual", "paying": ""}))
+		self.assertFalse(sr.is_individual({"customer_type": "Company", "paying": "Individuals"}))
+		# the vehicle's own Paying comes first
+		self.assertFalse(sr.is_individual({"customer_type": "Individual", "paying": "Individuals"}, {"paying": "Company"}))
+		self.assertTrue(sr.is_individual({"customer_type": "Individual", "paying": "Company"}, {"paying": "Individuals"}))
+
+	def test_customer_types_setting_reads_both_fields(self):
+		customers = {"c1": frappe._dict(name="c1", customer_name="C1", mobile_no="0509999999", customer_type="Individual",
+		                                paying="Company")}
+		vs = [vehicle("A", "c1", 1)]
+		self.assertEqual(self.plates(self.plan(vs, customers=customers, config=cfg(subscription_reminder_customer_types="individual"))), [])
+		self.assertEqual(self.plates(self.plan(vs, customers=customers, config=cfg(subscription_reminder_customer_types="company"))), ["A"])
+
 	def test_company_customer_type_wins_over_paying_individuals(self):
 		customers = {"c1": frappe._dict(name="c1", customer_name="C1", mobile_no="0509999999", customer_type="Company")}
 		v = vehicle("A", "c1", 1, mobile="0501111111")
@@ -253,7 +271,7 @@ class Planning(unittest.TestCase):
 
 	def test_customer_types(self):
 		customers = {
-			"c1": frappe._dict(name="c1", customer_name="C1", mobile_no="", customer_type="Individual"),
+			"c1": frappe._dict(name="c1", customer_name="C1", mobile_no="", customer_type="Individual", paying="Individuals"),
 			"c2": frappe._dict(name="c2", customer_name="C2", mobile_no="0508888888", customer_type="Company"),
 		}
 		vs = [vehicle("A", "c1", 1), vehicle("B", "c2", 2)]

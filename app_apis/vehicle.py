@@ -102,7 +102,7 @@ def for_customer(doc, lang: str = DEFAULT_LANGUAGE, settings=None) -> str:
 	if doc is None:
 		return ""
 
-	if not may_see_vehicle(doc.get("customer"), settings):
+	if not may_see_vehicle(doc.get("customer"), settings, doc):
 		return ""
 
 	return plate(doc, lang)
