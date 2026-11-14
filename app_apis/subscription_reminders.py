@@ -112,7 +112,8 @@ from app_apis import do_not_contact
 from app_apis.contacts import BILINGUAL, format_contacts
 from app_apis.customers import csv_types
 from app_apis.phone import saudi_mobile
-from app_apis.access import require_login
+from app_apis import access
+from app_apis.access import require
 
 LOGGER = "app_apis"
 SETTINGS = "app_apis"
@@ -1002,7 +1003,7 @@ def preview(limit: int = 20) -> dict:
 	System Manager only: this reports customer names and phone numbers across
 	the whole book, which is a much broader read than any one ticket.
 	"""
-	require_login()
+	require(access.VIEW)
 
 	cfg = settings()
 	rows, problems = usable_rows(cfg)
@@ -1062,5 +1063,5 @@ def run_now(limit: int | None = None) -> dict:
 	Still obeys `enabled`, `dry_run`, the repeat window and the daily limit --
 	see `run`.
 	"""
-	require_login()
+	require(access.MESSAGES)
 	return run(force=True, limit=cint(limit) if limit else None)

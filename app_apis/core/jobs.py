@@ -10,12 +10,13 @@ flags on the settings Single) and never raises -- see the module each wraps.
 """
 
 import frappe
-from app_apis.access import require_login
+from app_apis import access
+from app_apis.access import require
 
 
 @frappe.whitelist(methods=["POST"])
 def subscription_reminders_hourly():
-	require_login()
+	require(access.MESSAGES)
 	from app_apis import subscription_reminders
 
 	return subscription_reminders.hourly()
@@ -23,7 +24,7 @@ def subscription_reminders_hourly():
 
 @frappe.whitelist(methods=["POST"])
 def stale_reminders_hourly():
-	require_login()
+	require(access.MESSAGES)
 	from app_apis import stale_reminders
 
 	return stale_reminders.hourly()

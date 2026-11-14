@@ -41,6 +41,7 @@ import re
 import frappe
 from frappe.utils import add_months, cint, flt, get_first_day, get_last_day, getdate, now_datetime
 
+from app_apis import audit
 from app_apis.core import http, store
 
 SETTINGS = "app_apis"
@@ -703,8 +704,10 @@ def sim_action(action: str, subscriber_id) -> dict:
 	if not res.get("ok"):
 		frappe.log_error(title="Lebara %s %s failed" % (action, sub_id),
 		                 message="By %s: %s" % (frappe.session.user, "; ".join(messages) or res.get("error")))
-	return {"ok": bool(res.get("ok")), "message": "; ".join(messages) or res.get("error") or "",
-	        "http": res.get("status")}
+	said = "; ".join(messages) or res.get("error") or ""
+	audit.record(action, "lebara", "", "subscriber %s" % sub_id, res.get("ok"), said or "HTTP %s" % res.get("status"),
+	             "app_apis.core.lebara")
+	return {"ok": bool(res.get("ok")), "message": said, "http": res.get("status")}
 
 
 def send_sms(subscriber_id, msisdn: str, message: str, sender: str = "0") -> dict:
@@ -719,6 +722,7 @@ def send_sms(subscriber_id, msisdn: str, message: str, sender: str = "0") -> dic
 	before = sms_query([["ToMsisdn"], "=", msisdn], 1, "Id DESC")
 	service("/SimDetail/SendSMS", {"Id": cint(subscriber_id), "Source_MSISDN": str(sender or "0"),
 	                               "Destination_MSISDN": msisdn, "Message": text})
+	audit.record("send sms", "lebara", "", msisdn, True, text, "app_apis.core.lebara")
 	return {"ok": True, "before_id": cint(before[0].get("Id")) if before else 0, "message": text}
 
 

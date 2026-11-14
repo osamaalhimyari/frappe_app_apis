@@ -338,6 +338,8 @@ frappe.ui.form.on("app_apis", {
 	},
 
 	refresh(frm) {
+		frm.add_custom_button(__("Health"), () => frappe.set_route("app-apis-health"));
+		frm.add_custom_button(__("Action Log"), () => frappe.set_route("List", "App Apis Action Log"));
 		frm.add_custom_button(__("Send Test Template"), () => wa_send_test(), __("WhatsApp"));
 
 		lebara_buttons(frm);

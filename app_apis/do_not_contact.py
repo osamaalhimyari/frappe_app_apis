@@ -69,7 +69,8 @@ from frappe import _
 from frappe.utils import cint
 
 from app_apis.phone import normalise
-from app_apis.access import require_login
+from app_apis import access
+from app_apis.access import require
 
 DOCTYPE = "App Apis Do Not Contact"
 
@@ -308,7 +309,7 @@ def unblock(name: str, reason: str = "") -> dict:
 	somebody back on the receiving end of automatic messages after they asked
 	not to be is a decision, not a correction.
 	"""
-	require_login()
+	require(access.MESSAGES)
 
 	if not frappe.db.exists(DOCTYPE, name):
 		return {"ok": False, "msg": _("No such row: {0}").format(name)}

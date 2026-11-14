@@ -6,6 +6,11 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "sec_access",
+  "access_rules",
+  "sec_health",
+  "alert_users",
+  "health_live_checks",
   "sec_pilot_connections",
   "pilot_connections",
   "pilot_customer_passwords",
@@ -85,6 +90,39 @@
   "excluded_customers"
  ],
  "fields": [
+  {
+   "collapsible": 1,
+   "fieldname": "sec_access",
+   "fieldtype": "Section Break",
+   "label": "Access"
+  },
+  {
+   "fieldname": "access_rules",
+   "fieldtype": "Table",
+   "label": "Access Rules",
+   "options": "App Apis Access Rule",
+   "description": "Which roles may use each group of actions. A group with no rows is open to every staff login. System Manager always has access. Portal (customer) logins never do. Who may open records (vehicles, logs, this page) is still set in Role Permission Manager."
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "sec_health",
+   "fieldtype": "Section Break",
+   "label": "Health and Alerts"
+  },
+  {
+   "fieldname": "alert_users",
+   "fieldtype": "Table MultiSelect",
+   "label": "Alert Users",
+   "options": "App Apis Alert User",
+   "description": "Get a notification (the bell) when a connection or an hourly job breaks, and again when it is fixed. Empty = no alerts."
+  },
+  {
+   "default": "0",
+   "fieldname": "health_live_checks",
+   "fieldtype": "Check",
+   "label": "Test Connections Hourly",
+   "description": "Also sign in to every enabled Pilot and IM connection once an hour. Off: only what already happened is checked (job runs, failed logins, Lebara session)."
+  },
   {
    "collapsible": 1,
    "fieldname": "sec_pilot_connections",
@@ -288,7 +326,7 @@
    "fieldname": "message_placeholders",
    "fieldtype": "HTML",
    "label": "Message Placeholders",
-   "options": "<div style=\"margin-top:12px\"><div style=\"font-size:12px;font-weight:600;margin-bottom:6px\">Message Placeholders</div><div style=\"font-size:11px;color:var(--text-muted);margin:6px 0 2px\">Status Rules</div><div><code title=\"Ticket number\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{ticket}</code><code title=\"Ticket status\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{state}</code><code title=\"Customer name\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{customer}</code><code title=\"Assigned technician\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{engineer}</code><code title=\"Vehicle line (dropped if empty)\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{vehicle}</code><code title=\"Plate only\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{plate}</code><code title=\"Location line (dropped if empty)\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{location}</code><code title=\"Phone line (dropped if empty)\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{phone}</code><code title=\"Company name\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{company}</code><code title=\"Valuation link (customer messages only)\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{link}</code><code title=\"Contact Numbers table\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{contacts}</code></div><div style=\"font-size:11px;color:var(--text-muted);margin:6px 0 2px\">Stale Ticket Rules</div><div><code title=\"Technician name\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{engineer}</code><code title=\"How many of their tickets are stuck\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{count}</code><code title=\"The row&#x27;s status\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{state}</code><code title=\"The row&#x27;s hours\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{hours}</code></div><div style=\"font-size:11px;color:var(--text-muted);margin:6px 0 2px\">Reminder Messages</div><div><code title=\"Customer name\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{customer}</code><code title=\"Number of vehicles\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{count}</code><code title=\"Vehicle list\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{vehicles}</code><code title=\"First plate\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{plate}</code><code title=\"Soonest expiry date\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{expiry}</code><code title=\"Days to or since expiry\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{days}</code><code title=\"Company name\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{company}</code><code title=\"Contact Numbers table\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{contacts}</code></div></div>"
+   "options": "<div style=\"margin-top:12px\"><div style=\"font-size:12px;font-weight:600;margin-bottom:6px\">Message Placeholders</div><div style=\"font-size:11px;color:var(--text-muted);margin:6px 0 2px\">Status Rules</div><div><code title=\"Ticket number\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{ticket}</code><code title=\"Ticket status\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{state}</code><code title=\"Customer name\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{customer}</code><code title=\"Assigned technician\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{engineer}</code><code title=\"Vehicle line (dropped if empty)\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{vehicle}</code><code title=\"Plate only\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{plate}</code><code title=\"Location line (dropped if empty)\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{location}</code><code title=\"Phone line (dropped if empty)\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{phone}</code><code title=\"Service location kind: customer site (with place) / our branch / remote (dropped if empty)\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{where}</code><code title=\"Google Maps link to the service location pin (dropped if empty)\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{map}</code><code title=\"Company name\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{company}</code><code title=\"Valuation link (customer messages only)\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{link}</code><code title=\"Contact Numbers table\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{contacts}</code></div><div style=\"font-size:11px;color:var(--text-muted);margin:6px 0 2px\">Stale Ticket Rules</div><div><code title=\"Technician name\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{engineer}</code><code title=\"How many of their tickets are stuck\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{count}</code><code title=\"The row&#x27;s status\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{state}</code><code title=\"The row&#x27;s hours\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{hours}</code></div><div style=\"font-size:11px;color:var(--text-muted);margin:6px 0 2px\">Reminder Messages</div><div><code title=\"Customer name\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{customer}</code><code title=\"Number of vehicles\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{count}</code><code title=\"Vehicle list\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{vehicles}</code><code title=\"First plate\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{plate}</code><code title=\"Soonest expiry date\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{expiry}</code><code title=\"Days to or since expiry\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{days}</code><code title=\"Company name\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{company}</code><code title=\"Contact Numbers table\" style=\"display:inline-block;margin:0 4px 4px 0;cursor:help\">{contacts}</code></div></div>"
   },
   {
    "default": "1",
@@ -599,7 +637,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-10 12:00:00.000000",
+ "modified": "2026-11-14 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "App Apis",
  "name": "app_apis",
@@ -618,5 +656,6 @@
  "rows_threshold_for_grid_search": 20,
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "track_changes": 1
 }

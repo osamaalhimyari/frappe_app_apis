@@ -38,7 +38,8 @@ import time
 import frappe
 from frappe import _
 from frappe.utils import cint, now_datetime
-from app_apis.access import require_login
+from app_apis import access
+from app_apis.access import require
 
 DOCTYPE = "App Apis WhatsApp Template"
 
@@ -338,7 +339,7 @@ def sync(connector: str | None = None) -> dict:
 	this token can see are reconciled -- an inbox missing from the answer is
 	left alone rather than having all its templates declared gone.
 	"""
-	require_login()
+	require(access.ADMIN)
 
 	from app_apis import chatwoot_connector as cw
 
@@ -431,7 +432,7 @@ def send_test(template: str, phone: str, variables: str = "") -> dict:
 	window -- and waits to report whether WhatsApp accepted it. There is no
 	ticket here to fill {customer} or {plate} from: type sample values.
 	"""
-	require_login()
+	require(access.MESSAGES)
 
 	from app_apis import chatwoot_connector as cw
 

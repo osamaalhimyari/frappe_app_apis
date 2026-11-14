@@ -25,7 +25,8 @@ import json
 
 import frappe
 import requests
-from app_apis.access import require_login
+from app_apis import access, audit
+from app_apis.access import require
 
 VEH_DT = "Customer Vehicle"
 TIMEOUT = 60
@@ -42,7 +43,7 @@ def _s(v):
 
 
 def _check_roles():
-    require_login()
+    require(access.WASL)
 
 
 def _plain(v):
@@ -207,11 +208,31 @@ def _payload(f):
 
 
 # ---------------------------------------------------------------- API
+def _pilot_key(account) -> str:
+    from app_apis.pilot_admin import connection_key
+
+    return connection_key(account)
+
+
 @frappe.whitelist()
 def link_vehicle(vehicle, form, register=1, account=1):
     """Save the WASL form on Pilot, then (register=1) register it with WASL. `account` is the Pilot
-    Connections row the vehicle is on."""
+    Connections row the vehicle is on. Every attempt that reaches Pilot goes to the action log."""
     _check_roles()
+    action = "wasl link" if frappe.utils.cint(register) else "wasl save form"
+    try:
+        out = _link_vehicle(vehicle, form, register, account)
+    except frappe.PermissionError:
+        raise
+    except Exception as e:
+        audit.record(action, _pilot_key(account), vehicle, "", False, str(e), "app_apis.wasl")
+        raise
+    if (out or {}).get("step") != "validate":
+        audit.record(action, _pilot_key(account), vehicle, out.get("imei"), out.get("ok"), out.get("msg"), "app_apis.wasl")
+    return out
+
+
+def _link_vehicle(vehicle, form, register=1, account=1):
     doc = frappe.get_doc(VEH_DT, vehicle)
     f = json.loads(form) if isinstance(form, str) else (form or {})
     imei = _s(doc.device_serial)
@@ -282,6 +303,24 @@ def _wasl_call(sess, url, cmd, agent_id, timeout):
 
 @frappe.whitelist(methods=["POST"])
 def wasl_delete(vehicle, confirm="", dry_run=1, account=1):
+    """Delete a vehicle from the WASL database ONLY (see _wasl_delete). A real delete (dry_run=0) goes to
+    the action log, whatever its outcome."""
+    require(access.WASL)
+    if frappe.utils.cint(dry_run) or _s(confirm) != DELETE_WORD:
+        return _wasl_delete(vehicle, confirm, dry_run, account)   # a look, or refused for the missing word
+    try:
+        out = _wasl_delete(vehicle, confirm, dry_run, account)
+    except frappe.PermissionError:
+        raise
+    except Exception as e:
+        audit.record("wasl delete", _pilot_key(account), vehicle, "", False, str(e), "app_apis.wasl")
+        raise
+    audit.record("wasl delete", _pilot_key(account), vehicle, out.get("imei"), out.get("deleted"),
+                 out.get("msg") or out.get("detail"), "app_apis.wasl")
+    return out
+
+
+def _wasl_delete(vehicle, confirm="", dry_run=1, account=1):
     """Delete a vehicle from the WASL database ONLY. The Pilot vehicle is not touched.
 
     It is Pilot's own WASL window > Delete ("Delete vehicle from wasl database"):
@@ -295,8 +334,7 @@ def wasl_delete(vehicle, confirm="", dry_run=1, account=1):
 
     -> {state: found|missing|unknown, found, deleted, agent_id, detail, wasl_status, msg}
     """
-    if frappe.session.user == "Guest":
-        frappe.throw("Sign in first.", frappe.PermissionError)
+    require(access.WASL)
     dry = frappe.utils.cint(dry_run)
     if not dry and _s(confirm) != DELETE_WORD:
         frappe.throw("Not deleted: type " + DELETE_WORD + " to confirm.")
@@ -457,7 +495,7 @@ def sync_wasl_states() -> dict:
 
     Vehicles are added and updated from every read. A vehicle is REMOVED only after a read that saw the
     whole list (see read_wasl_list), so a flaky page can never make linked vehicles look unlinked."""
-    require_login()
+    require(access.REPORTS)
     started = frappe.utils.now_datetime()
     out = {"ok": False, "rows": 0, "removed": 0, "complete": False, "note": ""}
     # Every Pilot connection that uses WASL is read and the lists are merged by IMEI. Rows are removed

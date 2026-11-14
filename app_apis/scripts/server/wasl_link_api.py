@@ -67,7 +67,12 @@ out = {"ok": False, "action": action, "live": WASL_LIVE}
 
 
 def allowed():
-    return str(frappe.session.user) != "Guest"
+    # staff logins only (Guest and portal logins are refused), and the action's group must be open to the
+    # user in app_apis settings > Access
+    if not (str(frappe.session.user) == "Administrator" or frappe.db.get_value("User", str(frappe.session.user), "user_type") == "System User"):
+        return False
+    group = "WASL link and delete" if action == "link" else "View platform data"
+    return bool(frappe.call("app_apis.access.can", group=group))
 
 
 def s(v):

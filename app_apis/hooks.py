@@ -176,7 +176,11 @@ doc_events = {
 #   "Lebara Keepalive"                   -> the "lebara" API Server Script
 # The passes still read their hour/weekday/enabled settings from the app_apis
 # Single, as before.
-# scheduler_events = {}
+# Health: what broke since last hour goes to the Alert Users (app_apis settings > Health and Alerts).
+# The other schedules are Server Scripts (scripts/server_scripts.json), so a site can edit them.
+scheduler_events = {
+	"hourly": ["app_apis.health.hourly"],
+}
 
 # Testing
 # -------

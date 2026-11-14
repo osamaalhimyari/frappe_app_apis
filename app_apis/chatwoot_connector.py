@@ -98,7 +98,8 @@ from app_apis.vehicle import for_customer as vehicle_for_customer
 from app_apis.vehicle import line as vehicle_line
 from app_apis.vehicle import plate as vehicle_plate
 from app_apis.vehicle import staff_line as vehicle_staff_line
-from app_apis.access import require_login
+from app_apis import access
+from app_apis.access import require
 
 # Chatwoot's API root. Every path below is relative to /api/v1/accounts/<id>.
 API_ROOT = "/api/v1"
@@ -204,7 +205,9 @@ TEMPLATES = {
 			"🎫 {ticket}\n"
 			"👤 {customer}\n"
 			"{vehicle}\n"
+			"{where}\n"
 			"{location}\n"
+			"{map}\n"
 			"{phone}\n\n"
 			"📞 كلّم العميل ونسّق معه الموعد، وإذا احتجت شي إحنا معك 💪\n"
 			"📞 Give the customer a call and set a time — shout if you need anything 💪"
@@ -1057,6 +1060,15 @@ def recipient_name(doc, template: str) -> str:
 LINE_LABELS = {
 	"location": "📍",
 	"phone": "📞",
+	"map": "🗺️",
+}
+
+# The ticket's Service Location (the Where step before In Hand, an xticket customization). {where} says
+# which kind it is; {map} is a Google Maps link to the pin. Both are empty on a site or ticket without them.
+SERVICE_WHERE = {
+	"At Customer Site": "🏠 في موقع العميل / At the customer's site",
+	"At Our Branch": "🏢 في الفرع / At our branch",
+	"Remote (no visit)": "💻 عن بُعد (بدون زيارة) / Remote (no visit)",
 }
 
 # Where the job actually is, best first. All three are plain display strings on
@@ -1074,6 +1086,26 @@ def _location(doc) -> str:
 		if value:
 			return value[:MAX_LOCATION]
 	return ""
+
+
+def _map_link(doc) -> str:
+	"""A Google Maps link to the ticket's service-location pin, or "" (remote job, or no pin: 0,0)."""
+	if (doc.get("service_location_type") or "") == "Remote (no visit)":
+		return ""
+	lat, lon = frappe.utils.flt(doc.get("latitude")), frappe.utils.flt(doc.get("longitude"))
+	if not (lat or lon):
+		return ""
+	return "https://www.google.com/maps/search/?api=1&query=%.6f,%.6f" % (lat, lon)
+
+
+def _where(doc) -> str:
+	"""Which kind of service location the ticket has, with the place name for a customer site."""
+	kind = (doc.get("service_location_type") or "").strip()
+	text = SERVICE_WHERE.get(kind, "")
+	place = strip_html_tags(str(doc.get("service_address") or "")).strip()
+	if text and kind == "At Customer Site" and place:
+		text = "%s — %s" % (text, place[:MAX_LOCATION])
+	return text
 
 
 def _line(value: str, key: str) -> str:
@@ -1118,6 +1150,9 @@ def _context(doc, template: str, link: str | None = None) -> dict:
 		# that does not mention location at all.
 		"location": _line(_location(doc), "location"),
 		"phone": _line(ticket_phone(doc) or "", "phone"),
+		# The service location (Where step): whole lines, empty when the ticket has none.
+		"where": _where(doc),
+		"map": _line(_map_link(doc), "map"),
 		"company": frappe.defaults.get_user_default("Company") or "",
 		"link": "",
 		# Read from the settings child table, never hardcoded, so the numbers
@@ -1222,7 +1257,7 @@ def test_connection(connector: str | None = None) -> dict:
 	webhook mode there is nothing to call until a message is sent, so this just
 	confirms a URL is set and says so.
 	"""
-	require_login()
+	require(access.ADMIN)
 
 	settings = _settings_for(connector)
 
@@ -1273,7 +1308,7 @@ def list_inboxes(connector: str | None = None) -> dict:
 	it. `connector` picks which one's account to read ("1"/"2"/blank=active);
 	webhook mode has no inbox list to give.
 	"""
-	require_login()
+	require(access.ADMIN)
 
 	settings = _settings_for(connector)
 	if settings.get("method") == "webhook":
@@ -1307,7 +1342,7 @@ def sync_inboxes(connector: str | None = None) -> dict:
 	go out on) and leaving the rest switched off for the operator to enable if
 	they want. Existing rows are replaced.
 	"""
-	require_login()
+	require(access.ADMIN)
 
 	settings = _settings_for(connector)
 	if settings.get("method") == "webhook":
@@ -1471,7 +1506,7 @@ def send_message(text: str, phone: str | None = None, conversation_id=None,
 	capability than "message this ticket's customer", so it is gated separately
 	from `send_ticket_message`, which any agent who can read the ticket may use.
 	"""
-	require_login()
+	require(access.MESSAGES)
 	return _send(text, phone=phone, conversation_id=conversation_id, name=name, private=private)
 
 

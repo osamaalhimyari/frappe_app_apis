@@ -349,7 +349,22 @@ vehicle_name = str(args.get("vehicle") or "").strip()
 out = {"ok": False, "action": action, "target": target,
        "live_targets": list(LIVE_TARGETS), "results": []}
 
-allowed = str(frappe.session.user) != "Guest"
+# Who may run this call: staff logins only (Guest and portal logins are refused), and the action's group
+# must be open to the user in app_apis settings > Access (a group with no rows there is open to all staff).
+ACTION_GROUPS = {
+    "plan": "View platform data", "edit_plan": "View platform data", "delete_plan": "View platform data",
+    "sim_check": "View platform data",
+    "verify": "Upload and edit vehicles", "upload": "Upload and edit vehicles", "edit_save": "Upload and edit vehicles",
+    "im_sync": "Upload and edit vehicles",
+    "delete": "Delete and block vehicles",
+}
+ACCESS_GROUP = ACTION_GROUPS.get(action, "View platform data")
+if action == "delete" and target == "wasl":
+    ACCESS_GROUP = "WASL link and delete"
+is_staff = str(frappe.session.user) == "Administrator" or frappe.db.get_value("User", str(frappe.session.user), "user_type") == "System User"
+allowed = bool(is_staff) and bool(frappe.call("app_apis.access.can", group=ACCESS_GROUP))
+DENIED = ("You do not have access to: " + ACCESS_GROUP + ". Ask an admin (app_apis settings > Access)."
+          if is_staff else "Staff accounts only.")
 
 # one resolved-lookup cache per request, so a multi-target run reads each list once
 LOOKUPS = {}
@@ -2740,6 +2755,17 @@ def which_targets(v, asked):
     return picked
 
 
+def log_action(act, platform, vehicle, imei, ok, result):
+    """One App Apis Action Log row for a change made on a platform. Best effort: never breaks the action."""
+    try:
+        frappe.get_doc({"doctype": "App Apis Action Log", "user": str(frappe.session.user), "action": act,
+                        "platform": platform, "vehicle": vehicle if vehicle and frappe.db.exists(VEH_DT, vehicle) else None,
+                        "imei": str(imei or ""), "ok": 1 if ok else 0, "result": str(result or "")[:1000],
+                        "source": SCRIPT_NAME}).insert(ignore_permissions=True)
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------- events for code built on the core
 def notify_core(event, platform, vehicle, imei, detail):
     """Tell app_apis.core.events handlers (registered by other apps in hooks.py) what this script just
@@ -2754,8 +2780,8 @@ def notify_core(event, platform, vehicle, imei, detail):
 
 # ---------------------------------------------------------------- run
 if not allowed and action not in ("delete_plan", "delete", "sim_check"):
-    # every signed-in user may run every action; Guest is refused (delete needs the typed word)
-    out["error"] = "Sign in first."
+    # Guest, portal logins and users without the action's group are refused (delete also needs the typed word)
+    out["error"] = DENIED
 
 elif action == "edit_plan":
     # Read-only: the vehicle as Pilot has it now, for the Edit on Pilot dialog. Also reads the
@@ -2844,6 +2870,8 @@ elif action == "edit_save":
         else:
             erow = edit_on_pilot(veh, target, found["row"], edits_for(target))
             erow["edited"] = "; ".join(erow.get("changes") or [])
+            log_action("edit on pilot", target, vehicle_name, imei, erow.get("ok"),
+                       (erow["edited"] + " -> " if erow["edited"] else "") + str(erow.get("result") or ""))
             out["results"].append(erow)
             out["ok"] = bool(erow.get("ok"))
             if erow.get("changes") or erow.get("notes"):
@@ -2871,8 +2899,8 @@ elif action in ("delete_plan", "delete"):
     # user -- the typed DELETE is the guard. (IM itself still needs a System Manager login,
     # because its calls go through app_apis.core.http; delete_find says so.)
     veh = vehicle_doc(vehicle_name) if vehicle_name else None
-    if str(frappe.session.user) == "Guest":
-        out["error"] = "Sign in first."
+    if not allowed:
+        out["error"] = DENIED
     elif not veh:
         out["error"] = "No such Customer Vehicle: " + vehicle_name
     elif target not in DELETE_TARGET_KEYS:
@@ -2887,6 +2915,9 @@ elif action in ("delete_plan", "delete"):
             drow = delete_find(veh, target)
         else:
             drow = delete_one(veh, target, str(args.get("pin") or ""))
+            if target != "wasl":   # a WASL-only delete is logged by app_apis.wasl.wasl_delete itself
+                log_action("delete", target, vehicle_name, out["imei"], drow.get("ok"),
+                           str(drow.get("verdict") or "") + " -- " + str(drow.get("result") or ""))
             out["device_status_changed"] = False
             if drow.get("verdict") == "deleted" and (target in PILOT_TARGETS or is_im(target)):
                 try:
@@ -2922,8 +2953,8 @@ elif action == "sim_check":
     # Read-only: what Lebara says about this vehicle's SIM. Open to every signed-in user (the
     # lebara script itself is limited to System Managers and says so if it refuses).
     veh = vehicle_doc(vehicle_name) if vehicle_name else None
-    if str(frappe.session.user) == "Guest":
-        out["error"] = "Sign in first."
+    if not allowed:
+        out["error"] = DENIED
     elif not veh:
         out["error"] = "No such Customer Vehicle: " + vehicle_name
     else:
@@ -3001,6 +3032,9 @@ else:
                     row = verify_one(veh, key)
                 else:
                     row = send_one(veh, key)
+                    if not row.get("blocked"):   # a target outside LIVE_TARGETS sent nothing
+                        log_action("upload", key, vehicle_name, str(veh.get("device_serial") or ""), row.get("ok"),
+                                   str(row.get("verdict") or "") + " -- " + str(row.get("result") or ""))
                 out["results"].append(row)
                 if (action == "upload" and row.get("verdict") == "uploaded" and not row.get("blocked")
                         and "already registered" not in str(row.get("result") or "")):

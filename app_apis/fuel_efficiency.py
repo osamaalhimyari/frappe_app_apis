@@ -98,7 +98,8 @@ import frappe
 from frappe import _
 from frappe.rate_limiter import rate_limit
 from frappe.utils import cint, flt, get_system_timezone, get_url, now_datetime
-from app_apis.access import require_login
+from app_apis import access
+from app_apis.access import is_staff, require
 
 IMPORT_DT = "App Apis Fuel Import"
 FILL_DT = "App Apis Fuel Fill"
@@ -1649,7 +1650,7 @@ def upload_files(files, fuel_import: str = "", lang: str = "", normal_limit=None
 	replaces the one of its kind -- and the report is analysed again; with no
 	files it only takes the new limits. `normal_limit` and `theft_limit` are
 	the report's own L/100 km limits for heavy trucks."""
-	require_login()
+	require(access.REPORTS)
 	_use_lang(lang)
 	limits = _limits_from(normal_limit, theft_limit)
 	urls = frappe.parse_json(files) if isinstance(files, str) else files
@@ -1726,7 +1727,7 @@ def upload_report(file_url: str) -> dict:
 
 @frappe.whitelist()
 def reanalyse(fuel_import: str) -> dict:
-	require_login()
+	require(access.REPORTS)
 	frappe.db.set_value(IMPORT_DT, fuel_import, {"status": "Queued", "progress": "Queued", "error": ""})
 	_enqueue(fuel_import)
 	return {"queued": True}
@@ -1736,7 +1737,7 @@ def reanalyse(fuel_import: str) -> dict:
 def set_limits(fuel_import: str, normal_limit=None, theft_limit=None) -> dict:
 	"""The report's own limits for heavy trucks, changed on their own: saved,
 	and the report analysed again on the files it already has."""
-	require_login()
+	require(access.REPORTS)
 	limits = _limits_from(normal_limit, theft_limit)
 	if not limits:
 		frappe.throw(_("The theft limit must be above the normal limit."), title=_(TITLE))
@@ -1749,7 +1750,7 @@ def set_limits(fuel_import: str, normal_limit=None, theft_limit=None) -> dict:
 def cancel_analysis(fuel_import: str) -> dict:
 	"""Stop a queued or running analysis. A running one stops at its next
 	truck; the results of the last finished run stay as they were."""
-	require_login()
+	require(access.REPORTS)
 	_set_run(fuel_import, CANCELLED)
 	if frappe.db.get_value(IMPORT_DT, fuel_import, "status") in ("Queued", "Running"):
 		finished_before = frappe.db.get_value(IMPORT_DT, fuel_import, "analysed_on")
@@ -1802,7 +1803,7 @@ def get_summary(fuel_import: str, lang: str = "", by: str = "") -> dict:
 		"classes": distinct("vehicle_class"),
 		"limits": [{"class": k, "normal": v["normal"], "theft": v["theft"], "idle": v["idle"], "tank": v["tank"]}
 		           for k, v in ((k, _cls({"vehicle_class": k, "_limits": _own_limits(doc)})) for k in CLASSES)],
-		"can_run": frappe.session.user != "Guest",
+		"can_run": is_staff(),
 		"shared": bool(doc.get("share_key")),
 	}
 	if by in VIEW_SOURCES:
@@ -1844,7 +1845,7 @@ def _read_check(fuel_import: str | None = None) -> None:
 	shared = frappe.flags.get("fuel_shared")
 	if shared and fuel_import in (None, shared):
 		return
-	require_login()
+	require(access.VIEW)
 
 
 def _shared_import(key) -> str:
@@ -1862,7 +1863,7 @@ def _shared_import(key) -> str:
 def share_link(fuel_import: str, stop: int = 0) -> dict:
 	"""The report's link for someone without an account -- made on first use,
 	the same link after that -- or, with `stop`, no link at all."""
-	require_login()
+	require(access.REPORTS)
 	if cint(stop):
 		frappe.db.set_value(IMPORT_DT, fuel_import, "share_key", "")
 		return {"url": ""}

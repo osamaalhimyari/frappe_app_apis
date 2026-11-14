@@ -68,7 +68,8 @@ from datetime import datetime, timedelta
 import frappe
 from frappe import _
 from frappe.utils import cint, now_datetime, flt
-from app_apis.access import require_login
+from app_apis import access
+from app_apis.access import require
 
 SNAPSHOT_DT = "app_apis_fleet_audit"
 # SIM data comes from the "Lebara SIM" list, which the "Lebara SIM Sync" Server
@@ -1048,7 +1049,7 @@ def start_refresh(include_im: int = 1, include_pilot: int = 1, pilot_source: str
 	time out in front of somebody. `timeout` is set explicitly because the
 	`long` queue defaults to 25 minutes on this bench.
 	"""
-	require_login()
+	require(access.REPORTS)
 
 	if pilot_source not in ("admin", "accounts", "both"):
 		frappe.throw(_("Unknown Pilot source: {0}").format(pilot_source), title=_("Fleet Audit"))
@@ -1072,7 +1073,7 @@ def refresh_sim_data() -> dict:
 	"""Re-apply the Lebara SIM list onto the current snapshot -- seconds, no
 	platform calls. The "Refresh SIM Data" button and the hourly Lebara SIM
 	Sync both call it."""
-	require_login()
+	require(access.REPORTS)
 	result = _apply_sim_data()
 	result["synced_at"] = str(frappe.db.get_single_value("app_apis", "lebara_sims_synced_at") or "")
 	return result
@@ -1426,14 +1427,14 @@ def _record_cost_history(when=None) -> dict:
 def record_cost_history() -> dict:
 	"""Record the current month by hand -- for a first backfill, or after a
 	tariff was corrected and the month should be restated."""
-	require_login()
+	require(access.REPORTS)
 	return _record_cost_history()
 
 
 @frappe.whitelist()
 def get_summary() -> dict:
 	"""The last run's summary, or an empty shell before the first run."""
-	require_login()
+	require(access.VIEW)
 
 	raw = frappe.db.get_default(SUMMARY_KEY)
 	summary = {}
@@ -1585,7 +1586,7 @@ def get_rows(verdict: str = "", erp_status: str = "", on_pilot: str = "", on_im:
 
 	Every value is bound as a parameter; no filter text reaches the SQL text.
 	"""
-	require_login()
+	require(access.VIEW)
 
 	where, vals = [], []
 
@@ -1721,7 +1722,7 @@ def get_row_emails() -> dict:
 	Customer (see VEHICLE_EMAIL_FIELDS), which is why this needs both joins
 	rather than one.
 	"""
-	require_login()
+	require(access.VIEW)
 
 	rows = frappe.db.sql(
 		"""
@@ -1763,7 +1764,7 @@ def get_filter_options() -> dict:
 	Read from the data rather than hard-coded: a verdict or an ERP status that
 	never occurs should not sit in a dropdown offering zero results.
 	"""
-	require_login()
+	require(access.VIEW)
 
 	def distinct(col):
 		return [
@@ -1786,7 +1787,7 @@ def get_filter_options() -> dict:
 def get_progress() -> dict:
 	"""Whether a run is in flight -- for a page opened mid-run, which gets no
 	realtime events it was not around to hear."""
-	require_login()
+	require(access.VIEW)
 
 	from frappe.utils.background_jobs import get_jobs
 

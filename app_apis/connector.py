@@ -49,7 +49,8 @@ import time
 
 import frappe
 from frappe import _
-from app_apis.access import require_login
+from app_apis import access
+from app_apis.access import require
 
 # Pilot splits one customer across several accounts by fleet type, so the
 # address entitled to see a given IMEI may be in any of these fields. Listing a
@@ -1051,7 +1052,7 @@ def get_vehicle_live(imei: str, customer: str | None = None, node: str | None = 
 	naming every account tried and why each was rejected -- same contract as
 	`get_snapshot`.
 	"""
-	require_login()
+	require(access.VIEW)
 
 	imei = str(imei or "").strip()
 	if not imei:
@@ -1214,7 +1215,7 @@ def get_vehicle_live_with_credentials(imei: str = "", email: str = "", password:
 	optional override) and is never written to the database, a log, or the
 	settings doctype's shared password fields.
 	"""
-	require_login()
+	require(access.VIEW)
 
 	imei = str(imei or "").strip()
 	email = str(email or "").strip()

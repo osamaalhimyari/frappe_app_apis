@@ -50,7 +50,10 @@ args = frappe.form_dict
 action = str(args.get("action") or "list").strip().lower()
 out = {"ok": False, "action": action}
 
-allowed = str(frappe.session.user) != "Guest"
+# staff logins only (Guest and portal logins are refused); block / unblock also need the group
+# "Delete and block vehicles" open to the user in app_apis settings > Access.
+is_staff = str(frappe.session.user) == "Administrator" or frappe.db.get_value("User", str(frappe.session.user), "user_type") == "System User"
+allowed = bool(is_staff) and bool(frappe.call("app_apis.access.can", group="Delete and block vehicles"))
 
 # ---------------------------------------------------------------- settings
 raw = {}
@@ -262,7 +265,8 @@ elif action in ("block", "unblock"):
     vehicle = past_cutoff(imei) if imei else None
 
     if not allowed:
-        out["error"] = "Only System Manager or Technical can do this."
+        out["error"] = ("You do not have access to: Delete and block vehicles. Ask an admin (app_apis settings > Access)."
+                        if is_staff else "Staff accounts only.")
     elif not imei:
         out["error"] = "No device given."
     elif not vehicle:
@@ -299,6 +303,13 @@ elif action in ("block", "unblock"):
                 out["result"] = "failed: " + str(e)[:120]
 
             # every real change leaves a trail
+            try:
+                frappe.get_doc({"doctype": "App Apis Action Log", "user": str(frappe.session.user), "action": action,
+                                "platform": "pilot_wsl", "imei": imei, "ok": 1 if out.get("ok") else 0,
+                                "result": (str(vehicle.get("license_plate")) + " -- " + str(out.get("result")))[:1000],
+                                "source": SCRIPT_NAME}).insert(ignore_permissions=True)
+            except Exception:
+                pass
             frappe.get_doc({
                 "doctype": "Comment",
                 "comment_type": "Comment",

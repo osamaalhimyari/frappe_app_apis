@@ -216,9 +216,11 @@ class TestApiFrontDoor(unittest.TestCase):
 
 		self.api = Raw()
 		self.api.frappe, self.api.platforms, self.api.events = api.frappe, api.platforms, api.events
-		# every endpoint only asks for a signed-in user (app_apis.access.require_login)
-		self.only = mock.patch.object(api, "require_login")
+		# every endpoint asks for its access group (app_apis.access.require); notify only for a staff login
+		self.only = mock.patch.object(api, "require")
 		self.only.start()
+		self.login = mock.patch.object(api, "require_login")
+		self.login.start()
 		# frappe.throw needs a live frappe.local (message log); a bare unit test has none
 		self.throw = mock.patch.object(api.frappe, "throw", side_effect=frappe.ValidationError)
 		self.throw.start()
@@ -226,6 +228,7 @@ class TestApiFrontDoor(unittest.TestCase):
 	def tearDown(self):
 		self.throw.stop()
 		self.only.stop()
+		self.login.stop()
 
 	def test_create_is_a_dry_run_unless_told_otherwise(self):
 		with mock.patch.object(self.api.platforms, "create", return_value={}) as create:
@@ -248,16 +251,17 @@ class TestApiFrontDoor(unittest.TestCase):
 				self.api.wasl_delete("V-1", confirm="")
 			wd.assert_not_called()
 
-	def test_sign_in_is_checked_before_anything_runs(self):
+	def test_access_is_checked_before_anything_runs(self):
+		from app_apis import access
 		from app_apis.core import api
 
 		self.only.stop()
-		with mock.patch.object(api, "require_login", side_effect=frappe.PermissionError) as only, \
+		with mock.patch.object(api, "require", side_effect=frappe.PermissionError) as only, \
 				mock.patch.object(self.api.platforms, "delete") as delete:
 			with self.assertRaises(frappe.PermissionError):
 				self.api.delete("im", "V-1", confirm="DELETE")
 			delete.assert_not_called()
-			only.assert_called_with()
+			only.assert_called_with(access.DELETE)
 		self.only.start()
 
 	def test_notify_accepts_only_after_events_and_cannot_overwrite_the_event(self):

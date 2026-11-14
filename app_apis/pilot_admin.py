@@ -97,7 +97,8 @@ import time
 
 import frappe
 from frappe import _
-from app_apis.access import require_login
+from app_apis import access
+from app_apis.access import require, require_login
 
 API = "/api/v3"
 
@@ -717,7 +718,7 @@ def test_connection(account: int = 1) -> dict:
 	cheapest call that only Basic Auth to the admin host can answer, which
 	makes it the actual test of what this button claims to test.
 	"""
-	require_login()
+	require(access.ADMIN)
 
 	settings = _settings(account)
 	_require_configured(settings)
@@ -751,7 +752,7 @@ def test_connection(account: int = 1) -> dict:
 @frappe.whitelist()
 def get_accounts() -> dict:
 	"""`GET /accounts` -- every account under this partner."""
-	require_login()
+	require(access.VIEW)
 
 	settings = _settings()
 	_require_configured(settings)
@@ -768,7 +769,7 @@ def get_accounts() -> dict:
 @frappe.whitelist()
 def get_account_users(account_id) -> dict:
 	"""`GET /accounts/users` -- the users inside one account."""
-	require_login()
+	require(access.VIEW)
 
 	account_id = frappe.utils.cint(account_id)
 	if not account_id:
@@ -793,7 +794,7 @@ def get_account_users(account_id) -> dict:
 @frappe.whitelist()
 def get_vehicles() -> dict:
 	"""`GET /vehicles` -- every vehicle the admin account can see."""
-	require_login()
+	require(access.VIEW)
 
 	settings = _settings()
 	_require_configured(settings)
@@ -816,7 +817,7 @@ def find_imei_by_plate(plate: str) -> dict:
 	miss rather than thrown, because "no vehicle with that plate" is a normal
 	answer to a lookup, not a broken connection.
 	"""
-	require_login()
+	require(access.VIEW)
 
 	plate = str(plate or "").strip()
 	if not plate:
@@ -842,6 +843,26 @@ def find_imei_by_plate(plate: str) -> dict:
 	}
 
 
+def _panel_status(imei: str, account: int, settings: dict) -> dict:
+	"""get_vehicle_status through the panel search (core.pilot_panel.find), for a server without v3."""
+	from app_apis.core import pilot_panel
+
+	got = pilot_panel.find(imei, account)
+	if got["state"] == "unknown":
+		frappe.throw(_("Pilot Admin could not read the status of {0}: {1}").format(imei, got["detail"]),
+		             title=_("Pilot Admin"))
+	return {
+		"imei": imei,
+		"found": got["state"] == "yes",
+		"device": got["row"] or None,
+		"count": 1 if got["state"] == "yes" else 0,
+		"account_no": account,
+		"account_label": settings.get("label"),
+		"source": "panel search",
+		"detail": got["detail"],
+	}
+
+
 @frappe.whitelist()
 def get_vehicle_status(imei: str, account: int = 0) -> dict:
 	"""`GET /vehicles/status` -- current status, from the ADMIN account(s).
@@ -858,7 +879,7 @@ def get_vehicle_status(imei: str, account: int = 0) -> dict:
 	wins -- the caller (a click on a Fleet Audit row) has no way to know in
 	advance which of the two estates a device lives on.
 	"""
-	require_login()
+	require(access.VIEW)
 
 	imei = str(imei or "").strip()
 	if not imei:
@@ -873,8 +894,17 @@ def get_vehicle_status(imei: str, account: int = 0) -> dict:
 		if not _is_usable(settings):
 			continue
 		result = request("/vehicles/status", params={"imei": imei}, settings=settings)
-		last_result = (acc, settings, result)
 		tried.append(settings.get("label"))
+		if (result.get("_pilot_admin") or {}).get("http_status") == 404:
+			# This Pilot server does not serve the v3 API at all (nginx 404). Ask the panel's own search
+			# instead -- the single-device lookup the vehicle form's Check / Edit / Delete already use.
+			found = _panel_status(imei, acc, settings)
+			if found.get("found"):
+				return dict(found, tried=tried)
+			last_result = (acc, settings, {"code": 0, "data": [], "_pilot_admin": result.get("_pilot_admin"),
+			                               "_panel": found})
+			continue
+		last_result = (acc, settings, result)
 
 		if _ok(result):
 			devices = result.get("data") or []
@@ -899,6 +929,8 @@ def get_vehicle_status(imei: str, account: int = 0) -> dict:
 	acc, settings, result = last_result
 	if not _ok(result):
 		_throw_if_failed(result, _("read the status of {0}").format(imei))
+	if result.get("_panel"):
+		return dict(result["_panel"], tried=tried)
 
 	return {
 		"imei": imei,
@@ -912,7 +944,7 @@ def get_vehicle_status(imei: str, account: int = 0) -> dict:
 
 @frappe.whitelist()
 def clear_cache_from_desk(account: int = 1) -> dict:
-	require_login()
+	require(access.ADMIN)
 	# clear_cache() sweeps every key under CACHE_PREFIX, which covers every
 	# connection's token -- there is no per-account cache worth keeping separate.
 	clear_cache()
@@ -1275,7 +1307,7 @@ def get_vehicle_live_admin(imei: str) -> dict:
 	Raises (via frappe.throw) when no configured account's estate contains
 	this IMEI at all.
 	"""
-	require_login()
+	require(access.VIEW)
 
 	imei = str(imei or "").strip()
 	if not imei:
@@ -1311,7 +1343,7 @@ def get_vehicle_live_admin(imei: str) -> dict:
 @frappe.whitelist()
 def test_admin_api(account: int = 1) -> dict:
 	"""Prove the Administrator API works, for the settings-form button."""
-	require_login()
+	require(access.ADMIN)
 
 	settings = _settings(account)
 	_require_configured(settings)

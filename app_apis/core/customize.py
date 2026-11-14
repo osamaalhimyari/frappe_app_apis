@@ -16,6 +16,8 @@ from frappe import _
 from frappe.custom.doctype.customize_form.customize_form import CustomizeForm as FrappeCustomizeForm
 from frappe.model import core_doctypes_list
 
+from app_apis.access import require_login
+
 CUSTOMIZABLE_SINGLES = ("app_apis",)
 
 
@@ -39,6 +41,7 @@ class CustomizeForm(FrappeCustomizeForm):
 def doctype_query(doctype, txt, searchfield, start, page_len, filters):
 	"""Customize Form's "Enter Form Type" list: frappe's usual choices plus
 	CUSTOMIZABLE_SINGLES."""
+	require_login()
 	dt = frappe.qb.DocType("DocType")
 	allowed = (dt.issingle == 0) | (dt.name.isin(CUSTOMIZABLE_SINGLES))
 	domains = frappe.get_active_domains()

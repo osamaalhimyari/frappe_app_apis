@@ -40,7 +40,8 @@
 #   replies_after    msisdn, after_id        device replies newer than a sent SMS Id
 #   list_sms         since_id (opt, 0)       incremental SMS sync
 #
-# Every signed-in user may call it; who sees the Lebara screens is set on the site, not here.
+# Every staff login may call it (Guest and portal logins are refused); who sees the Lebara screens is
+# set on the site, not here.
 # =============================================================================
 
 SETTINGS = "app_apis"
@@ -62,7 +63,31 @@ args = frappe.form_dict
 
 
 def is_manager():
-    return str(frappe.session.user) != "Guest"
+    # staff logins only: Guest and portal (Website User) logins are refused
+    return str(frappe.session.user) == "Administrator" or frappe.db.get_value("User", str(frappe.session.user), "user_type") == "System User"
+
+
+# The app_apis settings > Access group each action needs (a group with no rows there is open to all staff).
+CHANGES = ("suspend", "resume", "activate", "send_sms", "request_otp", "submit_otp", "logout")
+SYNCS = ("sync_sims", "sync_now")
+
+
+def access_group(act):
+    if act in CHANGES:
+        return "Lebara SIM changes"
+    if act in SYNCS:
+        return "Run reports and syncs"
+    return "View platform data"
+
+
+def log_action(act, sim, ok, result):
+    """One App Apis Action Log row for a change made on Lebara. Best effort: never breaks the action."""
+    try:
+        frappe.get_doc({"doctype": "App Apis Action Log", "user": str(frappe.session.user), "action": act,
+                        "platform": "lebara", "imei": str(sim or ""), "ok": 1 if ok else 0,
+                        "result": str(result or "")[:1000], "source": "Lebara API"}).insert(ignore_permissions=True)
+    except Exception:
+        pass
 
 
 def setting(field):
@@ -167,14 +192,29 @@ def service(path, body):
     return data
 
 
+def ajax_post(sub_id, name):
+    # SimDetail is an MVC POST and needs the CSRF-TOKEN header like the services do;
+    # without it Lebara answers HTTP 500 with an HTML error page.
+    return frappe.call(HTTP, jar=JAR, url="%s/SimDetail/%s?id=%s" % (base(), name, cint(sub_id)),
+                       method="POST", headers={"X-Requested-With": "XMLHttpRequest"},
+                       csrf_cookie="CSRF-TOKEN")
+
+
 def ajax(sub_id, name):
     if name not in ["AjaxBssStatus", "AjaxLiveProfile", "AjaxCharts", "AjaxLocation"]:
         frappe.throw("Unknown SIM detail call: %s" % name)
-    res = frappe.call(HTTP, jar=JAR, url="%s/SimDetail/%s?id=%s" % (base(), name, cint(sub_id)),
-                      method="POST", headers={"X-Requested-With": "XMLHttpRequest"})
+    res = ajax_post(sub_id, name)
+    if res.get("status") == 500 and not looks_logged_out(res):
+        refresh_csrf()
+        res = ajax_post(sub_id, name)
     if looks_logged_out(res):
         expired(res)
-    return res.get("json") or {}
+    data = res.get("json")
+    if data is None:
+        frappe.log_error(title="Lebara %s %s returned HTTP %s" % (name, cint(sub_id), res.get("status")),
+                         message=str(res.get("text") or res.get("error") or "")[:2000])
+        return {}
+    return data
 
 
 def login_post(body, otp):
@@ -361,6 +401,8 @@ def sim_action(action):
     if not res.get("ok"):
         frappe.log_error(title="Lebara %s %s failed" % (action, sub_id),
                          message="By %s: %s" % (frappe.session.user, "; ".join(messages) or res.get("error")))
+    log_action(action, "subscriber " + str(sub_id), res.get("ok"),
+               "; ".join(messages) or res.get("error") or ("HTTP " + str(res.get("status"))))
     return {"ok": res.get("ok"), "message": "; ".join(messages) or res.get("error") or "",
             "http": res.get("status")}
 
@@ -394,6 +436,7 @@ def send_sms():
     before_id = cint(before[0].get("Id")) if before else 0
     service("/SimDetail/SendSMS", {"Id": sub_id, "Source_MSISDN": str(args.get("sender") or "0"),
                                    "Destination_MSISDN": msisdn, "Message": text})
+    log_action("send sms", msisdn, True, text)
     return {"ok": True, "before_id": before_id, "message": text}
 
 
@@ -438,9 +481,12 @@ def list_sms():
 
 # ---------------------------------------------------------------- dispatch
 if not is_manager():
-    frappe.throw("Sign in to use the Lebara integration.", frappe.PermissionError)
+    frappe.throw("The Lebara integration is for staff accounts only.", frappe.PermissionError)
 
 action = str(args.get("action") or "status")
+if not frappe.call("app_apis.access.can", group=access_group(action)):
+    frappe.throw("You do not have access to: " + access_group(action) + ". Ask an admin (app_apis settings > Access).",
+                 frappe.PermissionError)
 if action != "status" and not cint(setting("lebara_enabled")):
     frappe.throw("Lebara is disabled in App Apis > Lebara.")
 

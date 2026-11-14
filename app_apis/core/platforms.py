@@ -27,6 +27,7 @@ Nothing raises for a platform-side failure: each function returns a dict with `v
 
 import frappe
 
+from app_apis import audit
 from app_apis.core import events, im, pilot_panel
 
 
@@ -224,6 +225,7 @@ def create(platform: str, vehicle: str, dry_run: bool = False, source: str = "co
 			                branch=payload["branch"], model=payload["model"], sim_number=payload["sim_number"],
 			                reseller=payload["reseller"])
 	out = dict(base, **res)
+	audit.record("create", platform, vehicle, payload["imei"], out.get("ok"), out.get("result"), source)
 	events.emit("after_create", platform=platform, vehicle=vehicle, imei=payload["imei"], source=source, result=out)
 	return out
 
@@ -353,6 +355,7 @@ def delete(platform: str, vehicle: str, pin: str = "", update_status: bool = Tru
 		except Exception as e:
 			out["status_note"] = "deleted on the platform, but the vehicle's Device Statues could not be updated: %s" % str(e)[:160]
 			out["result"] = "%s | %s" % (out["result"], out["status_note"])
+	audit.record("delete", platform, vehicle, imei, out.get("ok"), out.get("result"), source)
 	events.emit("after_delete", platform=platform, vehicle=vehicle, imei=imei, source=source, result=out)
 	return out
 
@@ -367,6 +370,7 @@ def block(platform: str, imei: str, blocked: bool = True, agent_id: str = "", no
 		found = pilot_panel.find(imei, sp["account"])
 		agent_id = found.get("agent_id", "")
 	res = pilot_panel.set_block(imei, blocked, sp["account"], agent_id, node)
+	audit.record("block" if blocked else "unblock", platform, "", _s(imei), (res or {}).get("ok"), (res or {}).get("result"), source)
 	events.emit("after_block", platform=platform, imei=_s(imei), source=source, blocked=bool(blocked), result=res)
 	return dict(res, platform=platform, agent_id=agent_id)
 
